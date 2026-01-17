@@ -13,8 +13,8 @@ export interface SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>
 }
 
 export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, SlashCommandConfig> {
-    public builder!: AnySlashCommandBuilder;
-    private readonly routes: Map<string, (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any> =
+    builder!: AnySlashCommandBuilder;
+    readonly routes: Map<string, (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any> =
         new Map();
 
     constructor(config: SlashCommandConfig) {

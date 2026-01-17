@@ -22,7 +22,7 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
     readonly commandType: T;
 
     /** Local command configuration and hooks */
-    protected options: O;
+    readonly options: O;
 
     /** Internal state for rate limiting across different scopes */
     private readonly rlStores = {

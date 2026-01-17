@@ -11,7 +11,7 @@ export interface ContextCommandConfig extends BaseCommandConfig<CommandType.Cont
 }
 
 export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Context, ContextCommandConfig> {
-    public builder!: ContextMenuCommandBuilder;
+    builder!: ContextMenuCommandBuilder;
 
     constructor(config: ContextCommandConfig) {
         super(CommandType.Context, config);
