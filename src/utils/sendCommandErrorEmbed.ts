@@ -53,7 +53,7 @@ export async function sendCommandErrorEmbed(
         new BetterEmbed({
             color: "Red",
             title: "Something went wrong",
-            description: "If you keep encountering this error, please report it"
+            description: "If you keep encountering this error, please report it."
         });
 
     // Send the embed
