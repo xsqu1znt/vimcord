@@ -1,0 +1,59 @@
+{
+    "name": "vimcord",
+    "version": "1.0.21",
+    "description": "A powerful Discord.js wrapper.",
+    "license": "MIT",
+    "author": "xsqu1znt",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "packageManager": "pnpm@10.27.0",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsup",
+        "check": "tsc --noEmit",
+        "format": "prettier --write \"./**/*.{ts,json}\""
+    },
+    "dependencies": {
+        "axios": "^1.13.2",
+        "chalk": "^4.1.2",
+        "discord.js": "^14.25.1",
+        "dotenv": "^16.6.1",
+        "lodash": "^4.17.21",
+        "node-cron": "^4.2.1",
+        "qznt": "^1.0.34",
+        "type-fest": "^4.41.0"
+    },
+    "devDependencies": {
+        "@types/lodash": "^4.17.21",
+        "@types/node": "^22.19.2",
+        "mongoose": "^8.20.2",
+        "prettier": "^3.7.4",
+        "tsup": "^8.5.1",
+        "typescript": "^5.9.3"
+    },
+    "peerDependencies": {
+        "discord.js": "^14.0.0",
+        "mongoose": "^8.0.0"
+    },
+    "peerDependenciesMeta": {
+        "discord.js": {
+            "optional": false
+        },
+        "mongoose": {
+            "optional": true
+        }
+    }
+}
