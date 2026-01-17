@@ -23,7 +23,7 @@ abstract class VimcordAppCommandManager<T extends CommandType.Slash | CommandTyp
     }
 
     /**
-     * Filters and returns commands based on deployment options
+     * Filters and returns commands based on deployment options alphabetically
      */
     getAll(options?: { names?: string[]; fuzzyNames?: string[]; globalOnly?: boolean; ignoreDeploymentOptions?: boolean }) {
         const matchedCommands = new Map<string, VimcordCommandBuilderByType<T>>();
@@ -58,7 +58,42 @@ abstract class VimcordAppCommandManager<T extends CommandType.Slash | CommandTyp
             matchedCommands.set(name, cmd);
         }
 
-        return matchedCommands;
+        return Array.from(matchedCommands.values()).sort((a, b) => a.builder.name.localeCompare(b.builder.name));
+    }
+
+    /**
+     * Groups commands by category alphabetically
+     */
+    sortByCategory() {
+        const categories = new Map<
+            string,
+            { name: string; emoji: string | undefined; commands: VimcordCommandBuilderByType<T>[] }
+        >();
+
+        for (const cmd of this.commands.values()) {
+            const metadata = cmd.options.metadata;
+            if (!metadata?.category) continue;
+
+            let entry = categories.get(metadata.category);
+
+            if (!entry) {
+                entry = {
+                    name: metadata.category,
+                    emoji: metadata.categoryEmoji,
+                    commands: []
+                };
+                categories.set(metadata.category, entry);
+            }
+
+            entry.commands.push(cmd);
+        }
+
+        return Array.from(categories.values())
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(cat => {
+                cat.commands.sort((a, b) => a.builder.name.localeCompare(b.builder.name));
+                return cat;
+            });
     }
 
     async registerGlobal(options?: { commands?: string[]; fuzzyCommands?: string[] }) {
@@ -212,6 +247,41 @@ export class VimcordPrefixCommandManager {
                 config.allowCaseInsensitiveCommandNames ? a.toLowerCase() === search : a === search
             );
         });
+    }
+
+    /**
+     * Groups commands by category alphabetically
+     */
+    sortByCategory() {
+        const categories = new Map<
+            string,
+            { name: string; emoji: string | undefined; commands: VimcordCommandBuilderByType<CommandType.Prefix>[] }
+        >();
+
+        for (const cmd of this.commands.values()) {
+            const metadata = cmd.options.metadata;
+            if (!metadata?.category) continue;
+
+            let entry = categories.get(metadata.category);
+
+            if (!entry) {
+                entry = {
+                    name: metadata.category,
+                    emoji: metadata.categoryEmoji,
+                    commands: []
+                };
+                categories.set(metadata.category, entry);
+            }
+
+            entry.commands.push(cmd);
+        }
+
+        return Array.from(categories.values())
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(cat => {
+                cat.commands.sort((a, b) => a.options.name.localeCompare(b.options.name));
+                return cat;
+            });
     }
 
     async importFrom(dir: string | string[], replaceAll = false) {

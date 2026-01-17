@@ -43,6 +43,10 @@ export interface CommandPermissions {
 export interface CommandMetadata {
     /** Command category for categorizing commands */
     category?: string;
+    /** Command category emoji
+     * @remarks I recommend mapping your own category emojis separately instead of using this
+     */
+    categoryEmoji?: string;
     /** Command tags for categorizing commands */
     tags?: string[];
     /** Command usage examples */
