@@ -33,7 +33,7 @@
         "dotenv": "^16.6.1",
         "lodash": "^4.17.21",
         "node-cron": "^4.2.1",
-        "qznt": "^1.0.34",
+        "qznt": "^1.0.35",
         "type-fest": "^4.41.0"
     },
     "devDependencies": {
