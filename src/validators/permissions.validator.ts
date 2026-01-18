@@ -80,20 +80,8 @@ export function validateCommandPermissions(
     }
 
     if (__existsAndTrue(permissions.botStaffOnly)) {
-        if (!client.config.staff.superUsers.includes(user.id)) {
-            return { validated: false, failReason: MissingPermissionReason.NotBotStaff };
-        }
-
-        if (inGuild) {
-            for (const [k, role] of user.roles.cache) {
-                if (!user.roles.cache.has(role.id)) {
-                    missingRoles.push(role.id);
-                }
-            }
-
-            if (missingRoles.length) {
-                return { validated: false, failReason: MissingPermissionReason.NotBotStaff, missingRoles };
-            }
+        if (client.config.staff.ownerId === user.id || client.config.staff.superUsers.includes(user.id)) {
+            return { validated: true };
         }
 
         if (command instanceof BaseInteraction && command.isCommand()) {
@@ -107,23 +95,39 @@ export function validateCommandPermissions(
             }
 
             if (
-                !client.config.staff.bypassers.some(
+                client.config.staff.bypassers.some(
                     bypass =>
                         bypass.commandName.toLowerCase() === commandName.toLowerCase() && bypass.userIds.includes(user.id)
                 )
             ) {
-                return { validated: false, failReason: MissingPermissionReason.NotBotStaff };
+                return { validated: true };
             }
         }
 
         if (
             typeof command === "string" &&
-            !client.config.staff.bypassers.some(
+            client.config.staff.bypassers.some(
                 bypass => bypass.commandName.toLowerCase() === command.toLowerCase() && bypass.userIds.includes(user.id)
             )
         ) {
-            return { validated: false, failReason: MissingPermissionReason.NotBotStaff };
+            return { validated: true };
         }
+
+        if (inGuild) {
+            for (const role of user.roles.cache.values()) {
+                if (!user.roles.cache.has(role.id)) {
+                    missingRoles.push(role.id);
+                }
+            }
+
+            if (missingRoles.length) {
+                return { validated: false, failReason: MissingPermissionReason.NotBotStaff, missingRoles };
+            } else {
+                return { validated: true };
+            }
+        }
+
+        return { validated: false, failReason: MissingPermissionReason.NotBotStaff };
     }
 
     return { validated: true };
