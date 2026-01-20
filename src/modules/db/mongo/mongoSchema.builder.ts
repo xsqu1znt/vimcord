@@ -271,7 +271,7 @@ export class MongoSchemaBuilder<Definition extends object> {
     }
 
     async fetchAll<Options extends QueryOptions<Definition>>(
-        filter: RootFilterQuery<Definition>,
+        filter: RootFilterQuery<Definition> = {},
         projection?: ProjectionType<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options>[]> {
