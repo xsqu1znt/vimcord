@@ -129,14 +129,12 @@ CLI.addCommand("register", "Register app commands (slash & context) globally, or
     switch (mode) {
         case "guild":
             CLI.logger.info("Registering guild commands...");
-            await client.commands.slash.registerGuild({ guilds: guildIds });
-            await client.commands.context.registerGuild({ guilds: guildIds });
+            await client.commands.registerGuild({ guilds: guildIds });
             break;
 
         case "global":
             CLI.logger.info("Registering global commands...");
-            await client.commands.slash.registerGlobal();
-            await client.commands.context.registerGlobal();
+            await client.commands.registerGlobal();
             break;
     }
 });
@@ -161,16 +159,12 @@ CLI.addCommand("unregister", "Unregister app commands globally, or per guild", a
     switch (mode) {
         case "guild":
             CLI.logger.info("Unregistering guild commands...");
-            await client.commands.slash.unregisterGuild({ guilds: guildIds });
-            await client.commands.context.unregisterGuild({ guilds: guildIds });
+            await client.commands.unregisterGuild({ guilds: guildIds });
             break;
 
         case "global":
             CLI.logger.info("Unregistering global commands...");
-            // We'll use the managers' unregisterGlobal if you added it,
-            // otherwise these call the REST routes for global deletion.
-            await client.commands.slash.unregisterGlobal();
-            await client.commands.context.unregisterGlobal();
+            await client.commands.unregisterGlobal();
             break;
     }
 });

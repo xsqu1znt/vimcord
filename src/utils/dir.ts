@@ -7,7 +7,7 @@ export function getProcessDir() {
     return path.dirname(mainPath);
 }
 
-export async function importModulesFromDir<T extends any>(dir: string, fnPrefix?: string) {
+export async function importModulesFromDir<T extends any>(dir: string, suffix?: string) {
     const cwd = getProcessDir();
     const MODULE_RELATIVE_PATH = path.join(cwd, dir);
     const MODULE_LOG_PATH = dir;
@@ -16,7 +16,7 @@ export async function importModulesFromDir<T extends any>(dir: string, fnPrefix?
     const files = $.fs
         .readDir(MODULE_RELATIVE_PATH)
         .filter(
-            fn => fn.endsWith(`${fnPrefix ? `.${fnPrefix}` : ""}.js`) || fn.endsWith(`${fnPrefix ? `.${fnPrefix}` : ""}.ts`)
+            fn => fn.endsWith(`${suffix ? `.${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `.${suffix}` : ""}.ts`)
         );
 
     if (!files.length) {

@@ -11,12 +11,12 @@ import { createVimcordSlashCommandConfig, VimcordSlashCommandConfig } from "@con
 import { createVimcordPrefixCommandConfig, VimcordPrefixCommandConfig } from "@configs/prefixCommand.config";
 import { createVimcordContextCommandConfig, VimcordContextCommandConfig } from "@configs/contextCommand.config";
 
-import { VimcordStatusManager } from "./modules/status.manager";
-import { VimcordCommandManager } from "@modules/command.manager";
-import { VimcordEventManager } from "@modules/event.manager";
+import { StatusManager } from "@/modules/status.manager";
+import { CommandManager } from "@modules/command.manager";
+import { EventManager } from "@modules/event.manager";
 import { EventBuilder } from "@builders/event.builder";
 
-import { sendCommandErrorEmbed } from "./utils/sendCommandErrorEmbed";
+import { sendCommandErrorEmbed } from "@utils/sendCommandErrorEmbed";
 import { retryExponentialBackoff } from "@utils/async";
 import { fetchGuild, fetchUser } from "./tools/utils";
 import { BetterEmbed } from "./tools/BetterEmbed";
@@ -103,9 +103,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly features: VimcordFeatures;
     readonly config: VimcordConfig;
 
-    status: VimcordStatusManager;
-    events: VimcordEventManager;
-    commands: VimcordCommandManager;
+    status: StatusManager;
+    events: EventManager;
+    commands: CommandManager;
     database?: VimcordDatabaseManager;
 
     // Configure custom logger
@@ -201,11 +201,11 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         };
 
         // Configure the status manager
-        this.status = new VimcordStatusManager(this);
+        this.status = new StatusManager(this);
         // Configure the event manager
-        this.events = new VimcordEventManager(this);
+        this.events = new EventManager(this);
         // Configure the command manager
-        this.commands = new VimcordCommandManager(this);
+        this.commands = new CommandManager(this);
 
         /* - - - - - { Features } - - - - - */
         if (this.features.useEnv) {
@@ -476,7 +476,7 @@ const defaultPrefixCommandHandler = new EventBuilder({
         if (!trigger) return;
 
         // 4. Resolve the builder
-        const command = client.commands.prefix.resolve(trigger);
+        const command = client.commands.prefix.get(trigger);
         if (!command) return;
 
         // 5. Cleanup content and Run

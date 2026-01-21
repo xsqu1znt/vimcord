@@ -10,7 +10,7 @@ export * from "./configs/prefixCommand.config";
 export * from "./configs/slashCommand.config";
 export * from "./configs/staff.config";
 export * from "./configs/tools.config";
-export * from "./modules/command.manager";
+export * from "@modules/command.manager";
 export * from "./modules/db/mongo/mongo";
 export * from "./modules/db/mongo/mongoSchema.builder";
 export * from "./modules/event.manager";

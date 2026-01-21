@@ -9,7 +9,7 @@ import EventEmitter from "node:events";
 import { $, Loop } from "qznt";
 import { PartialDeep } from "type-fest";
 
-type VimcordStatusManagerEvents = {
+type StatusManagerEvents = {
     changed: [ClientActivity];
     cleared: [];
     rotation: [ClientActivity];
@@ -18,10 +18,10 @@ type VimcordStatusManagerEvents = {
     destroyed: [];
 };
 
-export class VimcordStatusManager {
+export class StatusManager {
     client: Vimcord;
     logger: Logger;
-    emitter: EventEmitter<VimcordStatusManagerEvents> = new EventEmitter();
+    emitter: EventEmitter<StatusManagerEvents> = new EventEmitter();
 
     lastActivity: ClientActivity | null = null;
     lastActivityIndex: number = 0;

@@ -13,6 +13,18 @@ export interface VimcordAppConfig {
     /** Disable the vimcord client banner on startup
      * @default false */
     disableBanner: boolean;
+
+    /** Only auto import modules that end with these suffixes */
+    moduleSuffixes: {
+        /** @default slash */
+        slashCommand: "slash";
+        /** @default ctx */
+        contextCommand: "ctx";
+        /** @default prefix */
+        prefixCommand: "prefix";
+        /** @default event */
+        event: "event";
+    };
 }
 
 const defaultConfig: VimcordAppConfig = {
@@ -20,7 +32,14 @@ const defaultConfig: VimcordAppConfig = {
     name: "Discord Bot",
     appVersion: "1.0.0",
     verbose: false,
-    disableBanner: false
+    disableBanner: false,
+
+    moduleSuffixes: {
+        slashCommand: "slash",
+        contextCommand: "ctx",
+        prefixCommand: "prefix",
+        event: "event"
+    }
 };
 
 export function createVimcordAppConfig(options: PartialDeep<VimcordAppConfig> = {}): VimcordAppConfig {

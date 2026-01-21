@@ -4,7 +4,7 @@ import { ClientEvents, Events } from "discord.js";
 import { type Vimcord } from "@/client";
 import { Logger } from "@/tools/Logger";
 
-export class VimcordEventManager {
+export class EventManager {
     client: Vimcord;
     events: Map<string, EventBuilder<any>> = new Map();
     logger: Logger;
