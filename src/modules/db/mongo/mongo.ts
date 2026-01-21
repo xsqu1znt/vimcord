@@ -26,33 +26,51 @@ export class MongoDatabase {
     readonly mongoose: mongoose.Mongoose;
     private isConnecting = false;
 
+    /**
+     * Returns an instance of MongoDatabase.
+     * @param clientId [default: 0]
+     */
     static getInstance(clientId?: number | Vimcord) {
         const id = (typeof clientId === "number" ? clientId : clientId?.clientId) ?? 0;
         return MongoDatabase.instances.get(id);
     }
 
-    static async getReadyInstance(clientId?: number | Vimcord): Promise<MongoDatabase | undefined> {
+    /**
+     * Waits for a MongoDatabase instance to be ready. First waiting for the instance to initialize if it doesn't exist.
+     * @param clientId [default: 0]
+     * @param timeoutMs [default: 60000]
+     */
+    static async getReadyInstance(clientId?: number | Vimcord, timeoutMs: number = 60_000): Promise<MongoDatabase> {
         const existing = MongoDatabase.getInstance(clientId);
         if (existing) return await existing.waitForReady();
 
-        return new Promise(resolve => {
-            // Wait for the database with the specified client ID to be initialized and ready
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                MongoDatabase.emitter.off("ready", listener);
+                reject(
+                    new Error(
+                        `MongoDatabase instance (${clientId}) failed to initialize within ${timeoutMs / 1000}s. Check your connection logic.`
+                    )
+                );
+            }, timeoutMs);
+
             const listener = (db: MongoDatabase) => {
-                if (db.client.clientId === clientId) {
+                if (db.clientId === clientId) {
+                    clearTimeout(timeout);
                     MongoDatabase.emitter.off("ready", listener);
                     resolve(db);
                 }
             };
-            MongoDatabase.emitter.on("ready", listener);
 
-            // Prevent an infinite hang if the database fails to initialize
-            setTimeout(() => {
-                MongoDatabase.emitter.off("ready", listener);
-                resolve(undefined);
-            }, 60_000); // 1 minute
+            MongoDatabase.emitter.on("ready", listener);
         });
     }
 
+    /**
+     * Starts a new Mongo client session.
+     * @param options Options for the new session
+     * @param clientId [default: 0]
+     */
     static async startSession(options?: ClientSessionOptions, clientId?: number | Vimcord) {
         return (await MongoDatabase.getReadyInstance(clientId))?.startSession(options);
     }
