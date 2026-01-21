@@ -42,7 +42,7 @@ export type BaseCommandParameters<T extends CommandType> = T extends CommandType
         : never;
 
 export interface BaseCommandConfig<T extends CommandType> {
-    /** Is this command enabled? @default true */
+    /** Is this command enabled? @defaultValue true */
     enabled?: boolean;
     /** Custom conditions that must be met for this command to execute */
     conditions?: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>;
@@ -52,7 +52,7 @@ export interface BaseCommandConfig<T extends CommandType> {
     metadata?: CommandMetadata;
     /** Rate limiting options */
     rateLimit?: CommandRateLimitOptions<(...args: BaseCommandParameters<T>) => any>;
-    /** Log whenever a command is executed? @default true */
+    /** Log whenever a command is executed? @defaultValue true */
     logExecution?: boolean;
 
     /** Executed before the main command logic */

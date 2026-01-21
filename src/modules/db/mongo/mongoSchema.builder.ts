@@ -5,7 +5,9 @@ try {
     throw new Error("MongoSchemaBuilder requires the mongoose package, install it with `npm install mongoose`");
 }
 
-import mongoose, {
+import { MongoDatabase } from "@/modules/db/mongo/mongo";
+import { Logger } from "@/tools/Logger";
+import {
     AggregateOptions,
     CreateOptions,
     HydratedDocument,
@@ -22,25 +24,18 @@ import mongoose, {
     SchemaDefinition,
     UpdateQuery
 } from "mongoose";
-import { type MongoDatabase, useMongoDatabase } from "@/modules/db/mongo/mongo";
-import { retryExponentialBackoff } from "@/utils/async";
 import { randomBytes } from "node:crypto";
-import { Logger } from "@/tools/Logger";
-import EventEmitter from "node:events";
+import { $ } from "qznt";
+
+export type MongoPlugin<Definition extends object> = (builder: MongoSchemaBuilder<Definition>) => void;
 
 export type ExtractReturn<T> = T extends (this: any, ...args: any) => infer R ? Awaited<R> : never;
 export type LeanOrHydratedDocument<T, O extends QueryOptions<T>> = O["lean"] extends false
     ? HydratedDocument<T>
     : Require_id<T>;
 
-export interface MongoSchemaEvents {
-    initialized: [];
-    ready: [boolean];
-    error: [Error];
-}
-
 export interface MongoSchemaOptions {
-    connectionIndex?: number;
+    instanceId?: number;
 }
 
 export function createMongoSchema<Definition extends object>(
@@ -48,80 +43,142 @@ export function createMongoSchema<Definition extends object>(
     definition: SchemaDefinition<Definition>,
     options?: MongoSchemaOptions
 ): MongoSchemaBuilder<Definition> {
-    return new MongoSchemaBuilder(collection, definition, options);
+    return MongoSchemaBuilder.create(collection, definition, options);
 }
 
-export class MongoSchemaBuilder<Definition extends object> {
-    schema!: Schema<Definition>;
-    model!: Model<Definition>;
+/**
+ * Creates a plugin to be used with MongoSchemaBuilder.
+ *
+ * @example
+ * ```ts
+ * // Register your plugin globally
+ * MongoSchemaBuilder.use(SoftDeletePlugin);
+ * MongoSchemaBuilder.use(AuthorizablePlugin("role"));
+ *
+ * // Or just this schema
+ * const UserSchema = createMongoSchema("Users", {
+ *     username: String,
+ *     password: String,
+ *     role: String
+ * })
+ *
+ * UserSchema.use(SoftDeletePlugin);
+ * UserSchema.use(AuthorizablePlugin("role"));
+ * ```
+ *
+ * @example
+ * ```ts
+ * // A soft-delete style plugin
+ * export const SoftDeletePlugin = createMongoPlugin(builder => {
+ *     // Add field to schema
+ *     builder.schema.add({ deletedAt: { type: Date, default: null } });
+ *
+ *     // Add a custom method to the MongoSchemaBuilder
+ *     builder.extend({
+ *         async softDelete(filter: any) {
+ *             return this.update(filter, { deletedAt: new Date() } as any);
+ *         }
+ *     });
+ *
+ *     // Add middleware to filter out deleted items
+ *     builder.schema.pre(/^find/, function() {
+ *         this.where({ deletedAt: null });
+ *     });
+ * })
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Or maybe you want a plugin that takes options?
+ * export const AuthorizablePlugin = (roleField: string) => {
+ *     return createMongoPlugin(builder => {
+ *         builder.extend({
+ *             async findByRole(role: string) {
+ *                 return this.fetchAll({ [roleField]: role } as any);
+ *             }
+ *         });
+ *     });
+ * };
+ * ```
+ */
+export function createMongoPlugin<Definition extends object = any>(
+    plugin: MongoPlugin<Definition>
+): MongoPlugin<Definition> {
+    return plugin;
+}
 
-    database: MongoDatabase | null = null;
-    connectionIndex: number = 0;
+export class MongoSchemaBuilder<Definition extends object = any> {
+    private static globalPlugins: MongoPlugin<any>[] = [];
 
-    isReady: boolean = false;
-    isInitializing: boolean = false;
-    eventEmitter = new EventEmitter<MongoSchemaEvents>();
+    readonly collection: string;
+    readonly instanceId: number;
 
-    logger: Logger;
+    readonly schema: Schema<Definition>;
+    model: Model<Definition> | null = null;
+    db: MongoDatabase | null = null;
 
-    constructor(collection: string, definition: SchemaDefinition<Definition>, options?: MongoSchemaOptions) {
-        this.connectionIndex = options?.connectionIndex ?? this.connectionIndex;
+    private logger: Logger;
+    private compilingModel: Promise<Model<Definition>> | null = null;
 
-        // Initialize a custom logger instance
+    static create<Definition extends object = any>(
+        collection: string,
+        definition: SchemaDefinition<Definition>,
+        options?: MongoSchemaOptions
+    ) {
+        return new MongoSchemaBuilder(collection, definition, options);
+    }
+
+    /**
+     * Registers a plugin globally to be used by all future schemas.
+     */
+    static use(plugin: MongoPlugin<any>) {
+        this.globalPlugins.push(plugin);
+    }
+
+    constructor(collection: string, definition: SchemaDefinition<Definition>, options: MongoSchemaOptions = {}) {
+        const { instanceId = 0 } = options;
+
+        this.instanceId = instanceId;
+        this.collection = collection;
+        this.schema = new Schema(definition, { versionKey: false });
+
         this.logger = new Logger({
             prefixEmoji: "🥭",
-            prefix: `MongoSchema (c${this.connectionIndex}) [${collection}]`,
+            prefix: `MongoSchema (c${instanceId}) [${collection}]`,
             colors: { primary: "#F29B58" }
         });
 
-        /* Set up event handlers */
-        this.eventEmitter.once("initialized", () => {
-            if (this.database) {
-                /* Create the schema and model */
-                this.schema = new Schema(definition, { versionKey: false });
-                this.model = this.database.mongoose.model(collection, this.schema) as Model<Definition>;
-                this.eventEmitter.emit("ready", true);
-            } else {
-                this.eventEmitter.emit("error", new Error(`MongoDatabase (c${this.connectionIndex}) not found`));
-            }
-        });
-
-        this.eventEmitter.on("ready", ready => {
-            this.isReady = ready;
-
-            // Verbose logging
-            if (this.database?.client.config.app.verbose) {
-                this.logger.debug(`Loaded! | ${this.database?.client.config.app.name}`);
-            }
-        });
-
-        this.eventEmitter.on("error", error => this.logger.error("Error:", error));
-
-        // Finish initialization
-        this.init().catch(error => {
-            this.eventEmitter.emit("error", error);
-        });
+        // Apply global plugins immediately
+        for (const plugin of MongoSchemaBuilder.globalPlugins) {
+            plugin(this);
+        }
     }
 
-    private async init() {
-        if (this.isInitializing) return;
-        this.isInitializing = true;
+    private async getModel() {
+        if (this.model) return this.model;
+        if (this.compilingModel) return this.compilingModel;
 
-        try {
-            const database = await useMongoDatabase(this.connectionIndex);
-            if (!database) {
-                throw new Error("Could not use MongoDatabase");
+        this.compilingModel = (async () => {
+            // Find the specific MongoDatabase instance
+            this.db = (await MongoDatabase.getReadyInstance(this.instanceId)) || null;
+            if (!this.db) {
+                throw new Error(`MongoDatabase instance (${this.instanceId}) not found for schema ${this.collection}`);
             }
 
-            // Set our database reference
-            this.database = database;
+            // Compile model on the specific instance's mongoose object
+            this.model = this.db.mongoose.model<Definition>(this.collection, this.schema);
 
-            this.eventEmitter.emit("initialized");
-        } catch (err) {
-            this.eventEmitter.emit("error", err as Error);
-        } finally {
-            this.isInitializing = false;
-        }
+            // Verbose logging
+            if (this.db?.client.config.app.verbose) {
+                this.logger.debug(`Compiled! | ${this.db?.client.config.app.name}`);
+            }
+
+            return this.model;
+        })();
+
+        const res = await this.compilingModel;
+        this.compilingModel = null;
+        return res;
     }
 
     extend<Extra extends Record<string, (...args: any) => any>>(
@@ -138,61 +195,33 @@ export class MongoSchemaBuilder<Definition extends object> {
         return this as any as MongoSchemaBuilder<Definition> & Extra;
     }
 
-    on<K extends keyof MongoSchemaEvents>(event: K, listener: (...args: MongoSchemaEvents[K]) => void) {
-        this.eventEmitter.on(event, listener as any);
+    /**
+     * Registers a plugin to just this instance.
+     */
+    use(plugin: MongoPlugin<Definition>): this {
+        plugin(this);
         return this;
     }
 
-    once<K extends keyof MongoSchemaEvents>(event: K, listener: (...args: MongoSchemaEvents[K]) => void) {
-        this.eventEmitter.once(event, listener as any);
-        return this;
-    }
-
-    off<K extends keyof MongoSchemaEvents>(event: K, listener: (...args: MongoSchemaEvents[K]) => void) {
-        this.eventEmitter.off(event, listener as any);
-        return this;
-    }
-
-    /** Execute a function while ensuring the connection is ready. On error it will retry using an exponential backoff. */
-    async execute<T extends (...args: any) => any>(fn: T) {
-        try {
-            // Check ready
-            if (!this.isReady) {
-                await new Promise<void>((resolve, reject) => {
-                    // 45 second timeout
-                    const timeout = setTimeout(() => reject("execution wait for ready timed out"), 45_000);
-
-                    this.eventEmitter.once("ready", () => {
-                        clearTimeout(timeout);
-                        resolve();
-                    });
-
-                    this.eventEmitter.once("error", error => {
-                        clearTimeout(timeout);
-                        reject(error);
-                    });
-                });
-            }
-
-            // Check our database reference
-            if (!this.database) {
-                throw new Error("MongoDB connection not found");
-            }
-
-            return await retryExponentialBackoff(async () => (await fn()) as ExtractReturn<T>);
-        } catch (err) {
-            this.eventEmitter.emit("error", err as Error);
-        }
+    /**
+     * Handles model resolution, connection ready, and retries.
+     * @param fn The function to execute
+     * @param maxRetries [default: 3]
+     */
+    async execute<T extends (model: Model<Definition>) => any>(fn: T, maxRetries: number = 3) {
+        return (await $.async.retry(async () => {
+            const model = await this.getModel();
+            return await fn(model);
+        }, maxRetries)) as ExtractReturn<T>;
     }
 
     async createHexId(bytes: number, path: keyof Require_id<Definition>, maxRetries: number = 10) {
-        return await this.execute(async () => {
-            const createHex = () => Buffer.from(randomBytes(bytes)).toString("hex");
-
+        return await this.execute(async model => {
+            const createHex = () => randomBytes(bytes).toString("hex");
             let id = createHex();
             let tries = 0;
 
-            while (await this.model.exists({ [path]: id } as Partial<Require_id<Definition>>)) {
+            while (await model.exists({ [path]: id } as Partial<Require_id<Definition>>)) {
                 if (tries >= maxRetries) throw Error(`Failed to generate a unique hex ID after ${tries} attempt(s)`);
                 id = createHex();
                 tries++;
@@ -206,23 +235,15 @@ export class MongoSchemaBuilder<Definition extends object> {
         filter?: RootFilterQuery<Definition>,
         options?: mongo.CountOptions & MongooseBaseQueryOptions<Definition> & mongo.Abortable
     ) {
-        return await this.execute(async () => {
-            return this.model.countDocuments(filter, options);
-        });
+        return await this.execute(async model => model.countDocuments(filter, options));
     }
 
     async exists(filter: RootFilterQuery<Definition>) {
-        return await this.execute(async () => {
-            return (await this.model.exists(filter)) ? true : false;
-        });
+        return await this.execute(async model => !!(await model.exists(filter)));
     }
 
     async create(query: Partial<Require_id<Definition>>[], options?: CreateOptions) {
-        return (
-            (await this.execute(async () => {
-                return this.model.create(query, options);
-            })) ?? []
-        );
+        return await this.execute(async model => model.create(query, options));
     }
 
     async upsert(
@@ -230,24 +251,20 @@ export class MongoSchemaBuilder<Definition extends object> {
         query: Partial<Require_id<Definition>>,
         options?: QueryOptions<Definition>
     ) {
-        return await this.execute(async () => {
-            return this.model.findOneAndUpdate(filter, query, { ...options, upsert: true, new: true });
-        });
+        return await this.execute(async model =>
+            model.findOneAndUpdate(filter, query, { ...options, upsert: true, new: true })
+        );
     }
 
     async delete(filter: RootFilterQuery<Definition>, options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>) {
-        return await this.execute(async () => {
-            return this.model.deleteOne(filter, options);
-        });
+        return await this.execute(async model => model.deleteOne(filter, options));
     }
 
     async deleteAll(
         filter: RootFilterQuery<Definition>,
         options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>
     ) {
-        return await this.execute(async () => {
-            return this.model.deleteMany(filter, options);
-        });
+        return await this.execute(async model => model.deleteMany(filter, options));
     }
 
     async distinct<K extends keyof Require_id<Definition> & string>(
@@ -255,9 +272,7 @@ export class MongoSchemaBuilder<Definition extends object> {
         filter?: RootFilterQuery<Definition>,
         options?: QueryOptions<Definition>
     ) {
-        return await this.execute(async () => {
-            return this.model.distinct(key, filter, options);
-        });
+        return await this.execute(async model => model.distinct(key, filter, options));
     }
 
     async fetch<Options extends QueryOptions<Definition>>(
@@ -265,9 +280,9 @@ export class MongoSchemaBuilder<Definition extends object> {
         projection?: ProjectionType<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null | undefined> {
-        return await this.execute(async () => {
-            return this.model.findOne(filter, projection, { ...options, lean: options?.lean ?? true });
-        });
+        return await this.execute(async model =>
+            model.findOne(filter, projection, { ...options, lean: options?.lean ?? true })
+        );
     }
 
     async fetchAll<Options extends QueryOptions<Definition>>(
@@ -275,10 +290,8 @@ export class MongoSchemaBuilder<Definition extends object> {
         projection?: ProjectionType<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options>[]> {
-        return (
-            (await this.execute(async () => {
-                return this.model.find(filter, projection, { ...options, lean: options?.lean ?? true });
-            })) || []
+        return await this.execute(async model =>
+            model.find(filter, projection, { ...options, lean: options?.lean ?? true })
         );
     }
 
@@ -287,9 +300,9 @@ export class MongoSchemaBuilder<Definition extends object> {
         update: UpdateQuery<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null | undefined> {
-        return await this.execute(async () => {
-            return this.model.findOneAndUpdate(filter, update, { ...options, lean: options?.lean ?? true });
-        });
+        return await this.execute(async model =>
+            model.findOneAndUpdate(filter, update, { ...options, lean: options?.lean ?? true })
+        );
     }
 
     async updateAll(
@@ -297,15 +310,13 @@ export class MongoSchemaBuilder<Definition extends object> {
         update: UpdateQuery<Definition>,
         options?: mongo.UpdateOptions & MongooseUpdateQueryOptions<Definition>
     ) {
-        return await this.execute(async () => {
-            return this.model.updateMany(filter, update, options);
-        });
+        return await this.execute(async model => model.updateMany(filter, update, options));
     }
 
     async aggregate<T extends any>(pipeline: PipelineStage[], options?: AggregateOptions): Promise<T[]> {
-        return (await this.execute(async () => {
-            const result = await this.model.aggregate(pipeline, options);
+        return await this.execute(async model => {
+            const result = await model.aggregate<T>(pipeline, options);
             return result?.length ? result : [];
-        })) as T[];
+        });
     }
 }

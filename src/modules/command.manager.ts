@@ -54,7 +54,7 @@ export class BaseCommandManager<T extends CommandType> {
     }
 
     /**
-     * Gets/filters commands and orders them alphabetically
+     * Gets/filters commands and orders them alphabetically.
      */
     getAll(options: CommandFilter = {}) {
         const matchedCommands = new Map<string, VimcordCommandBuilderByType<T>>();

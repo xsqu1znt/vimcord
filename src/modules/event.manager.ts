@@ -13,7 +13,7 @@ export class EventManager {
         this.client = client;
 
         // Define custom logger instance
-        this.logger = new Logger({ prefixEmoji: "📋", prefix: `EventManager (i${this.client.index})` });
+        this.logger = new Logger({ prefixEmoji: "📋", prefix: `EventManager (i${this.client.clientId})` });
 
         for (const event of Object.values(Events)) {
             client.on(event.toString(), async (...args) =>

@@ -7,22 +7,22 @@ export interface VimcordAppConfig {
     appVersion: string;
 
     /** Enable verbose console logs?
-     * @default false */
+     * @defaultValue false */
     verbose: boolean;
 
     /** Disable the vimcord client banner on startup
-     * @default false */
+     * @defaultValue false */
     disableBanner: boolean;
 
     /** Only auto import modules that end with these suffixes */
     moduleSuffixes: {
-        /** @default slash */
+        /** @defaultValue slash */
         slashCommand: "slash";
-        /** @default ctx */
+        /** @defaultValue ctx */
         contextCommand: "ctx";
-        /** @default prefix */
+        /** @defaultValue prefix */
         prefixCommand: "prefix";
-        /** @default event */
+        /** @defaultValue event */
         event: "event";
     };
 }

@@ -28,13 +28,13 @@ import chalk from "chalk";
 export interface CommandErrorMessageConfig {
     /** Use a custom embed */
     embed?: (embed: BetterEmbed, error: Error, guild: Guild | null | undefined) => BetterEmbed;
-    /** @default config.staff.mainServer.inviteUrl */
+    /** @defaultValue config.staff.mainServer.inviteUrl */
     inviteUrl?: string;
-    /** The support server invite button label @default "Support Server" */
+    /** The support server invite button label @defaultValue "Support Server" */
     inviteButtonLabel?: string;
-    /** The error details button label @default "Details" */
+    /** The error details button label @defaultValue "Details" */
     detailButtonLabel?: string;
-    /** @default 30_000 // 30 seconds */
+    /** @defaultValue 30_000 // 30 seconds */
     detailButtonIdleTimeout?: number;
     /** Should the message be ephemeral? */
     ephemeral?: boolean;
@@ -97,7 +97,7 @@ export const clientInstances: Vimcord[] = [];
 
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly uuid: string = randomUUID();
-    readonly index: number = clientInstances.length;
+    readonly clientId: number = clientInstances.length;
 
     readonly clientOptions: ClientOptions;
     readonly features: VimcordFeatures;
@@ -106,10 +106,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     status: StatusManager;
     events: EventManager;
     commands: CommandManager;
-    database?: VimcordDatabaseManager;
+    db?: VimcordDatabaseManager;
 
     // Configure custom logger
-    logger = new Logger({ prefixEmoji: "⚡", prefix: `vimcord (i${this.index})` }).extend({
+    logger = new Logger({ prefixEmoji: "⚡", prefix: `vimcord (i${this.clientId})` }).extend({
         clientBanner(client: Vimcord) {
             if (client.config.app.disableBanner) return;
 
@@ -132,9 +132,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             console.log(
                 chalk.hex(this.colors.primary)("║") +
                     chalk.hex(this.colors.muted)(
-                        `  # Powered by Vimcord v${version}`.padEnd(50 - 3 - `${client.index}`.length)
+                        `  # Powered by Vimcord v${version}`.padEnd(50 - 3 - `${client.clientId}`.length)
                     ) +
-                    chalk.hex(this.colors.primary)(`${chalk.hex(this.colors.muted)(`i${client.index}`)}  ║`)
+                    chalk.hex(this.colors.primary)(`${chalk.hex(this.colors.muted)(`i${client.clientId}`)}  ║`)
             );
             console.log(chalk.hex(this.colors.primary)(`╚${border}╝\n`));
         },
@@ -300,10 +300,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return this;
     }
 
-    async useDatabase(database: VimcordDatabaseManager): Promise<boolean> {
-        this.database = database;
-        this.logger.database("Using", database.name);
-        return this.database.connect();
+    async useDatabase(db: VimcordDatabaseManager): Promise<boolean> {
+        this.db = db;
+        this.logger.database("Using", db.moduleName);
+        return this.db.connect();
     }
 
     async whenReady(): Promise<Vimcord<true>> {

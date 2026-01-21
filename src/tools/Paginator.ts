@@ -59,14 +59,14 @@ export interface PaginationEvent {
 }
 
 export interface PaginatorOptions {
-    /** @default {@link PaginationType.Short} */
+    /** @defaultValue {@link PaginationType.Short} */
     type?: PaginationType;
     participants?: UserResolvable[];
     /** Shorthand to create the Paginator with only 1 chapter */
     pages?: PageResolvable[];
-    /** @default false */
+    /** @defaultValue false */
     useReactions?: boolean;
-    /** @default false */
+    /** @defaultValue false */
     dynamic?: boolean;
     timeout?: number;
     onTimeout?: PaginationTimeoutType;

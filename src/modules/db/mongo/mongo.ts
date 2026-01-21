@@ -5,133 +5,130 @@ try {
     throw new Error("MongoDatabase requires the mongoose package, install it with `npm install mongoose`");
 }
 
-import { retryExponentialBackoff } from "@/utils/async";
-import { randomUUID } from "node:crypto";
 import { type Vimcord } from "@/client";
+import mongoose, { ClientSessionOptions, Connection, ConnectionStates } from "mongoose";
 import EventEmitter from "node:events";
-import mongoose, { ClientSessionOptions } from "mongoose";
+import { $ } from "qznt";
 
 interface MongoConnectionOptions {
     /** The maximum number of attempts to connect to MongoDB @defaultValue `3` */
     maxRetries?: number;
 }
 
-const globalInstanceEmitter = new EventEmitter<{ created: [MongoDatabase]; connected: [MongoDatabase] }>();
-const instances: MongoDatabase[] = [];
-
-export async function useMongoDatabase(instanceIndex?: number) {
-    const instance = instances.at(instanceIndex ?? 0);
-
-    if (!instance) {
-        return new Promise<MongoDatabase>((resolve, reject) => {
-            // 45 second timeout
-            const timeout = setTimeout(() => reject("useMongoDatabase timed out"), 45_000);
-
-            globalInstanceEmitter.once("connected", mdb => {
-                clearTimeout(timeout);
-                resolve(mdb);
-            });
-        });
-    }
-
-    return instance;
-}
-
-export async function useReadyMongoDatabase(instanceIndex?: number) {
-    const instance = await useMongoDatabase(instanceIndex);
-    await instance.waitForReady();
-    return instance;
-}
-
-export async function createMongoSession(instanceIndex?: number, options?: ClientSessionOptions) {
-    const instance = await useReadyMongoDatabase(instanceIndex);
-    return instance.mongoose.startSession(options);
-}
+const instances = new Map<number, MongoDatabase>();
+const emitter = new EventEmitter<{ ready: [MongoDatabase] }>();
 
 export class MongoDatabase {
-    readonly name: string = "MongoDatabase";
-    readonly uuid: string = randomUUID();
-    readonly index: number;
-    private uri: string | undefined;
+    readonly moduleName = "MongoDatabase";
+    readonly clientId: number;
 
-    mongoose: mongoose.Mongoose;
-    private eventEmitter = new EventEmitter<{ ready: [] }>();
+    readonly client: Vimcord;
+    readonly mongoose: mongoose.Mongoose;
 
-    private isReady = false;
     private isConnecting = false;
 
-    constructor(
-        public client: Vimcord,
-        options?: mongoose.MongooseOptions
-    ) {
-        this.mongoose = new mongoose.Mongoose(options);
-        this.index = instances.length - 1;
-        instances.push(this);
-
-        globalInstanceEmitter.emit("created", this);
+    static getInstance(instanceId?: number | Vimcord) {
+        const id = (typeof instanceId === "number" ? instanceId : instanceId?.clientId) ?? 0;
+        return instances.get(id);
     }
 
-    async waitForReady(): Promise<boolean> {
+    static async getReadyInstance(instanceId?: number | Vimcord) {
+        return await MongoDatabase.getInstance(instanceId)?.waitForReady();
+    }
+
+    static async startSession(options?: ClientSessionOptions, instanceId?: number | Vimcord) {
+        return (await MongoDatabase.getReadyInstance(instanceId))?.startSession(options);
+    }
+
+    constructor(client: Vimcord, options?: mongoose.MongooseOptions) {
+        this.client = client;
+        this.mongoose = new mongoose.Mongoose(options);
+        this.clientId = this.client.clientId;
+        instances.set(this.clientId, this);
+    }
+
+    get connection(): Connection {
+        return this.mongoose.connection;
+    }
+
+    get isReady(): boolean {
+        return this.connection.readyState === ConnectionStates.connected;
+    }
+
+    async waitForReady(): Promise<this> {
         if (!this.isReady && this.isConnecting) {
-            return new Promise(resolve => this.eventEmitter.once("ready", () => resolve(this.isReady)));
+            return new Promise(resolve => emitter.once("ready", db => resolve(db as this)));
         }
-        return this.isReady;
+        return this;
     }
 
     async connect(
         uri?: string,
         connectionOptions?: mongoose.ConnectOptions,
-        options?: MongoConnectionOptions
+        options: MongoConnectionOptions = {}
     ): Promise<boolean> {
-        if (!this.isReady && this.isConnecting) {
-            return new Promise(resolve => this.eventEmitter.once("ready", () => resolve(true)));
-        }
+        const { maxRetries = 3 } = options;
 
-        // If already connected, return the existing connection
-        if (this.mongoose.connection?.readyState === 1) {
+        // Already connected
+        if (this.isReady) {
             return true;
         }
 
-        uri ??= this.uri || this.client.config.app.devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI;
-        options = { ...options, maxRetries: options?.maxRetries ?? 3 };
+        // Still connecting
+        if (!this.isReady && this.isConnecting) {
+            return new Promise(resolve => emitter.once("ready", () => resolve(true)));
+        }
 
-        if (!uri) {
+        const connectionUri = uri ?? (this.client.config.app.devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI);
+        options = { ...options, maxRetries: options.maxRetries ?? 3 };
+
+        if (!connectionUri) {
             throw new Error(
                 `MONGO_URI Missing: ${this.client.config.app.devMode ? "DEV MODE is enabled, but MONGO_URI_DEV is not set" : "MONGO_URI not set"}`
             );
         }
 
-        this.uri = uri;
-        this.isReady = false;
         this.isConnecting = true;
 
         try {
             const stopLoader = this.client.logger.loader("Connecting to MongoDB...");
-            await retryExponentialBackoff(
-                attempt => {
-                    return this.mongoose.connect(uri, {
-                        serverSelectionTimeoutMS: 30000,
-                        socketTimeoutMS: 45000,
-                        connectTimeoutMS: 30000,
-                        maxPoolSize: 10,
-                        minPoolSize: 5,
-                        bufferCommands: false,
-                        ...connectionOptions
-                    });
-                },
-                options.maxRetries,
-                1_000
+
+            await $.async.retry(
+                () => this.mongoose.connect(connectionUri, { autoIndex: true, ...connectionOptions }),
+                maxRetries
             );
 
-            this.isReady = true;
-            this.eventEmitter.emit("ready");
-            globalInstanceEmitter.emit("connected", this);
+            emitter.emit("ready", this);
             stopLoader("Connected to MongoDB    ");
         } catch (err) {
-            this.client.logger.error(`Failed to connect to MongoDB after ${options.maxRetries} attempt(s)`, err as Error);
+            this.client.logger.error(`Failed to connect to MongoDB after ${maxRetries} attempt(s)`, err as Error);
+        } finally {
+            this.isConnecting = false;
         }
 
-        this.isConnecting = false;
         return true;
+    }
+
+    async disconnect(): Promise<void> {
+        await this.mongoose.disconnect();
+    }
+
+    async startSession(options?: ClientSessionOptions) {
+        return this.mongoose.startSession(options);
+    }
+
+    async useTransaction(fn: (session: mongoose.ClientSession) => Promise<void>) {
+        const session = await this.startSession();
+        session.startTransaction();
+
+        try {
+            await fn(session);
+            await session.commitTransaction();
+        } catch (err) {
+            await session.abortTransaction();
+            throw err;
+        } finally {
+            await session.endSession();
+        }
     }
 }

@@ -3,8 +3,6 @@ import { Logger } from "@/tools/Logger";
 import { fetchGuild } from "@/tools/utils";
 import { ClientActivity, ClientStatus, createVimcordStatusConfig, VimcordClientStatus } from "@/types/status";
 import { formatThousands } from "@/utils/number";
-import { pickRandom } from "@/utils/random";
-import cron, { ScheduledTask } from "node-cron";
 import EventEmitter from "node:events";
 import { $, Loop } from "qznt";
 import { PartialDeep } from "type-fest";
@@ -31,7 +29,7 @@ export class StatusManager {
         this.client = client;
 
         // Define custom logger instance
-        this.logger = new Logger({ prefixEmoji: "💬", prefix: `StatusManager (i${this.client.index})` });
+        this.logger = new Logger({ prefixEmoji: "💬", prefix: `StatusManager (i${this.client.clientId})` });
 
         this.emitter.on("changed", activity => {
             if (this.client.config.app.verbose) {

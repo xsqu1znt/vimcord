@@ -28,7 +28,7 @@ export interface CustomButton {
     builder: ButtonBuilder | ((builder: ButtonBuilder) => ButtonBuilder) | Partial<APIButtonComponent>;
     handler?: ButtonHandler;
     /** Position index: 0 = before confirm, 1 = between confirm/reject, 2+ = after reject
-     * @default 2 */
+     * @defaultValue 2 */
     index?: number;
 }
 
@@ -43,7 +43,7 @@ export interface PromptOptions {
         reject?: ButtonBuilder | ((builder: ButtonBuilder) => ButtonBuilder) | Partial<APIButtonComponent>;
     };
     customButtons?: Record<string, CustomButton>;
-    /** @default [PromptResolveType.DeleteOnConfirm, PromptResolveType.DeleteOnReject] */
+    /** @defaultValue [PromptResolveType.DeleteOnConfirm, PromptResolveType.DeleteOnReject] */
     onResolve?: PromptResolveType[];
     timeout?: number;
     config?: VimcordToolsConfig;

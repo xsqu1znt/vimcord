@@ -248,7 +248,7 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
     }
 
     /** * Set whether to log whenever this command is executed
-     * @default true
+     * @defaultValue true
      */
     setLogExecution(log: boolean): this {
         this.options.logExecution = log;

@@ -4,11 +4,11 @@ import _ from "lodash";
 import { Vimcord } from "@/client";
 
 export interface VimcordPrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
-    /** @default ! */
+    /** @defaultValue ! */
     defaultPrefix: string;
-    /** @default true */
+    /** @defaultValue true */
     allowMentionAsPrefix: boolean;
-    /** @default true */
+    /** @defaultValue true */
     allowCaseInsensitiveCommandNames: boolean;
     /**
      * A custom resolver to fetch a guild-specific prefix.
