@@ -224,10 +224,10 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         });
     }
 
-    async useTransaction(fn: (session: ClientSession) => any) {
-        return await this.execute(async () => {
+    async useTransaction(fn: (session: ClientSession, model: Model<Definition>) => any) {
+        return await this.execute(async model => {
             if (!this.db) throw new Error("No database instance found");
-            return await this.db!.useTransaction(fn);
+            return await this.db!.useTransaction(session => fn(session, model));
         });
     }
 
