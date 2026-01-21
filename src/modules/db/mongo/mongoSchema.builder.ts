@@ -9,6 +9,8 @@ import { MongoDatabase } from "@/modules/db/mongo/mongo";
 import { Logger } from "@/tools/Logger";
 import {
     AggregateOptions,
+    ClientSession,
+    ClientSessionOptions,
     CreateOptions,
     HydratedDocument,
     Model,
@@ -213,6 +215,20 @@ export class MongoSchemaBuilder<Definition extends object = any> {
             const model = await this.getModel();
             return await fn(model);
         }, maxRetries)) as ExtractReturn<T>;
+    }
+
+    async startSession(options?: ClientSessionOptions) {
+        return await this.execute(async () => {
+            if (!this.db) throw new Error("No database instance found");
+            return await this.db.startSession(options);
+        });
+    }
+
+    async useTransaction(fn: (session: ClientSession) => any) {
+        return await this.execute(async () => {
+            if (!this.db) throw new Error("No database instance found");
+            return await this.db!.useTransaction(fn);
+        });
     }
 
     async createHexId(bytes: number, path: keyof Require_id<Definition>, maxRetries: number = 10) {
