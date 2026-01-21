@@ -146,7 +146,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
 
         this.logger = new Logger({
             prefixEmoji: "🥭",
-            prefix: `MongoSchema (c${instanceId}) [${collection}]`,
+            prefix: `MongoSchema (i${instanceId}) [${collection}]`,
             colors: { primary: "#F29B58" }
         });
 
@@ -160,14 +160,14 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         if (this.model) return this.model;
         if (this.compilingModel) return this.compilingModel;
 
-        this.compilingModel = (async () => {
-            // Find the specific MongoDatabase instance
+        const fn = async () => {
+            // Find the MongoDatabase instance
             this.db = (await MongoDatabase.getReadyInstance(this.instanceId)) || null;
             if (!this.db) {
                 throw new Error(`MongoDatabase instance (${this.instanceId}) not found for schema ${this.collection}`);
             }
 
-            // Compile model on the specific instance's mongoose object
+            // Compile model on the instance's mongoose instance
             this.model = this.db.mongoose.model<Definition>(this.collection, this.schema);
 
             // Verbose logging
@@ -175,11 +175,12 @@ export class MongoSchemaBuilder<Definition extends object = any> {
                 this.logger.debug(`Compiled! | ${this.db?.client.config.app.name}`);
             }
 
+            this.compilingModel = null;
             return this.model;
-        })();
+        };
 
+        this.compilingModel = fn();
         const res = await this.compilingModel;
-        this.compilingModel = null;
         return res;
     }
 
@@ -210,11 +211,11 @@ export class MongoSchemaBuilder<Definition extends object = any> {
      * @param fn The function to execute
      * @param maxRetries [default: 3]
      */
-    async execute<T extends (model: Model<Definition>) => any>(fn: T, maxRetries: number = 3) {
-        return (await $.async.retry(async () => {
+    async execute<T extends (model: Model<Definition>) => any>(fn: T, maxRetries: number = 3): Promise<ExtractReturn<T>> {
+        return await $.async.retry(async () => {
             const model = await this.getModel();
             return await fn(model);
-        }, maxRetries)) as ExtractReturn<T>;
+        }, maxRetries);
     }
 
     async startSession(options?: ClientSessionOptions) {

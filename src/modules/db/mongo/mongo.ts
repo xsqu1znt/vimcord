@@ -15,36 +15,53 @@ interface MongoConnectionOptions {
     maxRetries?: number;
 }
 
-const instances = new Map<number, MongoDatabase>();
-const emitter = new EventEmitter<{ ready: [MongoDatabase] }>();
-
 export class MongoDatabase {
+    private static instances = new Map<number, MongoDatabase>();
+    private static emitter = new EventEmitter<{ ready: [MongoDatabase] }>();
+
     readonly moduleName = "MongoDatabase";
     readonly clientId: number;
 
     readonly client: Vimcord;
     readonly mongoose: mongoose.Mongoose;
-
     private isConnecting = false;
 
-    static getInstance(instanceId?: number | Vimcord) {
-        const id = (typeof instanceId === "number" ? instanceId : instanceId?.clientId) ?? 0;
-        return instances.get(id);
+    static getInstance(clientId?: number | Vimcord) {
+        const id = (typeof clientId === "number" ? clientId : clientId?.clientId) ?? 0;
+        return MongoDatabase.instances.get(id);
     }
 
-    static async getReadyInstance(instanceId?: number | Vimcord) {
-        return await MongoDatabase.getInstance(instanceId)?.waitForReady();
+    static async getReadyInstance(clientId?: number | Vimcord): Promise<MongoDatabase | undefined> {
+        const existing = MongoDatabase.getInstance(clientId);
+        if (existing) return await existing.waitForReady();
+
+        return new Promise(resolve => {
+            // Wait for the database with the specified client ID to be initialized and ready
+            const listener = (db: MongoDatabase) => {
+                if (db.client.clientId === clientId) {
+                    MongoDatabase.emitter.off("ready", listener);
+                    resolve(db);
+                }
+            };
+            MongoDatabase.emitter.on("ready", listener);
+
+            // Prevent an infinite hang if the database fails to initialize
+            setTimeout(() => {
+                MongoDatabase.emitter.off("ready", listener);
+                resolve(undefined);
+            }, 60_000); // 1 minute
+        });
     }
 
-    static async startSession(options?: ClientSessionOptions, instanceId?: number | Vimcord) {
-        return (await MongoDatabase.getReadyInstance(instanceId))?.startSession(options);
+    static async startSession(options?: ClientSessionOptions, clientId?: number | Vimcord) {
+        return (await MongoDatabase.getReadyInstance(clientId))?.startSession(options);
     }
 
     constructor(client: Vimcord, options?: mongoose.MongooseOptions) {
         this.client = client;
         this.mongoose = new mongoose.Mongoose(options);
         this.clientId = this.client.clientId;
-        instances.set(this.clientId, this);
+        MongoDatabase.instances.set(this.clientId, this);
     }
 
     get connection(): Connection {
@@ -57,7 +74,7 @@ export class MongoDatabase {
 
     async waitForReady(): Promise<this> {
         if (!this.isReady && this.isConnecting) {
-            return new Promise(resolve => emitter.once("ready", db => resolve(db as this)));
+            return new Promise(resolve => MongoDatabase.emitter.once("ready", db => resolve(db as this)));
         }
         return this;
     }
@@ -76,7 +93,7 @@ export class MongoDatabase {
 
         // Still connecting
         if (!this.isReady && this.isConnecting) {
-            return new Promise(resolve => emitter.once("ready", () => resolve(true)));
+            return new Promise(resolve => MongoDatabase.emitter.once("ready", () => resolve(true)));
         }
 
         const connectionUri = uri ?? (this.client.config.app.devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI);
@@ -98,7 +115,7 @@ export class MongoDatabase {
                 maxRetries
             );
 
-            emitter.emit("ready", this);
+            MongoDatabase.emitter.emit("ready", this);
             stopLoader("Connected to MongoDB    ");
         } catch (err) {
             this.client.logger.error(`Failed to connect to MongoDB after ${maxRetries} attempt(s)`, err as Error);
