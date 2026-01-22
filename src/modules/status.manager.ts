@@ -2,7 +2,6 @@ import { Vimcord } from "@/client";
 import { Logger } from "@/tools/Logger";
 import { fetchGuild } from "@/tools/utils";
 import { ClientActivity, ClientStatus, createVimcordStatusConfig, VimcordClientStatus } from "@/types/status";
-import { formatThousands } from "@/utils/number";
 import EventEmitter from "node:events";
 import { $, Loop } from "qznt";
 import { PartialDeep } from "type-fest";
@@ -53,15 +52,15 @@ export class StatusManager {
     }
 
     private async getReadyClient() {
-        const client = await this.client.whenReady();
+        const client = await this.client.waitForReady();
         if (!client.user) throw new Error("Cannot manage the client's activity when its user is not hydrated");
         return client;
     }
 
     private async formatActivityName(name: string) {
         name = name
-            .replace("$USER_COUNT", formatThousands(this.client.users.cache.size))
-            .replace("$GUILD_COUNT", formatThousands(this.client.guilds.cache.size))
+            .replace("$USER_COUNT", $.format.number(this.client.users.cache.size))
+            .replace("$GUILD_COUNT", $.format.number(this.client.guilds.cache.size))
             .replace(
                 "$INVITE",
                 this.client.config.staff.guild.inviteUrl
@@ -76,7 +75,7 @@ export class StatusManager {
                     if (!guild) return (name = name.replace("$STAFF_GUILD_MEMBER_COUNT", "<STAFF_GUILD_NOT_FOUND>"));
 
                     // Guild member count
-                    name = name.replace("$STAFF_GUILD_MEMBER_COUNT", formatThousands(guild.members.cache.size));
+                    name = name.replace("$STAFF_GUILD_MEMBER_COUNT", $.format.number(guild.members.cache.size));
                 })
                 .catch(err => this.logger.error("Failed to fetch the staff guild", err));
         }

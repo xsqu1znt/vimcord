@@ -1,7 +1,7 @@
-import { Client, ClientOptions, Guild, User, userMention } from "discord.js";
+import { Client, ClientOptions, Guild, User } from "discord.js";
 import dotEnv, { DotenvConfigOptions } from "dotenv";
 
-import { VimcordDatabaseManager } from "@ctypes/database";
+import { DatabaseManager } from "@ctypes/database";
 import { PartialDeep } from "type-fest";
 
 import { globalVimcordToolsConfig } from "@configs/tools.config";
@@ -11,18 +11,22 @@ import { createVimcordSlashCommandConfig, VimcordSlashCommandConfig } from "@con
 import { createVimcordPrefixCommandConfig, VimcordPrefixCommandConfig } from "@configs/prefixCommand.config";
 import { createVimcordContextCommandConfig, VimcordContextCommandConfig } from "@configs/contextCommand.config";
 
+import { BUILTIN_SlashCommandHandler } from "@/modules/builtins/builtin.slashCommandHandler";
+import { BUILTIN_PrefixCommandHandler } from "@/modules/builtins/builtin.prefixCommandHandler";
+import { BUILTIN_ContextCommandHandler } from "@/modules/builtins/builtin.contextCommandHandler";
+
 import { StatusManager } from "@/modules/status.manager";
 import { CommandManager } from "@modules/command.manager";
 import { EventManager } from "@modules/event.manager";
-import { EventBuilder } from "@builders/event.builder";
 
 import { sendCommandErrorEmbed } from "@utils/sendCommandErrorEmbed";
-import { retryExponentialBackoff } from "@utils/async";
 import { fetchGuild, fetchUser } from "./tools/utils";
 import { BetterEmbed } from "./tools/BetterEmbed";
 import { version } from "../package.json";
 import { randomUUID } from "node:crypto";
 import { Logger } from "./tools/Logger";
+import { $ } from "qznt";
+import * as VimcordCLI from "@utils/VimcordCLI";
 import chalk from "chalk";
 
 export interface CommandErrorMessageConfig {
@@ -93,20 +97,20 @@ export interface VimcordConfig {
     contextCommands: VimcordContextCommandConfig;
 }
 
-export const clientInstances: Vimcord[] = [];
-
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
+    static instances = new Map<number, Vimcord>();
+
     readonly uuid: string = randomUUID();
-    readonly clientId: number = clientInstances.length;
+    readonly clientId: number = Vimcord.instances.size;
 
     readonly clientOptions: ClientOptions;
     readonly features: VimcordFeatures;
     readonly config: VimcordConfig;
 
-    status: StatusManager;
-    events: EventManager;
-    commands: CommandManager;
-    db?: VimcordDatabaseManager;
+    readonly status: StatusManager;
+    readonly events: EventManager;
+    readonly commands: CommandManager;
+    db?: DatabaseManager;
 
     // Configure custom logger
     logger = new Logger({ prefixEmoji: "⚡", prefix: `vimcord (i${this.clientId})` }).extend({
@@ -226,7 +230,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
 
         /* - - - - - { Client } - - - - - */
-        this.logger.clientBanner(this);
+        if (!this.config.app.disableBanner === false) {
+            this.logger.clientBanner(this);
+        }
 
         // Handle client ready
         this.once("clientReady", client => {
@@ -234,10 +240,13 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         });
 
         // Add to global instances
-        clientInstances.push(this);
+        Vimcord.instances.set(this.clientId, this);
+
+        // Initialize the VimcordCLI
+        VimcordCLI.initCLI();
     }
 
-    /** Returns the options, features, and config of this client */
+    /** Returns the options, features, and config of this client. */
     toJSON() {
         return {
             options: this.clientOptions,
@@ -246,7 +255,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         };
     }
 
-    /** Make a clone of this client */
+    /** Makes a clone of this client. */
     clone() {
         const { options, features, config } = this.toJSON();
         return new Vimcord(options, features, config);
@@ -265,53 +274,56 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return this;
     }
 
-    configureSlashCommands(options: PartialDeep<VimcordSlashCommandConfig>) {
+    configureSlashCommands(options: PartialDeep<VimcordSlashCommandConfig> = {}) {
         this.config.slashCommands = createVimcordSlashCommandConfig(options);
         return this;
     }
 
-    configurePrefixCommands(options: PartialDeep<VimcordPrefixCommandConfig>) {
+    configurePrefixCommands(options: PartialDeep<VimcordPrefixCommandConfig> = {}) {
         this.config.prefixCommands = createVimcordPrefixCommandConfig(options);
         return this;
     }
 
-    configureContextCommands(options: PartialDeep<VimcordContextCommandConfig>) {
+    configureContextCommands(options: PartialDeep<VimcordContextCommandConfig> = {}) {
         this.config.contextCommands = createVimcordContextCommandConfig(options);
         return this;
     }
 
-    async addEventModules(dir: string | string[], replaceAll?: boolean) {
+    async importEventModules(dir: string | string[], replaceAll?: boolean) {
         await this.events.importFrom(dir, replaceAll);
         return this;
     }
 
-    async addSlashCommandModules(dir: string | string[], replaceAll?: boolean) {
+    async importSlashCommandModules(dir: string | string[], replaceAll?: boolean) {
         await this.commands.slash.importFrom(dir, replaceAll);
         return this;
     }
 
-    async addPrefixCommandModules(dir: string | string[], replaceAll?: boolean) {
+    async importPrefixCommandModules(dir: string | string[], replaceAll?: boolean) {
         await this.commands.prefix.importFrom(dir, replaceAll);
         return this;
     }
 
-    async addContextCommandModules(dir: string | string[], replaceAll?: boolean) {
+    async importContextCommandModules(dir: string | string[], replaceAll?: boolean) {
         await this.commands.context.importFrom(dir, replaceAll);
         return this;
     }
 
-    async useDatabase(db: VimcordDatabaseManager): Promise<boolean> {
+    async useDatabase(db: DatabaseManager): Promise<boolean> {
         this.db = db;
         this.logger.database("Using", db.moduleName);
         return this.db.connect();
     }
 
-    async whenReady(): Promise<Vimcord<true>> {
+    async waitForReady(): Promise<Vimcord<true>> {
         if (this.isReady()) return this as Vimcord<true>;
 
         return new Promise((resolve, reject) => {
-            // Force timeout after 45 seconds
-            const timeout = setTimeout(() => reject(new Error("Client is not ready")), 45_000);
+            // Force timeout after 1 minute
+            const timeout = setTimeout(
+                () => reject(new Error(`Client (i${this.clientId}) timed out waiting for ready`)),
+                60_000
+            );
 
             this.once("clientReady", () => {
                 clearTimeout(timeout);
@@ -333,26 +345,26 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             const importModules = this.features.importModules;
 
             await Promise.all([
-                importModules.events && this.addEventModules(importModules.events),
-                importModules.slashCommands && this.addSlashCommandModules(importModules.slashCommands),
-                importModules.prefixCommands && this.addPrefixCommandModules(importModules.prefixCommands),
-                importModules.contextCommands && this.addContextCommandModules(importModules.contextCommands)
+                importModules.events && this.importEventModules(importModules.events),
+                importModules.slashCommands && this.importSlashCommandModules(importModules.slashCommands),
+                importModules.prefixCommands && this.importPrefixCommandModules(importModules.prefixCommands),
+                importModules.contextCommands && this.importContextCommandModules(importModules.contextCommands)
             ]);
         }
 
         // Configure default slash command handler
         if (this.features.useDefaultSlashCommandHandler) {
-            this.events.register(defaultSlashCommandHandler);
-        }
-
-        // Configure default prefix command handler
-        if (this.features.useDefaultPrefixCommandHandler) {
-            this.events.register(defaultPrefixCommandHandler);
+            this.events.register(BUILTIN_SlashCommandHandler);
         }
 
         // Configure default context command handler
         if (this.features.useDefaultContextCommandHandler) {
-            this.events.register(defaultContextCommandHandler);
+            this.events.register(BUILTIN_ContextCommandHandler);
+        }
+
+        // Configure default prefix command handler
+        if (this.features.useDefaultPrefixCommandHandler) {
+            this.events.register(BUILTIN_PrefixCommandHandler);
         }
 
         return this;
@@ -390,11 +402,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 }
 
                 const stopLoader = this.logger.loader("Connecting to Discord...");
-                const loginResult = await retryExponentialBackoff(
-                    () => super.login(token),
-                    this.features.loginAttempts ?? 3,
-                    1_000
-                );
+                const loginResult = await $.async.retry(() => super.login(token), this.features.loginAttempts ?? 3, 1_000);
                 stopLoader("Connected to Discord    ");
                 this.config.app.verbose && this.logger.debug("⏳ Waiting for ready...");
                 return loginResult;
@@ -415,138 +423,19 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     async kill() {
         await super.destroy();
-        const idx = clientInstances.indexOf(this);
-        if (idx >= 0) clientInstances.splice(idx, 1);
+        Vimcord.instances.delete(this.clientId);
         this.logger.debug("🚪 Logged out of Discord");
     }
 
     /** Shortcut for {@link fetchUser tools.fetchUser} */
     async fetchUser(id: string | undefined | null): Promise<User | null> {
-        const client = await this.whenReady();
+        const client = await this.waitForReady();
         return fetchUser(client, id);
     }
 
     /** Shortcut for {@link fetchGuild tools.fetchGuild} */
     async fetchGuild(id: string | undefined | null): Promise<Guild | null> {
-        const client = await this.whenReady();
+        const client = await this.waitForReady();
         return fetchGuild(client, id);
     }
 }
-
-const defaultPrefixCommandHandler = new EventBuilder({
-    event: "messageCreate",
-    name: "PrefixCommandHandler",
-    async execute(client, message) {
-        if (message.author.bot || !message.guild) return;
-
-        const config = client.config.prefixCommands;
-
-        // 1. Resolve the active prefix for this guild
-        let activePrefix = config.defaultPrefix;
-
-        if (config.guildPrefixResolver) {
-            try {
-                const customPrefix = await config.guildPrefixResolver(client, message.guild.id);
-                if (customPrefix) activePrefix = customPrefix;
-            } catch (err) {
-                client.logger.error(`Error in guildPrefixResolver for guild ${message.guild.id}:`, err as Error);
-                // Fallback to defaultPrefix on error
-            }
-        }
-
-        let prefixUsed: string | undefined;
-
-        // 2. Determine if a valid prefix was used (Custom/Default vs Mention)
-        if (message.content.startsWith(activePrefix)) {
-            prefixUsed = activePrefix;
-        } else if (config.allowMentionAsPrefix) {
-            const mention = userMention(client.user.id);
-            if (message.content.startsWith(mention)) {
-                prefixUsed = message.content.startsWith(`${mention} `) ? `${mention} ` : mention;
-            }
-        }
-
-        if (!prefixUsed) return;
-
-        // 3. Extract trigger and raw arguments
-        const contentWithoutPrefix = message.content.slice(prefixUsed.length).trim();
-        const args = contentWithoutPrefix.split(/\s+/);
-        const trigger = args.shift();
-
-        if (!trigger) return;
-
-        // 4. Resolve the builder
-        const command = client.commands.prefix.get(trigger);
-        if (!command) return;
-
-        // 5. Cleanup content and Run
-        message.content = args.join(" ");
-
-        try {
-            return await command.run(client, client, message);
-        } catch (err) {
-            await sendCommandErrorEmbed(client, err as Error, message.guild, message);
-            throw err;
-        }
-    }
-});
-
-const defaultSlashCommandHandler = new EventBuilder({
-    event: "interactionCreate",
-    name: "SlashCommandHandler",
-    async execute(client, interaction) {
-        // 1. Ensure it's a Chat Input (Slash) command
-        if (!interaction.isChatInputCommand()) return;
-
-        // 2. Fetch the builder from our refactored manager
-        const command = client.commands.slash.get(interaction.commandName);
-
-        // 3. Handle unknown commands
-        if (!command) {
-            const content = `**/\`${interaction.commandName}\`** is not a registered command.`;
-
-            // Safety check: if the interaction was somehow already deferred/replied
-            if (interaction.replied || interaction.deferred) {
-                return interaction.followUp({ content, flags: "Ephemeral" });
-            }
-            return interaction.reply({ content, flags: "Ephemeral" });
-        }
-
-        try {
-            return await command.run(client, client, interaction);
-        } catch (err) {
-            await sendCommandErrorEmbed(client, err as Error, interaction.guild, interaction);
-            throw err;
-        }
-    }
-});
-
-const defaultContextCommandHandler = new EventBuilder({
-    event: "interactionCreate",
-    name: "ContextCommandHandler",
-    async execute(client, interaction) {
-        // 1. Ensure it is a Context Menu interaction (User or Message)
-        if (!interaction.isContextMenuCommand()) return;
-
-        // 2. Resolve the builder from our Context Manager
-        const command = client.commands.context.get(interaction.commandName);
-
-        // 3. Handle unknown context commands
-        if (!command) {
-            const content = `**${interaction.commandName}** is not a registered context command.`;
-
-            // Standard safety check for deferred/replied states
-            if (interaction.replied || interaction.deferred) {
-                return interaction.followUp({ content, flags: "Ephemeral" });
-            }
-            return interaction.reply({ content, flags: "Ephemeral" });
-        }
-
-        try {
-            return await command.run(client, client, interaction);
-        } catch (err) {
-            await sendCommandErrorEmbed(client, err as Error, interaction.guild, interaction);
-            throw err;
-        }
-    }
-});

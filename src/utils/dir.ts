@@ -1,6 +1,11 @@
 import path from "node:path";
 import { $ } from "qznt";
 
+export function getCallerFileName() {
+    const stack = new Error().stack?.split("\n");
+    return stack?.at(4)?.split("at file")?.at(1)?.split("/").at(-1)?.split(":").at(0)?.split(".").at(0);
+}
+
 export function getProcessDir() {
     const mainPath = process.argv[1];
     if (!mainPath) return "";
@@ -15,9 +20,7 @@ export async function importModulesFromDir<T extends any>(dir: string, suffix?: 
     /* Search the directory for event modules */
     const files = $.fs
         .readDir(MODULE_RELATIVE_PATH)
-        .filter(
-            fn => fn.endsWith(`${suffix ? `.${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `.${suffix}` : ""}.ts`)
-        );
+        .filter(fn => fn.endsWith(`${suffix ? `.${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `.${suffix}` : ""}.ts`));
 
     if (!files.length) {
         return [];
@@ -52,9 +55,4 @@ export async function importModulesFromDir<T extends any>(dir: string, suffix?: 
 
     // Return the filtered modules
     return filteredModules;
-}
-
-export function getCallerFileName() {
-    const stack = new Error().stack?.split("\n");
-    return stack?.at(4)?.split("at file")?.at(1)?.split("/").at(-1)?.split(":").at(0)?.split(".").at(0);
 }

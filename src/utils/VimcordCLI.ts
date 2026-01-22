@@ -1,7 +1,7 @@
-import { clientInstances } from "@/client";
 import { Logger } from "@/tools/Logger";
 import { createInterface, Interface } from "node:readline";
 import { $ } from "qznt";
+import { useClient } from "./clientUtils";
 
 export interface VimcordCLIOptions {
     prefix: string;
@@ -62,7 +62,7 @@ export class VimcordCLI {
                 CLI.logger.error(`'${clientIndex}' is not a valid number`);
                 return undefined;
             }
-            const client = clientInstances[idx];
+            const client = useClient(idx);
             if (!client) {
                 CLI.logger.error("Client instance not found");
                 return undefined;
@@ -70,7 +70,7 @@ export class VimcordCLI {
             return client;
         } else {
             // Fallback to the first client
-            const client = clientInstances[0];
+            const client = useClient(0);
             if (!client) {
                 CLI.logger.error("Client instance not found");
                 return undefined;

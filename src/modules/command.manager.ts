@@ -207,7 +207,7 @@ export class CommandManager {
     }
 
     async registerGlobal(options: CommandFilter = {}) {
-        const client = await this.client.whenReady();
+        const client = await this.client.waitForReady();
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands globally: REST is not initialized`);
             return;
@@ -230,7 +230,7 @@ export class CommandManager {
     }
 
     async unregisterGlobal() {
-        const client = await this.client.whenReady();
+        const client = await this.client.waitForReady();
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to remove app commands globally: REST is not initialized`);
             return;
@@ -245,7 +245,7 @@ export class CommandManager {
     }
 
     async registerGuild(options: CommandFilter & { guilds?: string[] } = {}) {
-        const client = await this.client.whenReady();
+        const client = await this.client.waitForReady();
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
             return;
@@ -277,7 +277,7 @@ export class CommandManager {
     }
 
     async unregisterGuild(options: { guilds?: string[] } = {}) {
-        const client = await this.client.whenReady();
+        const client = await this.client.waitForReady();
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
             return;
