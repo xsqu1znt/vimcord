@@ -304,8 +304,12 @@ export class BetterModal {
             }
 
             return {
-                getField<T extends any>(customId: string): T {
-                    return fields.get(customId);
+                getField<T extends any>(customId: string, required?: boolean): T {
+                    const value = fields.get(customId);
+                    if (required && value === undefined) {
+                        throw new Error(`ModalSubmitResult: Field ${customId} is required but was not found`);
+                    }
+                    return value;
                 },
                 values,
                 interaction: modalSubmit,
