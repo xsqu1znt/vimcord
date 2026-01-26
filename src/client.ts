@@ -230,9 +230,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
 
         /* - - - - - { Client } - - - - - */
-        if (!this.config.app.disableBanner === true) {
-            this.logger.clientBanner(this);
-        }
+        this.logger.clientBanner(this);
 
         // Handle client ready
         this.once("clientReady", client => {
