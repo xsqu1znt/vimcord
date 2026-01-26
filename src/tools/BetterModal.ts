@@ -11,8 +11,11 @@ import {
     ChannelSelectMenuBuilder,
     FileUploadBuilder,
     Interaction,
+    InteractionDeferUpdateOptions,
+    InteractionResponse,
     LabelBuilder,
     MentionableSelectMenuBuilder,
+    Message,
     ModalBuilder,
     ModalSubmitInteraction,
     RoleSelectMenuBuilder,
@@ -22,6 +25,8 @@ import {
     UserSelectMenuBuilder
 } from "discord.js";
 import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { $ } from "qznt";
+import { dynaSend, RequiredDynaSendOptions } from "./dynaSend";
 
 type _TextInputComponentData = Partial<APITextInputComponent> & _LabelComponentData;
 type _StringSelectComponentData = Partial<APIStringSelectComponent> & _LabelComponentData;
@@ -54,32 +59,41 @@ interface _LabelComponentData {
 }
 
 export interface BetterModalOptions {
-    /** The ID of the modal, if not provided will generate a time-based ID */
+    /** The ID of the modal, if not provided will generate a time-based ID. */
     id?: string;
-    /** The title of the modal */
+    /** The title of the modal. */
     title?: string;
-    /** Max 5 components */
+    /** Max 5 components. */
     components?: BetterModalComponent[];
+    /** A custom Vimcord config. */
     config?: VimcordToolsConfig;
 }
 
-export interface ModalSubmitResult<T extends Record<string, any> = Record<string, any>> {
-    /** Modal fields by custom_id */
-    fields: T;
-    /** Modal fields in the order components were added */
-    values: any[];
-    /** The modal submit interaction for replying */
-    interaction: ModalSubmitInteraction;
+export interface AwaitSubmitOptions extends Omit<AwaitModalSubmitOptions<ModalSubmitInteraction>, "filter" | "time"> {
+    /** The time to wait for the modal to be submitted in milliseconds. */
+    timeout?: number;
+    /** Whether to automatically deferUpdate, simply closing the modal after submission. */
+    autoDefer?: boolean;
 }
 
-function randomCharString(length: number) {
-    const chars = "ABCDEFGHJKLMOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    return Array.from({ length }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
+export interface ModalSubmitResult<T extends any = any> {
+    /** Gets a field by the component's custom_id. */
+    getField(customId: string, required?: boolean): T | undefined;
+    getField(customId: string, required: true): T;
+    /** Modal fields in the order the components were added. */
+    values: T[];
+    /** The modal's submission interaction. */
+    interaction: ModalSubmitInteraction;
+    /** Replies to the interaction using DynaSend. */
+    reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
+    /** Defers the interaction, closing the modal. */
+    deferUpdate: (options?: InteractionDeferUpdateOptions) => Promise<InteractionResponse>;
 }
 
 export class BetterModal {
-    id: string;
-    options: BetterModalOptions;
+    readonly id: string;
+    readonly options: BetterModalOptions;
+
     private modal: ModalBuilder;
     private components = new Map<string, LabelBuilder>();
     private config: VimcordToolsConfig;
@@ -100,11 +114,11 @@ export class BetterModal {
     }
 
     private createModalId() {
-        return `modal:${randomCharString(10)}-${Date.now()}`;
+        return `modal:${$.rnd.str(10, "alpha", { casing: "mixed" })}-${Date.now()}`;
     }
 
     private createComponentId() {
-        return `modal-component:${randomCharString(4)}-${Date.now().toString().slice(-4)}`;
+        return `modal-component:${this.id}-${$.rnd.str(4, "alpha", { casing: "mixed" })}-${Date.now().toString().slice(-4)}`;
     }
 
     private validateComponentLength() {
@@ -232,7 +246,10 @@ export class BetterModal {
         return this;
     }
 
-    /** Show the modal via interaction */
+    /**
+     * Shows the modal via interaction.
+     * @param interaction The interaction used to show the modal
+     */
     async show(interaction: Interaction): Promise<void> {
         if (!("showModal" in interaction)) throw new Error("Interaction does not support showing modals");
         if (!this.modal.data.title) throw new Error("Modal must have a title");
@@ -242,22 +259,27 @@ export class BetterModal {
         });
     }
 
-    /** Waits for the modal to be submitted and returns the component data
+    /**
+     * Waits for the modal to be submitted and returns the component data.
      * @param interaction The interaction used to show the modal
      * @param options Options */
-    async awaitSubmit<T extends Record<string, any> = Record<string, string>>(
+    async awaitSubmit<T extends any = any>(
         interaction: Interaction,
-        options?: Omit<AwaitModalSubmitOptions<ModalSubmitInteraction>, "filter">
+        options?: AwaitSubmitOptions
     ): Promise<ModalSubmitResult<T> | null> {
         if (!("showModal" in interaction)) throw new Error("Interaction does not support showing modals");
         try {
             const modalSubmit = await interaction.awaitModalSubmit({
-                time: this.config.timeouts.modalSubmit,
-                ...options,
-                filter: i => i.customId === this.id
+                filter: i => i.customId === this.id,
+                time: options?.timeout ?? this.config.timeouts.modalSubmit,
+                ...options
             });
 
-            const fields: Record<string, any> = {};
+            if (options?.autoDefer) {
+                await modalSubmit.deferUpdate();
+            }
+
+            const fields = new Map<string, any>();
             const values: any[] = [];
 
             // Iterate in order
@@ -277,21 +299,32 @@ export class BetterModal {
                     } catch {}
                 }
 
-                fields[customId] = value;
+                fields.set(customId, value);
                 values.push(value);
             }
 
-            return { fields: fields as T, values, interaction: modalSubmit };
+            return {
+                getField<T extends any>(customId: string): T {
+                    return fields.get(customId);
+                },
+                values,
+                interaction: modalSubmit,
+                reply: (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
+                deferUpdate: async (options?: InteractionDeferUpdateOptions) => await modalSubmit.deferUpdate(options)
+            };
         } catch (error) {
             return null;
         }
     }
 
-    async showAndAwait<T extends Record<string, any> = Record<string, string>>(
+    /**
+     * Shows the modal and waits for the modal to be submitted, returning the component data.
+     * @param interaction The interaction used to show the modal
+     * @param options Options */
+    async showAndAwait<T extends any = any>(
         interaction: Interaction,
-        options?: Omit<AwaitModalSubmitOptions<ModalSubmitInteraction>, "filter">
+        options?: AwaitSubmitOptions
     ): Promise<ModalSubmitResult<T> | null> {
-        if (!("showModal" in interaction)) throw new Error("Interaction does not support showing modals");
         await this.show(interaction);
         return this.awaitSubmit<T>(interaction, options);
     }
