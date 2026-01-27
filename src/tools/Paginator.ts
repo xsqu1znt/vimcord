@@ -433,7 +433,7 @@ export class Paginator {
     }
 
     private async collect_components(): Promise<void> {
-        if (!this.data.message || !this.data.messageActionRows.length) return;
+        if (!this.data.message /* || !this.data.messageActionRows.length */) return;
         if (this.data.collectors.component) {
             this.data.collectors.component.resetTimer();
             return;
