@@ -156,7 +156,7 @@ export class BaseCommandManager<T extends CommandType> {
         let moduleType: string;
         switch (this.type) {
             case CommandType.Slash:
-                moduleType = "Prefix Commands";
+                moduleType = "Slash Commands";
                 break;
             case CommandType.Context:
                 moduleType = "Context Commands";
