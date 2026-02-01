@@ -213,7 +213,7 @@ export class CommandManager {
             return;
         }
 
-        const commands = this.getAllAppCommands(options);
+        const commands = this.getAllAppCommands(options).map(cmd => cmd.builder.toJSON());
         if (!commands.length) {
             console.log("[CommandManager] No commands to register globally");
             return;
@@ -251,7 +251,7 @@ export class CommandManager {
             return;
         }
 
-        const commands = this.getAllAppCommands(options);
+        const commands = this.getAllAppCommands(options).map(cmd => cmd.builder.toJSON());
         if (!commands.length) {
             console.log("[CommandManager] No commands to register by guild");
             return;
