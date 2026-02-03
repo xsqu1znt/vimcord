@@ -9,13 +9,16 @@ import { MongoDatabase } from "@/modules/db/mongo/mongo";
 import { Logger } from "@/tools/Logger";
 import {
     AggregateOptions,
+    AnyBulkWriteOperation,
     ClientSession,
     ClientSessionOptions,
     CreateOptions,
+    Document,
     HydratedDocument,
     Model,
     mongo,
     MongooseBaseQueryOptions,
+    MongooseBulkWriteOptions,
     MongooseUpdateQueryOptions,
     PipelineStage,
     ProjectionType,
@@ -335,5 +338,13 @@ export class MongoSchemaBuilder<Definition extends object = any> {
             const result = await model.aggregate<T>(pipeline, options);
             return result?.length ? result : [];
         });
+    }
+
+    async bulkWrite(ops: AnyBulkWriteOperation<Document<Definition>>[], options?: MongooseBulkWriteOptions) {
+        return await this.execute(async model => model.bulkWrite(ops, options));
+    }
+
+    async bulkSave(docs: Document<Definition>[], options?: MongooseBulkWriteOptions) {
+        return await this.execute(async model => model.bulkSave(docs as Document<any>[], options));
     }
 }
