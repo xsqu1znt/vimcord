@@ -340,11 +340,11 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         });
     }
 
-    async bulkWrite(ops: AnyBulkWriteOperation<Document<Definition>>[], options?: MongooseBulkWriteOptions) {
+    async bulkWrite(ops: AnyBulkWriteOperation[], options?: MongooseBulkWriteOptions) {
         return await this.execute(async model => model.bulkWrite(ops, options));
     }
 
-    async bulkSave(docs: Document<Definition>[], options?: MongooseBulkWriteOptions) {
-        return await this.execute(async model => model.bulkSave(docs as Document<any>[], options));
+    async bulkSave(docs: Document[], options?: MongooseBulkWriteOptions) {
+        return await this.execute(async model => model.bulkSave(docs, options));
     }
 }
