@@ -196,21 +196,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.clientOptions = options;
         this.features = features;
 
-        this.config = {
-            app: createVimcordAppConfig(config.app),
-            staff: createVimcordStaffConfig(config.staff),
-            slashCommands: createVimcordSlashCommandConfig(config.slashCommands),
-            prefixCommands: createVimcordPrefixCommandConfig(config.prefixCommands),
-            contextCommands: createVimcordContextCommandConfig(config.contextCommands)
-        };
-
-        // Configure the status manager
-        this.status = new StatusManager(this);
-        // Configure the event manager
-        this.events = new EventManager(this);
-        // Configure the command manager
-        this.commands = new CommandManager(this);
-
         /* - - - - - { Features } - - - - - */
         if (this.features.useEnv) {
             if (typeof this.features.useEnv === "object") {
@@ -228,6 +213,21 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             this.on("error", err => this.logger.error("Client Error", err));
             this.on("shardError", err => this.logger.error("Client Shard Error", err));
         }
+
+        this.config = {
+            app: createVimcordAppConfig(config.app),
+            staff: createVimcordStaffConfig(config.staff),
+            slashCommands: createVimcordSlashCommandConfig(config.slashCommands),
+            prefixCommands: createVimcordPrefixCommandConfig(config.prefixCommands),
+            contextCommands: createVimcordContextCommandConfig(config.contextCommands)
+        };
+
+        // Configure the status manager
+        this.status = new StatusManager(this);
+        // Configure the event manager
+        this.events = new EventManager(this);
+        // Configure the command manager
+        this.commands = new CommandManager(this);
 
         /* - - - - - { Client } - - - - - */
         this.logger.clientBanner(this);
