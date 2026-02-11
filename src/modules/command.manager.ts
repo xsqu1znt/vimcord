@@ -219,13 +219,18 @@ export class CommandManager {
             return;
         }
 
-        console.log(`[CommandManager] Registering (${commands.length}) commands globally...`);
+        console.log(
+            `[CommandManager] Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} globally...`
+        );
 
         try {
             await client.rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-            console.log(`[CommandManager] ✔ Registered app commands globally`);
+            console.log(`[CommandManager] ✔ Registered app ${commands.length === 1 ? "command" : "commands"} globally`);
         } catch (err) {
-            console.error(`[CommandManager] ✖ Failed to register app commands globally`, err);
+            console.error(
+                `[CommandManager] ✖ Failed to register app ${commands.length === 1 ? "command" : "commands"} globally`,
+                err
+            );
         }
     }
 
@@ -258,7 +263,9 @@ export class CommandManager {
         }
 
         const guildIds = options.guilds || client.guilds.cache.map(g => g.id);
-        console.log(`[CommandManager] Registering (${commands.length}) commands for ${guildIds.length} guilds...`);
+        console.log(
+            `[CommandManager] Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} for ${guildIds.length} guilds...`
+        );
 
         await Promise.all(
             guildIds.map(guildId =>
@@ -266,11 +273,16 @@ export class CommandManager {
                     .put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands })
                     .then(() => {
                         const gName = client.guilds.cache.get(guildId)?.name || "n/a";
-                        console.log(`[CommandManager] ✔ Set app commands in guild: ${guildId} (${gName})`);
+                        console.log(
+                            `[CommandManager] ✔ Set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`
+                        );
                     })
                     .catch(err => {
                         const gName = client.guilds.cache.get(guildId)?.name || "n/a";
-                        console.log(`[CommandManager] ✖ Failed to set app commands in guild: ${guildId} (${gName})`, err);
+                        console.log(
+                            `[CommandManager] ✖ Failed to set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`,
+                            err
+                        );
                     })
             )
         );

@@ -1,3 +1,4 @@
+import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
 import {
     APIChannelSelectComponent,
     APIFileUploadComponent,
@@ -12,10 +13,12 @@ import {
     FileUploadBuilder,
     Interaction,
     InteractionDeferUpdateOptions,
+    InteractionReplyOptions,
     InteractionResponse,
     LabelBuilder,
     MentionableSelectMenuBuilder,
     Message,
+    MessagePayload,
     ModalBuilder,
     ModalSubmitInteraction,
     RoleSelectMenuBuilder,
@@ -24,7 +27,6 @@ import {
     TextInputStyle,
     UserSelectMenuBuilder
 } from "discord.js";
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
 import { $ } from "qznt";
 import { dynaSend, RequiredDynaSendOptions } from "./dynaSend";
 
@@ -88,6 +90,8 @@ export interface ModalSubmitResult<T extends any = any> {
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     /** Defers the interaction, closing the modal. */
     deferUpdate: (options?: InteractionDeferUpdateOptions) => Promise<InteractionResponse>;
+    /** Follow up the interaction. */
+    followUp: (options: string | MessagePayload | InteractionReplyOptions) => Promise<Message | null>;
 }
 
 export class BetterModal {
@@ -314,7 +318,9 @@ export class BetterModal {
                 values,
                 interaction: modalSubmit,
                 reply: (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
-                deferUpdate: async (options?: InteractionDeferUpdateOptions) => await modalSubmit.deferUpdate(options)
+                deferUpdate: async (options?: InteractionDeferUpdateOptions) => await modalSubmit.deferUpdate(options),
+                followUp: async (options: string | MessagePayload | InteractionReplyOptions) =>
+                    await modalSubmit.followUp(options)
             };
         } catch (error) {
             return null;

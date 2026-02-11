@@ -14,8 +14,7 @@ export interface SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>
 
 export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, SlashCommandConfig> {
     builder!: AnySlashCommandBuilder;
-    readonly routes: Map<string, (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any> =
-        new Map();
+    readonly routes: Map<string, (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any> = new Map();
 
     constructor(config: SlashCommandConfig) {
         super(CommandType.Slash, config);
@@ -43,7 +42,11 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
         if (subCommand) {
             const handler = this.routes.get(subCommand.toLowerCase());
             if (handler) return await handler(client, interaction);
-            if (config.onUnknownRouteHandler) return await config.onUnknownRouteHandler(client, interaction);
+            if (config.onUnknownRouteHandler) {
+                return await config.onUnknownRouteHandler(client, interaction);
+            } else {
+                return await interaction.reply({ content: `Unknown subcommand: ${subCommand}`, flags: "Ephemeral" });
+            }
         }
 
         return await originalExecute?.(client, interaction);
