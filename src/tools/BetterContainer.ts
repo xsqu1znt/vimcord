@@ -3,6 +3,7 @@ import {
     APIThumbnailComponent,
     ButtonBuilder,
     ButtonComponentData,
+    ColorResolvable,
     ContainerBuilder,
     Message,
     MessageActionRowComponentBuilder,
@@ -14,7 +15,7 @@ import { SendHandler } from "./types";
 import { PartialDeep } from "type-fest";
 
 export interface BetterContainerData {
-    color?: string | string[] | null;
+    color?: ColorResolvable | ColorResolvable[] | null;
     config?: PartialDeep<ToolsConfig>;
 }
 
@@ -27,9 +28,7 @@ export class BetterContainer {
         this.config = data.config ? createToolsConfig(data.config) : globalToolsConfig;
 
         this.data = {
-            color:
-                data.color ??
-                (this.config.devMode ? (this.config.embedColorDev as string[]) : (this.config.embedColor as string[])),
+            color: data.color ?? (this.config.devMode ? this.config.embedColorDev : this.config.embedColor),
             ...data
         };
 
@@ -38,14 +37,14 @@ export class BetterContainer {
 
     private configure() {
         // Color
-        if (this.data.color) {
+        if (this.data.color !== undefined) {
             try {
                 const color = Array.isArray(this.data.color)
                     ? (this.data.color[Math.floor(Math.random() * this.data.color.length)] ?? null)
                     : this.data.color;
 
                 if (color) {
-                    this.container.setAccentColor(parseInt(color.replace("#", ""), 16));
+                    this.container.setAccentColor(parseInt((color as string).replace("#", ""), 16));
                 } else {
                     this.container.clearAccentColor();
                 }
@@ -57,6 +56,16 @@ export class BetterContainer {
 
     build() {
         this.configure();
+    }
+
+    setColor(color: ColorResolvable | ColorResolvable[]): this {
+        this.data.color = color;
+        return this;
+    }
+
+    clearColor(): this {
+        this.data.color = null;
+        return this;
     }
 
     addSeparator(options?: { divider?: boolean; spacing?: number }): this {
