@@ -5,15 +5,15 @@ import { AppCommandDeployment } from "@ctypes/command.options";
 import { type Vimcord } from "@/client";
 import _ from "lodash";
 
-export interface ContextCommandConfig extends BaseCommandConfig<CommandType.Context>, BaseAppCommandConfig {
+interface _ContextCommandConfig extends BaseCommandConfig<CommandType.Context>, BaseAppCommandConfig {
     builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
     deferReply?: boolean | { ephemeral?: boolean };
 }
 
-export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Context, ContextCommandConfig> {
+export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Context, _ContextCommandConfig> {
     builder!: ContextMenuCommandBuilder;
 
-    constructor(config: ContextCommandConfig) {
+    constructor(config: _ContextCommandConfig) {
         super(CommandType.Context, config);
         this.setBuilder(config.builder);
 
@@ -26,7 +26,7 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
     private async handleExecution(
         client: Vimcord<true>,
         interaction: ContextMenuCommandInteraction,
-        originalExecute?: ContextCommandConfig["execute"]
+        originalExecute?: _ContextCommandConfig["execute"]
     ) {
         const config = this.resolveConfig(client);
 
@@ -44,13 +44,13 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
 
     // --- Specialized Fluent API ---
 
-    setBuilder(builder: ContextCommandConfig["builder"]): this {
+    setBuilder(builder: _ContextCommandConfig["builder"]): this {
         this.builder = typeof builder === "function" ? builder(new ContextMenuCommandBuilder()) : builder;
         this.validateBuilder();
         return this;
     }
 
-    setDeferReply(defer: ContextCommandConfig["deferReply"]): this {
+    setDeferReply(defer: _ContextCommandConfig["deferReply"]): this {
         this.options.deferReply = defer;
         return this;
     }
@@ -60,7 +60,7 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
         return this;
     }
 
-    setExecute(fn: ContextCommandConfig["execute"]): this {
+    setExecute(fn: _ContextCommandConfig["execute"]): this {
         const originalExecute = fn;
         this.options.execute = async (client, interaction) => {
             return await this.handleExecution(client, interaction, originalExecute);
@@ -68,7 +68,7 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
         return this;
     }
 
-    toConfig(): ContextCommandConfig {
+    toConfig(): _ContextCommandConfig {
         return { ...this.options, builder: this.builder };
     }
 }

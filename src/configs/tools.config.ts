@@ -2,7 +2,7 @@ import { ColorResolvable } from "discord.js";
 import { PartialDeep } from "type-fest";
 import _ from "lodash";
 
-export interface VimcordToolsConfig {
+export interface ToolsConfig {
     devMode: boolean;
 
     embedColor: ColorResolvable[];
@@ -42,7 +42,7 @@ export interface VimcordToolsConfig {
     };
 }
 
-export const globalVimcordToolsConfig: VimcordToolsConfig = {
+export const globalToolsConfig: ToolsConfig = {
     devMode: false,
 
     embedColor: [],
@@ -85,10 +85,10 @@ export const globalVimcordToolsConfig: VimcordToolsConfig = {
     }
 };
 
-export function defineGlobalToolsConfig(options: PartialDeep<VimcordToolsConfig>) {
-    Object.assign(globalVimcordToolsConfig, _.merge(globalVimcordToolsConfig, options));
+export function defineGlobalToolsConfig(options: PartialDeep<ToolsConfig>) {
+    Object.assign(globalToolsConfig, _.merge(globalToolsConfig, options));
 }
 
-export function createToolsConfig(options?: PartialDeep<VimcordToolsConfig>) {
-    return _.merge(globalVimcordToolsConfig, options);
+export function createToolsConfig(options?: PartialDeep<ToolsConfig>) {
+    return _.merge(globalToolsConfig, options);
 }

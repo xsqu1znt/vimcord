@@ -1,4 +1,4 @@
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import {
     ActionRowBuilder,
     AttachmentBuilder,
@@ -24,6 +24,7 @@ import { BetterContainer } from "./BetterContainer";
 import { BetterEmbed } from "./BetterEmbed";
 import { dynaSend, DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend";
 import { EmbedResolvable, SendHandler, SendMethod } from "./types";
+import { PartialDeep } from "type-fest";
 
 /* NOTE: SinglePageResolvable now supports AttachmentBuilder for image-only pages */
 export type SinglePageResolvable = string | EmbedResolvable | ContainerBuilder | BetterContainer | AttachmentBuilder;
@@ -70,7 +71,7 @@ export interface PaginatorOptions {
     dynamic?: boolean;
     timeout?: number;
     onTimeout?: PaginationTimeoutType;
-    config?: VimcordToolsConfig;
+    config?: PartialDeep<ToolsConfig>;
 }
 
 export interface PaginatorData {
@@ -98,7 +99,7 @@ export interface PaginatorData {
 
     components: {
         chapterSelect: StringSelectMenuBuilder;
-        navigation: Record<keyof VimcordToolsConfig["paginator"]["buttons"], ButtonBuilder>;
+        navigation: Record<keyof ToolsConfig["paginator"]["buttons"], ButtonBuilder>;
 
         actionRows: {
             chapterSelect: ActionRowBuilder<StringSelectMenuBuilder>;
@@ -125,7 +126,7 @@ function wrapPositive(num: number, max: number) {
     return ((num % (max + 1)) + (max + 1)) % (max + 1);
 }
 
-function createNavButton(id: keyof VimcordToolsConfig["paginator"]["buttons"], config: VimcordToolsConfig): ButtonBuilder {
+function createNavButton(id: keyof ToolsConfig["paginator"]["buttons"], config: ToolsConfig): ButtonBuilder {
     const data = config.paginator.buttons[id];
     const btn = new ButtonBuilder({ customId: `btn_${id}`, style: ButtonStyle.Secondary });
 
@@ -162,14 +163,14 @@ export class Paginator {
     chapters: { id: string; pages: Chapter; files?: (AttachmentBuilder | undefined)[] }[] = [];
 
     private options: Required<Omit<PaginatorOptions, "config">>;
-    private config: VimcordToolsConfig;
+    private config: ToolsConfig;
     private data: PaginatorData;
     private events: Record<keyof PaginationEvent, { listener: (...args: any[]) => any; once: boolean }[]>;
 
     eventEmitter = new EventEmitter<PaginationEvent>();
 
     constructor(options: PaginatorOptions = {}) {
-        this.config = options.config || globalVimcordToolsConfig;
+        this.config = options.config ? createToolsConfig(options.config) : globalToolsConfig;
 
         this.options = {
             type: options.type ?? PaginationType.Short,
@@ -246,7 +247,7 @@ export class Paginator {
         this.data.messageActionRows = [];
 
         if (this.data.navigation.isRequired) {
-            let navTypes: (keyof VimcordToolsConfig["paginator"]["buttons"])[] = [];
+            let navTypes: (keyof ToolsConfig["paginator"]["buttons"])[] = [];
 
             if (this.options.dynamic) {
                 const isLong = this.data.navigation.isLong;

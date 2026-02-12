@@ -1,4 +1,4 @@
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import {
     CollectedMessageInteraction,
     InteractionCollector,
@@ -7,6 +7,7 @@ import {
     MessageComponentType,
     UserResolvable
 } from "discord.js";
+import { PartialDeep } from "type-fest";
 
 type Func = (...args: any[]) => any;
 type Listener = { fn: Func; options?: ListenerOptions };
@@ -24,7 +25,7 @@ export interface BetterCollectorOptions<T extends MessageComponentType> {
     maxComponents?: number;
     maxUsers?: number;
     onTimeout?: CollectorTimeoutType;
-    config?: VimcordToolsConfig;
+    config?: PartialDeep<ToolsConfig>;
 }
 
 export interface ListenerOptions<
@@ -49,7 +50,7 @@ export class BetterCollector<ComponentType extends MessageComponentType, InGuild
 
     private activeUsers = new Set<string>();
     private participantWarningCooldowns = new Map<string, number>();
-    private config: VimcordToolsConfig;
+    private config: ToolsConfig;
 
     private events: { collectId: Map<string, Listener[]>; collect: Listener[]; end: Listener[]; timeout: Listener[] } = {
         collectId: new Map(),
@@ -252,8 +253,8 @@ export class BetterCollector<ComponentType extends MessageComponentType, InGuild
         console.error("[BetterCollector] Listener Error:", err);
     }
 
-    constructor(message: Message | undefined | null, options?: BetterCollectorOptions<ComponentType>) {
-        this.config = options?.config || globalVimcordToolsConfig;
+    constructor(message: Message | undefined | null, options: BetterCollectorOptions<ComponentType> = {}) {
+        this.config = options.config ? createToolsConfig(options.config) : globalToolsConfig;
         this.message = message || undefined;
         this.options = options;
         this.build();

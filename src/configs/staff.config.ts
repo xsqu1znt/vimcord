@@ -1,7 +1,7 @@
 import { PartialDeep } from "type-fest";
 import _ from "lodash";
 
-export interface VimcordStaffConfig {
+export interface StaffConfig {
     ownerId: string | null;
     superUsers: string[];
     superUserRoles: string[];
@@ -19,7 +19,7 @@ export interface VimcordStaffConfig {
     };
 }
 
-const defaultConfig: VimcordStaffConfig = {
+const defaultConfig: StaffConfig = {
     ownerId: null,
     superUsers: [],
     superUserRoles: [],
@@ -37,6 +37,6 @@ const defaultConfig: VimcordStaffConfig = {
     }
 };
 
-export function createVimcordStaffConfig(options: PartialDeep<VimcordStaffConfig> = {}): VimcordStaffConfig {
+export function createStaffConfig(options: PartialDeep<StaffConfig> = {}): StaffConfig {
     return _.merge(defaultConfig, options);
 }

@@ -3,7 +3,7 @@ import { PartialDeep } from "type-fest";
 import _ from "lodash";
 import { Vimcord } from "@/client";
 
-export interface VimcordPrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
+export interface PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
     /** @defaultValue ! */
     defaultPrefix: string;
     /** @defaultValue true */
@@ -20,7 +20,7 @@ export interface VimcordPrefixCommandConfig extends BaseCommandConfig<CommandTyp
     ) => Promise<string | null | undefined> | string | null | undefined;
 }
 
-const defaultConfig: VimcordPrefixCommandConfig = {
+const defaultConfig: PrefixCommandConfig = {
     enabled: true,
     defaultPrefix: "!",
     allowMentionAsPrefix: true,
@@ -28,8 +28,6 @@ const defaultConfig: VimcordPrefixCommandConfig = {
     logExecution: true
 };
 
-export function createVimcordPrefixCommandConfig(
-    options: PartialDeep<VimcordPrefixCommandConfig> = {}
-): VimcordPrefixCommandConfig {
+export function createPrefixCommandConfig(options: PartialDeep<PrefixCommandConfig> = {}): PrefixCommandConfig {
     return _.merge(defaultConfig, options);
 }

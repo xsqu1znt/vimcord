@@ -4,12 +4,12 @@ import dotEnv, { DotenvConfigOptions } from "dotenv";
 import { DatabaseManager } from "@ctypes/database";
 import { PartialDeep } from "type-fest";
 
-import { globalVimcordToolsConfig } from "@configs/tools.config";
-import { createVimcordAppConfig, VimcordAppConfig } from "@/configs/app.config";
-import { createVimcordStaffConfig, VimcordStaffConfig } from "@configs/staff.config";
-import { createVimcordSlashCommandConfig, VimcordSlashCommandConfig } from "@configs/slashCommand.config";
-import { createVimcordPrefixCommandConfig, VimcordPrefixCommandConfig } from "@configs/prefixCommand.config";
-import { createVimcordContextCommandConfig, VimcordContextCommandConfig } from "@configs/contextCommand.config";
+import { globalToolsConfig } from "@configs/tools.config";
+import { createAppConfig, AppConfig } from "@/configs/app.config";
+import { createStaffConfig, StaffConfig } from "@configs/staff.config";
+import { createSlashCommandConfig, SlashCommandConfig } from "@configs/slashCommand.config";
+import { createPrefixCommandConfig, PrefixCommandConfig } from "@configs/prefixCommand.config";
+import { createContextCommandConfig, ContextCommandConfig } from "@configs/contextCommand.config";
 
 import { BUILTIN_SlashCommandHandler } from "@/modules/builtins/builtin.slashCommandHandler";
 import { BUILTIN_PrefixCommandHandler } from "@/modules/builtins/builtin.prefixCommandHandler";
@@ -71,7 +71,7 @@ export interface VimcordFeatures {
      * ``` */
     enableCommandErrorMessage?: boolean | CommandErrorMessageConfig;
 
-    /** Update the state of {@link globalVimcordToolsConfig.devMode} whenever {@link VimcordAppConfig.devMode} is updated in the client. This is mainly useful for {@link BetterEmbed} to switch between devMode and production colors during runtime without having to update the global config manually @defaultValue `false` */
+    /** Update the state of {@link globalToolsConfig.devMode} whenever {@link AppConfig.devMode} is updated in the client. This is mainly useful for {@link BetterEmbed} to switch between devMode and production colors during runtime without having to update the global config manually @defaultValue `false` */
     hookToolsDevMode?: boolean;
 
     /** Setup and configure `dotenv` @defaultValue `false` */
@@ -90,11 +90,11 @@ export interface VimcordFeatures {
 }
 
 export interface VimcordConfig {
-    app: VimcordAppConfig;
-    staff: VimcordStaffConfig;
-    slashCommands: VimcordSlashCommandConfig;
-    prefixCommands: VimcordPrefixCommandConfig;
-    contextCommands: VimcordContextCommandConfig;
+    app: AppConfig;
+    staff: StaffConfig;
+    slashCommands: SlashCommandConfig;
+    prefixCommands: PrefixCommandConfig;
+    contextCommands: ContextCommandConfig;
 }
 
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
@@ -215,11 +215,11 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
 
         this.config = {
-            app: createVimcordAppConfig(config.app),
-            staff: createVimcordStaffConfig(config.staff),
-            slashCommands: createVimcordSlashCommandConfig(config.slashCommands),
-            prefixCommands: createVimcordPrefixCommandConfig(config.prefixCommands),
-            contextCommands: createVimcordContextCommandConfig(config.contextCommands)
+            app: createAppConfig(config.app),
+            staff: createStaffConfig(config.staff),
+            slashCommands: createSlashCommandConfig(config.slashCommands),
+            prefixCommands: createPrefixCommandConfig(config.prefixCommands),
+            contextCommands: createContextCommandConfig(config.contextCommands)
         };
 
         // Configure the status manager
@@ -259,31 +259,31 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return new Vimcord(options, features, config);
     }
 
-    configureApp(options: PartialDeep<VimcordAppConfig> = {}) {
-        this.config.app = createVimcordAppConfig(options);
+    configureApp(options: PartialDeep<AppConfig> = {}) {
+        this.config.app = createAppConfig(options);
         if (this.features.hookToolsDevMode) {
-            globalVimcordToolsConfig.devMode = this.config.app.devMode;
+            globalToolsConfig.devMode = this.config.app.devMode;
         }
         return this;
     }
 
-    configureStaff(options: PartialDeep<VimcordStaffConfig> = {}) {
-        this.config.staff = createVimcordStaffConfig(options);
+    configureStaff(options: PartialDeep<StaffConfig> = {}) {
+        this.config.staff = createStaffConfig(options);
         return this;
     }
 
-    configureSlashCommands(options: PartialDeep<VimcordSlashCommandConfig> = {}) {
-        this.config.slashCommands = createVimcordSlashCommandConfig(options);
+    configureSlashCommands(options: PartialDeep<SlashCommandConfig> = {}) {
+        this.config.slashCommands = createSlashCommandConfig(options);
         return this;
     }
 
-    configurePrefixCommands(options: PartialDeep<VimcordPrefixCommandConfig> = {}) {
-        this.config.prefixCommands = createVimcordPrefixCommandConfig(options);
+    configurePrefixCommands(options: PartialDeep<PrefixCommandConfig> = {}) {
+        this.config.prefixCommands = createPrefixCommandConfig(options);
         return this;
     }
 
-    configureContextCommands(options: PartialDeep<VimcordContextCommandConfig> = {}) {
-        this.config.contextCommands = createVimcordContextCommandConfig(options);
+    configureContextCommands(options: PartialDeep<ContextCommandConfig> = {}) {
+        this.config.contextCommands = createContextCommandConfig(options);
         return this;
     }
 

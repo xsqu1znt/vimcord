@@ -9,11 +9,12 @@ import {
     UserResolvable,
     ButtonInteraction
 } from "discord.js";
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import { dynaSend, DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend";
 import { EmbedResolvable, SendHandler } from "./types";
 import { BetterContainer } from "./BetterContainer";
 import { BetterEmbed } from "./BetterEmbed";
+import { PartialDeep } from "type-fest";
 
 export enum PromptResolveType {
     DisableComponents = 0,
@@ -46,7 +47,7 @@ export interface PromptOptions {
     /** @defaultValue [PromptResolveType.DeleteOnConfirm, PromptResolveType.DeleteOnReject] */
     onResolve?: PromptResolveType[];
     timeout?: number;
-    config?: VimcordToolsConfig;
+    config?: PartialDeep<ToolsConfig>;
 }
 
 export interface PromptResult {
@@ -66,12 +67,12 @@ export class Prompt {
     readonly customButtons: Map<string, { button: ButtonBuilder; handler?: ButtonHandler; index: number }>;
     readonly onResolve: PromptResolveType[];
     readonly timeout: number;
-    readonly config: VimcordToolsConfig;
+    readonly config: ToolsConfig;
 
     private message: Message | null = null;
 
     constructor(options: PromptOptions = {}) {
-        this.config = options.config ?? globalVimcordToolsConfig;
+        this.config = options.config ? createToolsConfig(options.config) : globalToolsConfig;
         this.participants = options.participants ?? [];
         this.timeout = options.timeout ?? this.config.timeouts.prompt;
         this.content = options.content;

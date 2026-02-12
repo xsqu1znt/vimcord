@@ -10,9 +10,10 @@ import {
     User
 } from "discord.js";
 import type { InteractionResolveable, SendHandler } from "./types";
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import { dynaSend, DynaSendOptions } from "./dynaSend";
 import { Vimcord } from "@/client";
+import { PartialDeep } from "type-fest";
 
 export interface BetterEmbedContext {
     client?: Vimcord | Client | null;
@@ -50,13 +51,13 @@ export interface BetterEmbedData {
     color?: ColorResolvable | ColorResolvable[] | null;
     timestamp?: number | boolean | Date | null;
     acf?: boolean;
-    config?: VimcordToolsConfig;
+    config?: PartialDeep<ToolsConfig>;
 }
 
 export class BetterEmbed {
     private embed = new EmbedBuilder();
     private data: Required<Omit<BetterEmbedData, "config">>;
-    private config: VimcordToolsConfig;
+    private config: ToolsConfig;
 
     /** A powerful wrapper for `EmbedBuilder` that introduces useful features
      *
@@ -84,7 +85,7 @@ export class BetterEmbed {
      * - __`$month`__: _M or MM_
      * - __`$day`__: _D or DD_ */
     constructor(data: BetterEmbedData = {}) {
-        this.config = data.config || globalVimcordToolsConfig;
+        this.config = data.config ? createToolsConfig(data.config) : globalToolsConfig;
 
         // Initialize with defaults
         this.data = {

@@ -1,7 +1,7 @@
 import { PartialDeep } from "type-fest";
 import _ from "lodash";
 
-export interface VimcordAppConfig {
+export interface AppConfig {
     devMode: boolean;
     name: string;
     appVersion: string;
@@ -27,7 +27,7 @@ export interface VimcordAppConfig {
     };
 }
 
-const defaultConfig: VimcordAppConfig = {
+const defaultConfig: AppConfig = {
     devMode: process.argv.includes("--dev"),
     name: "Discord Bot",
     appVersion: "1.0.0",
@@ -42,6 +42,6 @@ const defaultConfig: VimcordAppConfig = {
     }
 };
 
-export function createVimcordAppConfig(options: PartialDeep<VimcordAppConfig> = {}): VimcordAppConfig {
+export function createAppConfig(options: PartialDeep<AppConfig> = {}): AppConfig {
     return _.merge(defaultConfig, options);
 }

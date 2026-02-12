@@ -8,22 +8,23 @@ import {
     MessageActionRowComponentBuilder,
     ThumbnailBuilder
 } from "discord.js";
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import { DynaSendOptions, dynaSend } from "./dynaSend";
 import { SendHandler } from "./types";
+import { PartialDeep } from "type-fest";
 
 export interface BetterContainerData {
     color?: string | string[] | null;
-    config?: VimcordToolsConfig;
+    config?: PartialDeep<ToolsConfig>;
 }
 
 export class BetterContainer {
     private container = new ContainerBuilder();
     private data: Required<Omit<BetterContainerData, "config">>;
-    private config: VimcordToolsConfig;
+    private config: ToolsConfig;
 
     constructor(data: BetterContainerData = {}) {
-        this.config = data.config || globalVimcordToolsConfig;
+        this.config = data.config ? createToolsConfig(data.config) : globalToolsConfig;
 
         this.data = {
             color:

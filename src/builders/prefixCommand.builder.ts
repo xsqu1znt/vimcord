@@ -6,7 +6,7 @@ import { type Vimcord } from "@/client";
 /**
  * Configuration specific to Prefix-based commands
  */
-export interface PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
+interface _PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
     /** The primary name of the command */
     name: string;
     /** Alternative triggers for this command */
@@ -15,8 +15,8 @@ export interface PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefi
     description?: string;
 }
 
-export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix, PrefixCommandConfig> {
-    constructor(public options: PrefixCommandConfig) {
+export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix, _PrefixCommandConfig> {
+    constructor(public options: _PrefixCommandConfig) {
         super(CommandType.Prefix, options);
 
         // Standardize the wrapping pattern:
@@ -35,7 +35,7 @@ export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix,
     private async handleExecution(
         client: Vimcord<true>,
         message: Message,
-        originalExecute?: PrefixCommandConfig["execute"]
+        originalExecute?: _PrefixCommandConfig["execute"]
     ) {
         // Future hooks for prefix commands (like auto-parsing args) go here
         return await originalExecute?.(client, message);
@@ -87,7 +87,7 @@ export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix,
      * Override setExecute to ensure handleExecution remains the entry point.
      * This is the only base method we need to redefine.
      */
-    setExecute(fn: PrefixCommandConfig["execute"]): this {
+    setExecute(fn: _PrefixCommandConfig["execute"]): this {
         const originalExecute = fn;
         this.options.execute = async (client, message) => {
             return await this.handleExecution(client, message, originalExecute);
@@ -98,7 +98,7 @@ export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix,
     /**
      * Converts the current builder state back into a config object.
      */
-    toConfig(): PrefixCommandConfig {
+    toConfig(): _PrefixCommandConfig {
         return {
             ...this.options
         };

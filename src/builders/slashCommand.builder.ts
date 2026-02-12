@@ -5,18 +5,18 @@ import { BaseCommandBuilder } from "@builders/baseCommand.builder";
 import { type Vimcord } from "@/client";
 import _ from "lodash";
 
-export interface SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {
+interface _SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {
     builder: AnySlashCommandBuilder | ((builder: DJSSlashCommandBuilder) => AnySlashCommandBuilder);
     deferReply?: boolean | { ephemeral?: boolean };
     routes?: Array<{ name: string; handler: (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any }>;
     onUnknownRouteHandler?: (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any;
 }
 
-export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, SlashCommandConfig> {
+export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, _SlashCommandConfig> {
     builder!: AnySlashCommandBuilder;
     readonly routes: Map<string, (client: Vimcord<true>, interaction: ChatInputCommandInteraction) => any> = new Map();
 
-    constructor(config: SlashCommandConfig) {
+    constructor(config: _SlashCommandConfig) {
         super(CommandType.Slash, config);
         this.setBuilder(config.builder);
         if (config.routes) this.addRoutes(...config.routes);
@@ -30,7 +30,7 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
     private async handleExecution(
         client: Vimcord<true>,
         interaction: ChatInputCommandInteraction,
-        originalExecute?: SlashCommandConfig["execute"]
+        originalExecute?: _SlashCommandConfig["execute"]
     ) {
         const config = this.resolveConfig(client);
 
@@ -60,13 +60,13 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
 
     // --- Specialized Fluent API ---
 
-    setBuilder(builder: SlashCommandConfig["builder"]): this {
+    setBuilder(builder: _SlashCommandConfig["builder"]): this {
         this.builder = typeof builder === "function" ? builder(new DJSSlashCommandBuilder()) : builder;
         this.validateBuilder();
         return this;
     }
 
-    setDeferReply(defer: SlashCommandConfig["deferReply"]): this {
+    setDeferReply(defer: _SlashCommandConfig["deferReply"]): this {
         this.options.deferReply = defer;
         return this;
     }
@@ -76,13 +76,13 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
         return this;
     }
 
-    setRoutes(...routes: NonNullable<SlashCommandConfig["routes"]>): this {
+    setRoutes(...routes: NonNullable<_SlashCommandConfig["routes"]>): this {
         this.routes.clear();
         this.addRoutes(...routes);
         return this;
     }
 
-    addRoutes(...routes: NonNullable<SlashCommandConfig["routes"]>): this {
+    addRoutes(...routes: NonNullable<_SlashCommandConfig["routes"]>): this {
         if (!this.options.routes) this.options.routes = [];
         for (const route of routes) {
             const name = route.name.toLowerCase();
@@ -94,12 +94,12 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
         return this;
     }
 
-    setUnknownRouteHandler(handler: SlashCommandConfig["onUnknownRouteHandler"]): this {
+    setUnknownRouteHandler(handler: _SlashCommandConfig["onUnknownRouteHandler"]): this {
         this.options.onUnknownRouteHandler = handler;
         return this;
     }
 
-    setExecute(fn: SlashCommandConfig["execute"]): this {
+    setExecute(fn: _SlashCommandConfig["execute"]): this {
         const originalExecute = fn;
         this.options.execute = async (client, interaction) => {
             return await this.handleExecution(client, interaction, originalExecute);
@@ -107,7 +107,7 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, S
         return this;
     }
 
-    toConfig(): SlashCommandConfig {
+    toConfig(): _SlashCommandConfig {
         return {
             ...this.options,
             builder: this.builder,

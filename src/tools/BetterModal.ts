@@ -1,4 +1,4 @@
-import { globalVimcordToolsConfig, VimcordToolsConfig } from "@/configs/tools.config";
+import { globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import {
     APIChannelSelectComponent,
     APIFileUploadComponent,
@@ -68,7 +68,7 @@ export interface BetterModalOptions {
     /** Max 5 components. */
     components?: BetterModalComponent[];
     /** A custom Vimcord config. */
-    config?: VimcordToolsConfig;
+    config?: ToolsConfig;
 }
 
 export interface AwaitSubmitOptions extends Omit<AwaitModalSubmitOptions<ModalSubmitInteraction>, "filter" | "time"> {
@@ -100,13 +100,13 @@ export class BetterModal {
 
     private modal: ModalBuilder;
     private components = new Map<string, LabelBuilder>();
-    private config: VimcordToolsConfig;
+    private config: ToolsConfig;
 
     constructor(options: BetterModalOptions = {}) {
         this.id = options.id || this.createModalId();
         this.options = options;
         this.modal = new ModalBuilder().setCustomId(this.id);
-        this.config = options.config || globalVimcordToolsConfig;
+        this.config = options.config || globalToolsConfig;
 
         if (options.title) {
             this.setTitle(options.title);
