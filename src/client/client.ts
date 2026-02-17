@@ -1,8 +1,3 @@
-import { AppConfig, createAppConfig } from "@/configs/app.config";
-import { ContextCommandConfig, createContextCommandConfig } from "@/configs/contextCommand.config";
-import { createPrefixCommandConfig, PrefixCommandConfig } from "@/configs/prefixCommand.config";
-import { createSlashCommandConfig, SlashCommandConfig } from "@/configs/slashCommand.config";
-import { createStaffConfig, StaffConfig } from "@/configs/staff.config";
 import { CommandManager } from "@/modules/command.manager";
 import { EventManager } from "@/modules/event.manager";
 import { StatusManager } from "@/modules/status.manager";
@@ -13,8 +8,8 @@ import { configDotenv } from "dotenv";
 import { randomUUID } from "node:crypto";
 import { PartialDeep } from "type-fest";
 import { clientLoggerFactory } from "./client.logger";
-import { VimcordConfig, VimcordFeatures } from "./client.types";
-import { createVimcordConfig, configSetters as configCreators } from "./client.utils";
+import { AppModuleImports, VimcordConfig, VimcordFeatures } from "./client.types";
+import { configSetters as configCreators, createVimcordConfig, moduleImporters } from "./client.utils";
 
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     static instances = new Map<number, Vimcord>();
@@ -115,7 +110,19 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.config[type] = configCreators[type](options, this.config[type]) as VimcordConfig[T];
         return this;
     }
+
+    /**
+     * Imports modules into the client.
+     * @param type The type of modules to import.
+     * @param options The options to import the module with.
+     * @param set Replaces already imported modules with the ones found.
+     */
+    importModules<T extends keyof AppModuleImports>(type: T, options: AppModuleImports[T], set?: boolean): this {
+        moduleImporters[type](this, options, set);
+        return this;
+    }
 }
 
 // const client = new Vimcord({ intents: [] });
 // client.configure("app", {});
+// client.importModules("events", { dir: [""], suffix: ".ev" });
