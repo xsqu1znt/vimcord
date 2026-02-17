@@ -2,7 +2,7 @@ import { Routes } from "discord.js";
 import { CommandType } from "@ctypes/command.base";
 import { VimcordCommandBuilderByType } from "@ctypes/command.helpers";
 import { importModulesFromDir } from "@utils/dir";
-import { type Vimcord } from "@/client";
+import { type Vimcord } from "@/client/client";
 
 export interface CommandFilter {
     names?: string[];

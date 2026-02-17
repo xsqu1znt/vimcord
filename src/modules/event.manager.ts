@@ -1,7 +1,7 @@
 import { EventBuilder } from "@builders/event.builder";
 import { importModulesFromDir } from "@utils/dir";
 import { ClientEvents, Events } from "discord.js";
-import { type Vimcord } from "@/client";
+import { type Vimcord } from "@/client/client";
 import { Logger } from "@/tools/Logger";
 
 export class EventManager {

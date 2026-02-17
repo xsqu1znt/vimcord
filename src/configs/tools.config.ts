@@ -1,6 +1,6 @@
+import { createConfigFactory } from "@/utils/configUtils";
 import { ColorResolvable } from "discord.js";
 import { PartialDeep } from "type-fest";
-import _ from "lodash";
 
 export interface ToolsConfig {
     devMode: boolean;
@@ -85,10 +85,8 @@ export const globalToolsConfig: ToolsConfig = {
     }
 };
 
-export function defineGlobalToolsConfig(options: PartialDeep<ToolsConfig>) {
-    Object.assign(globalToolsConfig, _.merge(globalToolsConfig, options));
-}
+export const createToolsConfig = createConfigFactory(globalToolsConfig);
 
-export function createToolsConfig(options?: PartialDeep<ToolsConfig>) {
-    return _.merge(globalToolsConfig, options);
-}
+export const defineGlobalToolsConfig = (options: PartialDeep<ToolsConfig>) => {
+    Object.assign(globalToolsConfig, createToolsConfig(options, globalToolsConfig));
+};

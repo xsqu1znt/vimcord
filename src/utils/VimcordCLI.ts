@@ -3,11 +3,26 @@ import { createInterface, Interface } from "node:readline";
 import { $ } from "qznt";
 import { useClient } from "./clientUtils";
 
+export type VimcordCLIMode = "on" | "off";
+
 export interface VimcordCLIOptions {
     prefix: string;
 }
 
 export class VimcordCLI {
+    static mode: VimcordCLIMode = "off";
+
+    static setMode(mode: VimcordCLIMode) {
+        if (VimcordCLI.mode === mode) return;
+        VimcordCLI.mode = mode;
+
+        if (mode === "on") {
+            CLI.logger.log(`~ Type ${CLI.options.prefix}help to view available commands`);
+        } else {
+            CLI.logger.log(`~ [MODE] Now set to "${mode}"`);
+        }
+    }
+
     rl: Interface;
     options: VimcordCLIOptions;
 
@@ -24,6 +39,8 @@ export class VimcordCLI {
         });
 
         this.rl.on("line", line => {
+            if (VimcordCLI.mode !== "on") return;
+
             const { isCommand, commandName, content, args } = this.parseLine(line);
             if (!isCommand) return;
             const command = this.commands.get(commandName!);
@@ -91,8 +108,7 @@ export class VimcordCLI {
 }
 
 /* Create and export a singleton instance */
-let initCalled = false;
-export const CLI = new VimcordCLI({ prefix: "/" });
+export let CLI = new VimcordCLI({ prefix: "/" });
 
 // TODO: Add /events ~ List loaded events
 CLI.addCommand("help", "View information about a command, or the available CLI options", args => {
@@ -242,10 +258,3 @@ CLI.addCommand("cmds", "List the loaded commands", async (args, content) => {
             return CLI.logger.error(`'${mode}' is not a valid option. Valid options: [slash|prefix|ctx]`);
     }
 });
-
-/** One-time function to be called during client creation */
-export function initCLI() {
-    if (initCalled) return;
-    CLI.logger.log(`~ Type ${CLI.options.prefix}help to view available commands`);
-    initCalled = true;
-}

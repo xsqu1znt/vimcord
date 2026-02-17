@@ -14,7 +14,7 @@ import {
 import { Guild, GuildMember, TextBasedChannel, User } from "discord.js";
 import { validateCommandPermissions } from "@validators/permissions.validator";
 import { randomUUID } from "node:crypto";
-import { type Vimcord } from "@/client";
+import { type Vimcord } from "@/client/client";
 import _ from "lodash";
 
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {

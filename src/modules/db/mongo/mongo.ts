@@ -5,7 +5,7 @@ try {
     throw new Error("MongoDatabase requires the mongoose package, install it with `npm install mongoose`");
 }
 
-import { type Vimcord } from "@/client";
+import { type Vimcord } from "@/client/client";
 import mongoose, { ClientSessionOptions, Connection, ConnectionStates } from "mongoose";
 import EventEmitter from "node:events";
 import { $ } from "qznt";

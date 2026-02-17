@@ -10,7 +10,7 @@ import {
 } from "discord.js";
 import { BetterEmbed } from "@/tools/BetterEmbed";
 import { SendMethod } from "@/tools/types";
-import { type Vimcord } from "@/client";
+import { type Vimcord } from "@/client/client";
 
 export async function sendCommandErrorEmbed(
     client: Vimcord,

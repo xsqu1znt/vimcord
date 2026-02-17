@@ -1,7 +1,6 @@
+import { Vimcord } from "@/client/client";
+import { createConfigFactory } from "@/utils/configUtils";
 import { BaseCommandConfig, CommandType } from "@ctypes/command.base";
-import { PartialDeep } from "type-fest";
-import _ from "lodash";
-import { Vimcord } from "@/client";
 
 export interface PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
     /** @defaultValue ! */
@@ -28,6 +27,4 @@ const defaultConfig: PrefixCommandConfig = {
     logExecution: true
 };
 
-export function createPrefixCommandConfig(options: PartialDeep<PrefixCommandConfig> = {}): PrefixCommandConfig {
-    return _.merge(defaultConfig, options);
-}
+export const createPrefixCommandConfig = createConfigFactory(defaultConfig);

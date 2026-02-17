@@ -1,47 +1,70 @@
-import { PartialDeep } from "type-fest";
-import _ from "lodash";
+import { createConfigFactory } from "@/utils/configUtils";
+import { getDevMode, getPackageJson } from "@/utils/utils";
 
 export interface AppConfig {
-    devMode: boolean;
+    /** The name of the bot displayed in logs and startup banner.
+     * @accessible via `client.$name` for use in embeds, error messages, etc.
+     */
     name: string;
-    appVersion: string;
+    /** The current version of the bot displayed in logs and startup banner.
+     * @accessible via `client.$version` for version commands or update notifications.
+     * @defaultValue Extracted from your `package.json` version field. If not found, defaults to `1.0.0`.
+     */
+    version: string;
 
-    /** Enable verbose console logs?
-     * @defaultValue false */
+    /** Enables development mode for testing and debugging.
+     *
+     * **The way it works:**
+     * - If the bot is ran with the `--dev` flag it will automatically be enabled
+     * - Can be changed during runtime using the `client.$devMode` setter
+     *
+     * **What this does by default:**
+     * - Automatically switches to `TOKEN_DEV` and `MONGO_URI_DEV` environment variables
+     *
+     * **Common use cases:**
+     * - Use a separate Discord server, bot account, or database for testing
+     * - Skip production-only behaviors like analytics tracking or email notifications
+     * - Enable additional debug commands or verbose logging
+     * - Switch between development and production API endpoints for your other services
+     *
+     * @accessible via `client.$devMode` to conditionally enable/disable your own features.
+     *
+     * @example
+     * ```ts
+     * // Use different API endpoints for your own services
+     * const baseAPIUrl = client.$devMode
+     *   ? 'http://localhost:3000'
+     *   : 'https://api.production.com';
+     * ```
+     */
+    devMode: boolean;
+
+    /** Enables verbose console logging with additional debug information.
+     * @accessible via `client.$verboseMode`
+     * @defaultValue false
+     */
     verbose: boolean;
 
-    /** Disable the vimcord client banner on startup
-     * @defaultValue false */
-    disableBanner: boolean;
+    /** Enables the Vimcord CLI.
+     * @defaultValue false
+     */
+    enableCLI: boolean;
 
-    /** Only auto import modules that end with these suffixes */
-    moduleSuffixes: {
-        /** @defaultValue slash */
-        slashCommand: "slash";
-        /** @defaultValue ctx */
-        contextCommand: "ctx";
-        /** @defaultValue prefix */
-        prefixCommand: "prefix";
-        /** @defaultValue event */
-        event: "event";
-    };
+    /** Disables the Vimcord ASCII art banner on startup.
+     * @defaultValue false
+     */
+    disableBanner: boolean;
 }
 
 const defaultConfig: AppConfig = {
-    devMode: process.argv.includes("--dev"),
     name: "Discord Bot",
-    appVersion: "1.0.0",
+    version: getPackageJson()?.version ?? "1.0.0",
+    devMode: getDevMode(),
     verbose: false,
-    disableBanner: false,
-
-    moduleSuffixes: {
-        slashCommand: "slash",
-        contextCommand: "ctx",
-        prefixCommand: "prefix",
-        event: "event"
-    }
+    enableCLI: false,
+    disableBanner: false
 };
 
-export function createAppConfig(options: PartialDeep<AppConfig> = {}): AppConfig {
-    return _.merge(defaultConfig, options);
-}
+export const createAppConfig = createConfigFactory(defaultConfig, config => {
+    if (!config.name) throw new Error("App name is required");
+});

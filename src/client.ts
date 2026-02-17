@@ -122,7 +122,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             console.log(
                 chalk.hex(this.colors.primary)("║") +
                     chalk.bold.hex(this.colors.text)(
-                        `  🚀 ${client.config.app.name} v${client.config.app.appVersion}`.padEnd(
+                        `  🚀 ${client.config.app.name} v${client.config.app.version}`.padEnd(
                             50 - (client.config.app.devMode ? 12 : 0)
                         )
                     ) +
@@ -241,7 +241,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         Vimcord.instances.set(this.clientId, this);
 
         // Initialize the VimcordCLI
-        VimcordCLI.initCLI();
+        VimcordCLI.setVimcordCLI();
     }
 
     /** Returns the options, features, and config of this client. */

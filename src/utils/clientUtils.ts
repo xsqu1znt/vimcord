@@ -1,4 +1,4 @@
-import { Vimcord, VimcordConfig, VimcordFeatures } from "@/client";
+import { Vimcord, VimcordConfig, VimcordFeatures } from "@/client/client";
 import { ClientOptions } from "discord.js";
 import { PartialDeep } from "type-fest";
 

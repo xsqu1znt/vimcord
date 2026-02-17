@@ -12,7 +12,7 @@ import {
 import type { InteractionResolveable, SendHandler } from "./types";
 import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import { dynaSend, DynaSendOptions } from "./dynaSend";
-import { Vimcord } from "@/client";
+import { Vimcord } from "@/client/client";
 import { PartialDeep } from "type-fest";
 
 export interface BetterEmbedContext {

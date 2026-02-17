@@ -1,4 +1,4 @@
-import { Vimcord } from "@/client";
+import { Vimcord } from "@/client/client";
 import { Logger } from "@/tools/Logger";
 import { fetchGuild } from "@/tools/utils";
 import { ClientActivity, ClientStatus, createVimcordStatusConfig, VimcordClientStatus } from "@/types/status";

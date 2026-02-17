@@ -1,5 +1,4 @@
-import { PartialDeep } from "type-fest";
-import _ from "lodash";
+import { createConfigFactory } from "@/utils/configUtils";
 
 export interface StaffConfig {
     ownerId: string | null;
@@ -37,6 +36,4 @@ const defaultConfig: StaffConfig = {
     }
 };
 
-export function createStaffConfig(options: PartialDeep<StaffConfig> = {}): StaffConfig {
-    return _.merge(defaultConfig, options);
-}
+export const createStaffConfig = createConfigFactory(defaultConfig);

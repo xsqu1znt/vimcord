@@ -1,0 +1,122 @@
+import { AppConfig } from "@/configs/app.config";
+import { ContextCommandConfig } from "@/configs/contextCommand.config";
+import { PrefixCommandConfig } from "@/configs/prefixCommand.config";
+import { SlashCommandConfig } from "@/configs/slashCommand.config";
+import { StaffConfig } from "@/configs/staff.config";
+import { EmbedResolvable } from "@/tools/types";
+import { Guild } from "discord.js";
+import { DotenvConfigOptions } from "dotenv";
+
+type ModuleImportOptions = string | string[] | ModuleImportConfig;
+
+interface ModuleImportConfig {
+    /** The directories to import from. */
+    dir: string | string[];
+    /** Recursively imports modules from subdirectories.
+     * @defaultValue true **/
+    recursive?: boolean;
+    /** Only import modules that end with these suffixes.
+     * If set to `null` all files in the directory will be imported, which may lead to import errors if you have modules not related to commands in the same directory.
+     * Respectively, the default suffixes are `slash`, `ctx`, `prefix`, and `event`.
+     * @example
+     * // Example module filenames using the default suffixes (the . is an optional separator)
+     * "ping.slash.ts" OR "avatar.ctx.ts" OR "help.prefix.ts" OR "ready.event.ts"
+     */
+    suffix?: string | string[] | null;
+}
+
+export interface VimcordFeatures {
+    /** Use global process error handlers.
+     * @defaultValue true */
+    useGlobalErrorHandlers?: boolean;
+    /** Use our default prefix command handler.
+     * @defaultValue true */
+    useDefaultPrefixCommandHandler?: boolean;
+    /** Use our default slash command handler.
+     * @defaultValue true */
+    useDefaultSlashCommandHandler?: boolean;
+    /** Use our default context command handler.
+     * @defaultValue true */
+    useDefaultContextCommandHandler?: boolean;
+
+    // TODO: Find a way to implement this as default, then rethrow the error afterwards
+    /** Reply to the user with an Uh-oh! embed when a command fails. If not using our default command handlers, you will have to implement this yourself using {@link sendCommandErrorEmbed}
+     * @example
+     * ```ts
+     * try {
+     *     // Execute the command
+     *     return command.executeCommand(client, message);
+     * } catch (err) {
+     *     // Send the error embed, this already handles the feature configuration
+     *     sendCommandErrorEmbed(client, err as Error, message.guild, message);
+     *     // Re-throw the error so it can be handled by an error handler
+     *     throw err;
+     * }
+     * ``` */
+    enableCommandErrorMessage?: boolean | CommandErrorMessageConfig;
+
+    // TODO: This should be default and not require an option
+    /** Update the state of {@link globalToolsConfig.devMode} whenever {@link AppConfig.devMode} is updated in the client. This is mainly useful for {@link BetterEmbed} to switch between devMode and production colors during runtime without having to update the global config manually @defaultValue `false` */
+    hookToolsDevMode?: boolean;
+
+    /** Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
+     * @defaultValue `false` */
+    useEnv?: boolean | DotenvConfigOptions;
+
+    // TODO: Move this to client login options
+    /** The maximum number of attempts to log into Discord @defaultValue `3` */
+    maxLoginAttempts?: number;
+
+    /** Automatically imports modules from these directories. */
+    importModules?: {
+        /** Default suffix: slash
+         * @example
+         * // Example module filename (the . is an optional separator)
+         * "ping.slash.ts"
+         */
+        slashCommands?: ModuleImportOptions;
+        /** Default suffix: ctx
+         * @example
+         * // Example module filename (the . is an optional separator)
+         * "avatar.ctx.ts"
+         */
+        contextCommands?: ModuleImportOptions;
+        /** Default suffix: prefix
+         * @example
+         * // Example module filename (the . is an optional separator)
+         * "help.prefix.ts"
+         */
+        prefixCommands?: ModuleImportOptions;
+        /** Default suffix: event
+         * @example
+         * // Example module filename (the . is an optional separator)
+         * "ready.event.ts"
+         */
+        events?: ModuleImportOptions;
+    };
+}
+
+export interface VimcordConfig {
+    app: AppConfig;
+    staff: StaffConfig;
+    slashCommands: SlashCommandConfig;
+    prefixCommands: PrefixCommandConfig;
+    contextCommands: ContextCommandConfig;
+}
+
+export interface CommandErrorMessageConfig {
+    /** Use a custom embed */
+    embed?: (embed: EmbedResolvable, error: Error, guild: Guild | null | undefined) => EmbedResolvable;
+    /** @defaultValue config.staff.mainServer.inviteUrl */
+    inviteUrl?: string;
+    /** The support server invite button label @defaultValue "Support Server" */
+    inviteButtonLabel?: string;
+    /** The error details button label @defaultValue "Details" */
+    detailButtonLabel?: string;
+    /** @defaultValue 30_000 // 30 seconds */
+    detailButtonIdleTimeout?: number;
+    /** Should the message be ephemeral? */
+    ephemeral?: boolean;
+    /** Should the message be deleted after a certain amount of time? */
+    deleteAfter?: number;
+}
