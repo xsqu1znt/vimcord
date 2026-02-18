@@ -1,7 +1,7 @@
 import { createAppConfig } from "@/configs/app.config";
-import { createContextCommandConfig } from "@/configs/contextCommand.config";
-import { createPrefixCommandConfig } from "@/configs/prefixCommand.config";
-import { createSlashCommandConfig } from "@/configs/slashCommand.config";
+import { createContextCommandConfig } from "@/configs/context-command.config";
+import { createPrefixCommandConfig } from "@/configs/prefix-command.config";
+import { createSlashCommandConfig } from "@/configs/slash-command.config";
 import { createStaffConfig } from "@/configs/staff.config";
 import { PartialDeep } from "type-fest";
 import { Vimcord } from "./Vimcord";

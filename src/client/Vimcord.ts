@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
 import { PartialDeep } from "type-fest";
-import { ErrorHandler } from "./error-handler";
+import { ErrorHandler } from "./error.handler";
 import { clientLoggerFactory } from "./vimcord.logger";
 import { AppModuleImports, VimcordConfig, VimcordCreateConfig, VimcordFeatures } from "./vimcord.types";
 import { configSetters as configCreators, defineVimcordConfig, moduleImporters } from "./vimcord.utils";
