@@ -5,7 +5,8 @@ import { createSlashCommandConfig } from "@/configs/slashCommand.config";
 import { createStaffConfig } from "@/configs/staff.config";
 import { PartialDeep } from "type-fest";
 import { Vimcord } from "./Vimcord";
-import { AppModuleImports, ModuleImportOptions, VimcordConfig } from "./vimcord.types";
+import { AppModuleImports, ModuleImportOptions, VimcordConfig, VimcordFeatures } from "./vimcord.types";
+import { ClientOptions } from "discord.js";
 
 export const DEFAULT_MODULE_SUFFIXES = {
     slashCommands: ".slash",
@@ -66,7 +67,15 @@ export const moduleImporters: Record<
     }
 };
 
-export function createVimcordConfig(config: PartialDeep<VimcordConfig>) {
+export function defineClientOptions(options: ClientOptions) {
+    return options;
+}
+
+export function defineVimcordFeatures(features: VimcordFeatures) {
+    return features;
+}
+
+export function defineVimcordConfig(config: PartialDeep<VimcordConfig>): VimcordConfig {
     return {
         app: createAppConfig(config.app),
         staff: createStaffConfig(config.staff),

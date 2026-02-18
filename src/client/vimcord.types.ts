@@ -4,8 +4,8 @@ import { PrefixCommandConfig } from "@/configs/prefixCommand.config";
 import { SlashCommandConfig } from "@/configs/slashCommand.config";
 import { StaffConfig } from "@/configs/staff.config";
 import { EmbedResolvable } from "@/tools/types";
-import { Guild } from "discord.js";
-import { DotenvConfigOptions } from "dotenv";
+import { ClientOptions, Guild } from "discord.js";
+import { PartialDeep } from "type-fest";
 
 export interface ModuleImportOptions {
     /** The directories to import from. */
@@ -86,11 +86,6 @@ export interface VimcordFeatures {
      * ``` */
     enableCommandErrorMessage?: boolean | CommandErrorMessageConfig;
 
-
-    /** Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
-     * @defaultValue `false` */
-    useEnv?: boolean | DotenvConfigOptions;
-
     /** The maximum number of attempts to log into Discord @defaultValue `3` */
     maxLoginAttempts?: number;
 
@@ -104,6 +99,12 @@ export interface VimcordConfig {
     slashCommands: SlashCommandConfig;
     prefixCommands: PrefixCommandConfig;
     contextCommands: ContextCommandConfig;
+}
+
+export interface VimcordCreateConfig {
+    options: ClientOptions;
+    features?: VimcordFeatures;
+    config?: PartialDeep<VimcordConfig>;
 }
 
 export interface CommandErrorMessageConfig {

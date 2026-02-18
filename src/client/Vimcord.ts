@@ -7,23 +7,34 @@ import { StatusManager } from "@/modules/status.manager";
 import { DatabaseManager } from "@/types/database";
 import { VimcordCLI } from "@/utils/vimcord.cli";
 import { Client, ClientOptions } from "discord.js";
-import { configDotenv } from "dotenv";
+import { configDotenv, DotenvConfigOptions } from "dotenv";
 import { randomUUID } from "node:crypto";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
 import { PartialDeep } from "type-fest";
 import { ErrorHandler } from "./error-handler";
 import { clientLoggerFactory } from "./vimcord.logger";
-import { AppModuleImports, VimcordConfig, VimcordFeatures } from "./vimcord.types";
-import { configSetters as configCreators, createVimcordConfig, moduleImporters } from "./vimcord.utils";
+import { AppModuleImports, VimcordConfig, VimcordCreateConfig, VimcordFeatures } from "./vimcord.types";
+import { configSetters as configCreators, defineVimcordConfig, moduleImporters } from "./vimcord.utils";
 
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     static instances = new Map<number, Vimcord>();
     private static emitter = new EventEmitter<{ ready: [Vimcord] }>();
     private clientStartingPromise: Promise<string | null> | null = null;
 
-    static create(options: ClientOptions, features: VimcordFeatures = {}, config: PartialDeep<VimcordConfig> = {}) {
-        return new Vimcord(options, features, config);
+    static create(options: ClientOptions, features?: VimcordFeatures, config?: PartialDeep<VimcordConfig>): Vimcord;
+    static create(config: VimcordCreateConfig): Vimcord;
+    static create(
+        optionsOrConfig: ClientOptions | VimcordCreateConfig,
+        features?: VimcordFeatures,
+        config?: PartialDeep<VimcordConfig>
+    ): Vimcord {
+        if ("options" in optionsOrConfig) {
+            const { options, features, config } = optionsOrConfig;
+            return new Vimcord(options, features, config);
+        } else {
+            return new Vimcord(optionsOrConfig, features, config);
+        }
     }
 
     /**
@@ -109,18 +120,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     constructor(options: ClientOptions, features: VimcordFeatures = {}, config: PartialDeep<VimcordConfig> = {}) {
         super(options);
 
-        // Configure dotenv immediately, if enabled
-        if (features.useEnv) {
-            if (typeof features.useEnv === "object") {
-                configDotenv({ quiet: true, ...features.useEnv });
-            } else {
-                configDotenv({ quiet: true });
-            }
-        }
-
         this.clientOptions = options;
         this.features = features;
-        this.config = createVimcordConfig(config);
+        this.config = defineVimcordConfig(config);
 
         // Initialize error handler
         this.error = new ErrorHandler(this);
@@ -178,6 +180,17 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     // prettier-ignore
     set $verboseMode(mode: boolean) { this.config.app.verbose = mode; }
 
+    /** Returns the options, features, and config of this client. */
+    toJSON() {
+        return { options: this.clientOptions, features: this.features, config: this.config };
+    }
+
+    /** Makes a clone of this client. */
+    clone(): Vimcord {
+        const { options, features, config } = this.toJSON();
+        return new Vimcord(options, features, config);
+    }
+
     /**
      * Modifies a client config.
      * @param type The type of config to modify.
@@ -206,19 +219,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return this;
     }
 
-    /** Returns the options, features, and config of this client. */
-    toJSON() {
-        return {
-            options: this.clientOptions,
-            features: this.features,
-            config: this.config
-        };
-    }
-
-    /** Makes a clone of this client. */
-    clone(): Vimcord {
-        const { options, features, config } = this.toJSON();
-        return new Vimcord(options, features, config);
+    /**
+     * Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
+     * @param options Options for dotenv
+     * @see https://www.npmjs.com/package/dotenv
+     */
+    useEnv(options?: DotenvConfigOptions) {
+        this.logger.database("Using", "dotenv");
+        configDotenv({ quiet: true, ...options });
     }
 
     /**
@@ -269,18 +277,18 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      * Starts the client and connects to Discord.
      * Automatically uses `process.env.TOKEN` or `process.env.TOKEN_DEV` if token isn't provided.
      * @param token The Discord bot token.
-     * @param preHook A function to run before logging in.
+     * @param callback Runs after logging in.
      */
     async start(token?: string): Promise<string | null>;
-    async start(preHook?: (client: Vimcord) => unknown): Promise<string | null>;
-    async start(token?: string, preHook?: (client: Vimcord) => unknown): Promise<string | null>;
+    async start(callback?: (client: Vimcord) => unknown): Promise<string | null>;
+    async start(token?: string, callback?: (client: Vimcord) => unknown): Promise<string | null>;
     async start(
         tokenOrPreHook?: string | ((client: Vimcord) => unknown),
-        preHook?: (client: Vimcord) => unknown
+        callback?: (client: Vimcord) => unknown
     ): Promise<string | null> {
         if (this.clientStartingPromise) return this.clientStartingPromise;
 
-        const main = async () => {
+        const execute = async () => {
             let token = typeof tokenOrPreHook === "string" ? tokenOrPreHook : undefined;
             token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
 
@@ -293,12 +301,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             await this.build();
 
             try {
-                if (typeof tokenOrPreHook === "function") {
-                    await tokenOrPreHook(this);
-                } else {
-                    await preHook?.(this as Vimcord<true>);
-                }
-
                 const stopLoader = this.logger.loader("Connecting to Discord...");
                 const loginResult = await $.async.retry(() => super.login(token), {
                     retries: this.features.maxLoginAttempts ?? 3,
@@ -306,6 +308,13 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 });
                 stopLoader("Connected to Discord    ");
                 this.$verboseMode && this.logger.debug("Waiting for ready...");
+
+                if (typeof tokenOrPreHook === "function") {
+                    await tokenOrPreHook(this);
+                } else {
+                    await callback?.(this as Vimcord<true>);
+                }
+
                 return loginResult;
             } catch (err) {
                 this.logger.error(
@@ -318,7 +327,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             }
         };
 
-        this.clientStartingPromise = main();
+        this.clientStartingPromise = execute();
         return this.clientStartingPromise;
     }
 
