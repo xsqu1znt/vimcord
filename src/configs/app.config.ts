@@ -1,5 +1,6 @@
 import { createConfigFactory } from "@/utils/config.factory";
 import { getDevMode, getPackageJson } from "@/utils/process.utils";
+import { defineGlobalToolsConfig } from "./tools.config";
 
 export interface AppConfig {
     /** The name of the bot displayed in logs and startup banner.
@@ -67,4 +68,5 @@ const defaultConfig: AppConfig = {
 
 export const createAppConfig = createConfigFactory(defaultConfig, config => {
     if (!config.name) throw new Error("App name is required");
+    defineGlobalToolsConfig({ devMode: config.devMode });
 });
