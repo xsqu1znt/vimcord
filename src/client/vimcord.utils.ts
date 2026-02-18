@@ -25,8 +25,8 @@ export const configSetters: Record<
     app: createAppConfig as any,
     staff: createStaffConfig as any,
     slashCommands: createSlashCommandConfig as any,
-    prefixCommands: createPrefixCommandConfig as any,
-    contextCommands: createContextCommandConfig as any
+    contextCommands: createContextCommandConfig as any,
+    prefixCommands: createPrefixCommandConfig as any
 };
 
 export const moduleImporters: Record<
@@ -35,7 +35,7 @@ export const moduleImporters: Record<
 > = {
     slashCommands: (client, options, set) => {
         const opt = options as ModuleImportOptions | undefined;
-        const dir = Array.isArray(options) ? options : (opt?.dir ?? []);
+        const dir = Array.isArray(options) ? options : typeof options === "string" ? options : (options?.dir ?? []);
         const suffix = Array.isArray(options)
             ? DEFAULT_MODULE_SUFFIXES.slashCommands
             : (opt?.suffix ?? DEFAULT_MODULE_SUFFIXES.slashCommands);
@@ -43,7 +43,7 @@ export const moduleImporters: Record<
     },
     contextCommands: (client, options, set) => {
         const opt = options as ModuleImportOptions | undefined;
-        const dir = Array.isArray(options) ? options : (opt?.dir ?? []);
+        const dir = Array.isArray(options) ? options : typeof options === "string" ? options : (options?.dir ?? []);
         const suffix = Array.isArray(options)
             ? DEFAULT_MODULE_SUFFIXES.contextCommands
             : (opt?.suffix ?? DEFAULT_MODULE_SUFFIXES.contextCommands);
@@ -51,7 +51,7 @@ export const moduleImporters: Record<
     },
     prefixCommands: (client, options, set) => {
         const opt = options as ModuleImportOptions | undefined;
-        const dir = Array.isArray(options) ? options : (opt?.dir ?? []);
+        const dir = Array.isArray(options) ? options : typeof options === "string" ? options : (options?.dir ?? []);
         const suffix = Array.isArray(options)
             ? DEFAULT_MODULE_SUFFIXES.prefixCommands
             : (opt?.suffix ?? DEFAULT_MODULE_SUFFIXES.prefixCommands);
@@ -59,7 +59,7 @@ export const moduleImporters: Record<
     },
     events: (client, options, set) => {
         const opt = options as ModuleImportOptions | undefined;
-        const dir = Array.isArray(options) ? options : (opt?.dir ?? []);
+        const dir = Array.isArray(options) ? options : typeof options === "string" ? options : (options?.dir ?? []);
         const suffix = Array.isArray(options)
             ? DEFAULT_MODULE_SUFFIXES.events
             : (opt?.suffix ?? DEFAULT_MODULE_SUFFIXES.events);
@@ -89,16 +89,26 @@ export function defineVimcordConfig(config: PartialDeep<VimcordConfig>): Vimcord
  * Returns an instance of Vimcord.
  * @param clientId [default: 0]
  */
-export const useClient = Vimcord.getInstance;
+export function useClient(clientId?: number) {
+    return Vimcord.getInstance(clientId);
+}
 
 /**
  * Waits for a Vimcord instance to be ready.
  * @param clientId [default: 0]
  * @param timeoutMs [default: 60000]
  */
-export const useReadyClient = Vimcord.getReadyInstance;
+export function useReadyClient(clientId?: number, timeoutMs?: number) {
+    return Vimcord.getReadyInstance(clientId, timeoutMs);
+}
 
 /**
  * Creates a new instance of Vimcord.
  */
-export const createClient = Vimcord.create;
+export function createClient(
+    options: import("discord.js").ClientOptions,
+    features?: import("./vimcord.types").VimcordFeatures,
+    config?: import("type-fest").PartialDeep<import("./vimcord.types").VimcordConfig>
+) {
+    return Vimcord.create(options, features, config);
+}

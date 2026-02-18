@@ -15,7 +15,7 @@ export async function importModulesFromDir<T extends any>(dir: string, suffix?: 
     /* Search the directory for event modules */
     const files = $.fs
         .readDir(MODULE_RELATIVE_PATH)
-        .filter(fn => fn.endsWith(`${suffix ? `.${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `.${suffix}` : ""}.ts`));
+        .filter(fn => fn.endsWith(`${suffix ? `${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `${suffix}` : ""}.ts`));
 
     if (!files.length) {
         return [];
