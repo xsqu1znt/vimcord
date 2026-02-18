@@ -1,9 +1,7 @@
 import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
 import { ContextMenuCommandBuilder, ContextMenuCommandInteraction } from "discord.js";
 import { BaseCommandBuilder } from "@/builders/base-command.builder";
-import { AppCommandDeployment } from "@ctypes/command.options";
 import { type Vimcord } from "@/client";
-import { deepMerge } from "@/utils/merge.utils";
 
 interface _ContextCommandConfig extends BaseCommandConfig<CommandType.Context>, BaseAppCommandConfig {
     builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
@@ -47,16 +45,6 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
     setBuilder(builder: _ContextCommandConfig["builder"]): this {
         this.builder = typeof builder === "function" ? builder(new ContextMenuCommandBuilder()) : builder;
         this.validateBuilder();
-        return this;
-    }
-
-    setDeferReply(defer: _ContextCommandConfig["deferReply"]): this {
-        this.options.deferReply = defer;
-        return this;
-    }
-
-    setDeployment(deployment: AppCommandDeployment): this {
-        this.options.deployment = deepMerge(this.options.deployment || {}, deployment);
         return this;
     }
 

@@ -1,7 +1,7 @@
 import { AppConfig } from "@/configs/app.config";
-import { ContextCommandConfig } from "@/configs/contextCommand.config";
-import { PrefixCommandConfig } from "@/configs/prefixCommand.config";
-import { SlashCommandConfig } from "@/configs/slashCommand.config";
+import { ContextCommandConfig } from "@/configs/context-command.config";
+import { PrefixCommandConfig } from "@/configs/prefix-command.config";
+import { SlashCommandConfig } from "@/configs/slash-command.config";
 import { StaffConfig } from "@/configs/staff.config";
 import { EmbedResolvable } from "@/tools/types";
 import { ClientOptions, Guild } from "discord.js";
@@ -58,18 +58,18 @@ export interface AppModuleImports {
 }
 
 export interface VimcordFeatures {
-    /** Use global process error handlers.
-     * @defaultValue true */
-    useGlobalErrorHandlers?: boolean;
     /** Use our default prefix command handler.
-     * @defaultValue true */
+     * @defaultValue false */
     useDefaultPrefixCommandHandler?: boolean;
-    /** Use our default slash command handler.
-     * @defaultValue true */
-    useDefaultSlashCommandHandler?: boolean;
     /** Use our default context command handler.
-     * @defaultValue true */
+     * @defaultValue false */
     useDefaultContextCommandHandler?: boolean;
+    /** Use our default slash command handler.
+     * @defaultValue false */
+    useDefaultSlashCommandHandler?: boolean;
+    /** Use global process error handlers.
+     * @defaultValue false */
+    useGlobalErrorHandlers?: boolean;
 
     /** Reply to the user with an Uh-oh! embed when a command fails. If not using our default command handlers, you will have to implement this yourself using {@link sendCommandErrorEmbed}
      * @example

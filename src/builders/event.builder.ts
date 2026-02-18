@@ -1,9 +1,7 @@
-import { EventDeployment, EventMetadata, EventRateLimitOptions } from "@ctypes/event.options";
 import { EventParameters } from "@ctypes/event.helpers";
 import { EventConfig } from "@ctypes/event.base";
 import { ClientEvents } from "discord.js";
 import { randomUUID } from "node:crypto";
-import { deepMerge } from "@/utils/merge.utils";
 import { logger } from "@/tools/Logger";
 
 export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> implements EventConfig<T> {
@@ -96,92 +94,13 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
         };
     }
 
-    setEvent(event: T): this {
-        this.event = event;
-        return this;
-    }
-
-    setName(name: string): this {
-        this.name = name;
-        return this;
-    }
-
     setEnabled(enabled: boolean): this {
         this.enabled = enabled;
         return this;
     }
 
-    enable(): this {
-        return this.setEnabled(true);
-    }
-
-    disable(): this {
-        return this.setEnabled(false);
-    }
-
-    setOnce(once: boolean = true): this {
-        this.once = once;
-        return this;
-    }
-
-    setPriority(priority: number): this {
-        this.priority = priority;
-        return this;
-    }
-
-    addCondition(condition: (...args: EventParameters<T>) => boolean): this {
-        if (!this.conditions) this.conditions = [];
-        this.conditions.push(condition);
-        return this;
-    }
-
-    setConditions(conditions: Array<(...args: EventParameters<T>) => boolean>): this {
-        this.conditions = conditions;
-        return this;
-    }
-
-    setMetadata(metadata: EventMetadata): this {
-        this.metadata = deepMerge(this.metadata || {}, metadata);
-        return this;
-    }
-
-    setDeployment(deployment: EventDeployment): this {
-        this.deployment = deepMerge(this.deployment || {}, deployment);
-        return this;
-    }
-
-    setRateLimit(options: EventRateLimitOptions<T>): this {
-        this.rateLimit = options;
-        return this;
-    }
-
-    setBeforeExecute(beforeExecute: (...args: EventParameters<T>) => Promise<any> | any): this {
-        this.beforeExecute = beforeExecute;
-        return this;
-    }
-
     setExecute(execute: (...args: EventParameters<T>) => Promise<any> | any): this {
         this.execute = execute;
-        return this;
-    }
-
-    setAfterExecute(afterExecute: (result: any, ...args: EventParameters<T>) => Promise<any> | any): this {
-        this.afterExecute = afterExecute;
-        return this;
-    }
-
-    setOnError(onError: (error: Error, ...args: EventParameters<T>) => Promise<any> | any): this {
-        this.onError = onError;
-        return this;
-    }
-
-    getRateLimitInfo(): { executions: number; timestamp: number; isLimited: boolean } | null {
-        if (!this.rateLimit) return null;
-        return { ...this.rateLimitData, isLimited: this.isRateLimited(false) };
-    }
-
-    resetRateLimit(): this {
-        this.rateLimitData = { executions: 0, timestamp: 0 };
         return this;
     }
 

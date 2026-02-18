@@ -47,45 +47,10 @@ export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix,
         }
     }
 
-    // --- Fluent API (Prefix Specific Only) ---
-
-    /**
-     * Set the primary name of the command.
-     */
-    setName(name: string): this {
-        this.options.name = name;
-        return this;
-    }
-
-    /**
-     * Set or replace the command aliases.
-     */
-    setAliases(aliases: string[]): this {
-        this.options.aliases = aliases;
-        return this;
-    }
-
-    /**
-     * Add additional aliases without clearing existing ones.
-     */
-    addAliases(...aliases: string[]): this {
-        this.options.aliases = [...(this.options.aliases || []), ...aliases];
-        return this;
-    }
-
-    /**
-     * Set the command description.
-     */
-    setDescription(description: string): this {
-        this.options.description = description;
-        return this;
-    }
-
     // --- Overrides ---
 
     /**
      * Override setExecute to ensure handleExecution remains the entry point.
-     * This is the only base method we need to redefine.
      */
     setExecute(fn: _PrefixCommandConfig["execute"]): this {
         const originalExecute = fn;

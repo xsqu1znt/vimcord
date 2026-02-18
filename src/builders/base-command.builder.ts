@@ -212,21 +212,15 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
         return this;
     }
 
-    /** Add custom logic checks that run before execution */
-    addConditions(...conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
-        this.options.conditions = [...(this.options.conditions || []), ...conditions];
+    /** Set the custom conditions that must be met for this command to execute */
+    setConditions(conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
+        this.options.conditions = conditions;
         return this;
     }
 
     /** Set the primary command execution logic */
     setExecute(fn: (...args: BaseCommandParameters<T>) => any): this {
         this.options.execute = fn;
-        return this;
-    }
-
-    /** Set the custom conditions that must be met for this command to execute */
-    setConditions(conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
-        this.options.conditions = conditions;
         return this;
     }
 
@@ -240,57 +234,6 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
     setRateLimit(options: CommandRateLimitOptions<(...args: BaseCommandParameters<T>) => any>): this {
         this.options.rateLimit = options;
         this.validateBaseConfig();
-        return this;
-    }
-
-    /**
-     * Set whether to log whenever this command is executed
-     * @defaultValue true
-     */
-    setLogExecution(log: boolean): this {
-        this.options.logExecution = log;
-        return this;
-    }
-
-    /** Set the function to execute before the main command logic */
-    setBeforeExecute(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.beforeExecute = callback;
-        return this;
-    }
-
-    /** Set the function to execute after successful command execution */
-    setAfterExecute(callback: (result: any, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.afterExecute = callback;
-        return this;
-    }
-
-    /** Set the function to execute when the required permissions are not met */
-    setOnMissingPermissions(callback: (results: CommandPermissionResults, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.onMissingPermissions = callback;
-        return this;
-    }
-
-    /** Set the function to execute when the required conditions are not met */
-    setOnConditionsNotMet(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onConditionsNotMet = callback;
-        return this;
-    }
-
-    /** Set the function to execute when this command is used when its disabled */
-    setOnUsedWhenDisabled(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onUsedWhenDisabled = callback;
-        return this;
-    }
-
-    /** Set the function to execute when the rate limit is hit */
-    setOnRateLimit(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onRateLimit = callback;
-        return this;
-    }
-
-    /** Set a custom error handler for this command */
-    setOnError(callback: (error: Error, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.onError = callback;
         return this;
     }
 }
