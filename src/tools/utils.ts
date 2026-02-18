@@ -48,6 +48,24 @@ export interface GetMessageMentionOptions {
     parse?: boolean;
 }
 
+const MENTION_OR_SNOWFLAKE_REGEX = /<@[#&]?[\d]{6,}>|[\d]{6,}/;
+
+const fetchUserPromises: Map<string, Promise<User | null>> = new Map();
+const fetchGuildPromises: Map<string, Promise<Guild | null>> = new Map();
+const fetchMemberPromises: Map<string, Promise<GuildMember | null>> = new Map();
+const fetchChannelPromises: Map<string, Promise<GuildBasedChannel | null>> = new Map();
+const fetchMessagePromises: Map<string, Promise<Message | null>> = new Map();
+const fetchRolePromises: Map<string, Promise<Role | null>> = new Map();
+
+function createCachedFetch<T>(cache: Map<string, Promise<T>>, fetchFn: () => Promise<T>, cacheKey: string): Promise<T> {
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    const promise = fetchFn().finally(() => cache.delete(cacheKey));
+    cache.set(cacheKey, promise);
+    return promise;
+}
+
 /** Returns the string if it's populated, or "0" otherwise.
  *
  * Useful for fetching where the provided ID may or may not exist.
@@ -61,7 +79,7 @@ export function __zero(str?: string | null): string {
  * Looks for formats like `<@123456789>`, or a numeric string with at least 6 digits.
  * @param str The string to check. */
 export function isMentionOrSnowflake(str: string | undefined): boolean {
-    return str ? (str.match(/<@[#&]?[\d]{6,}>/) || str.match(/\d{6,}/) ? true : false) : false;
+    return str ? MENTION_OR_SNOWFLAKE_REGEX.test(str) : false;
 }
 
 /** Remove mention syntax from a string.
@@ -75,7 +93,7 @@ export function cleanMention(str: string | undefined): string | undefined {
  * @param content - The message's clean content to parse. Will be used if message.mentions isn't populated.
  * @param type - The type of mention.
  * @param index - The argument index in the content. Default is `0`
- * @param idOnly - Whether to return the ID instead of the fecthed object. */
+ * @param idOnly - Whether to return the ID instead of the fetched object. */
 export async function getMessageMention<M extends Message, T extends MentionType>(
     message: M,
     content: string | undefined | null,
@@ -96,44 +114,63 @@ export async function getMessageMention<M extends Message, T extends MentionType
     type: T,
     index: number = 0,
     idOnly?: boolean
-) {
+): Promise<FetchedMessageMention<T, M extends Message<true> ? true : false> | string | null> {
     const args = content?.split(" ");
     const arg = isMentionOrSnowflake(args?.[index]) ? cleanMention(args?.[index]) : undefined;
 
     switch (type) {
-        case "user":
+        case "user": {
             const userMention = message.mentions.users.at(index) || null;
             if (!userMention && arg) {
-                return idOnly ? arg : ((await fetchUser(message.client, arg)) as any);
-            } else {
-                return idOnly ? userMention?.id || null : (userMention as any);
-            }
-
-        case "member":
-            if (!message.guild) return null;
-            const member = await fetchMember(message.guild, message.mentions.users.at(index)?.id ?? arg);
-            return idOnly ? member?.id || null : (member as any);
-
-        case "channel":
-            const channelMention = message.mentions.channels.at(index) || null;
-            if (!channelMention && arg) {
                 return idOnly
                     ? arg
-                    : ((message.guild
-                          ? await fetchChannel(message.guild, arg)
-                          : (message.client.channels.cache.get(__zero(arg)) ??
-                            message.client.channels.fetch(__zero(arg)))) as any);
-            } else {
-                return idOnly ? channelMention?.id || null : (channelMention as any);
+                    : ((await fetchUser(message.client, arg)) as FetchedMessageMention<
+                          T,
+                          M extends Message<true> ? true : false
+                      >);
             }
+            return idOnly
+                ? userMention?.id || null
+                : (userMention as FetchedMessageMention<T, M extends Message<true> ? true : false>);
+        }
 
-        case "role":
+        case "member": {
+            if (!message.guild) return null;
+            const member = await fetchMember(message.guild, message.mentions.users.at(index)?.id ?? arg);
+            return idOnly
+                ? member?.id || null
+                : (member as FetchedMessageMention<T, M extends Message<true> ? true : false>);
+        }
+
+        case "channel": {
+            const channelMention = message.mentions.channels.at(index) || null;
+            if (!channelMention && arg) {
+                if (idOnly) return arg;
+                const channel = message.guild
+                    ? await fetchChannel(message.guild, arg)
+                    : (message.client.channels.cache.get(__zero(arg)) ?? message.client.channels.fetch(__zero(arg)));
+                return channel as FetchedMessageMention<T, M extends Message<true> ? true : false>;
+            }
+            return idOnly
+                ? channelMention?.id || null
+                : (channelMention as FetchedMessageMention<T, M extends Message<true> ? true : false>);
+        }
+
+        case "role": {
             const roleMention = message.mentions.roles.at(index) || null;
             if (!roleMention && arg) {
-                return idOnly ? arg : message.guild ? ((await fetchRole(message.guild, arg)) as any) : null;
-            } else {
-                return idOnly ? roleMention?.id || null : (roleMention as any);
+                if (idOnly) return arg;
+                return message.guild
+                    ? ((await fetchRole(message.guild, arg)) as FetchedMessageMention<
+                          T,
+                          M extends Message<true> ? true : false
+                      >)
+                    : null;
             }
+            return idOnly
+                ? roleMention?.id || null
+                : (roleMention as FetchedMessageMention<T, M extends Message<true> ? true : false>);
+        }
 
         default:
             return null;
@@ -149,6 +186,9 @@ export function getFirstMentionId(options: { message?: Message; content?: string
         switch (options.type) {
             case "user":
                 mentionId = options.message.mentions.users.first()?.id || "";
+                break;
+            case "member":
+                mentionId = options.message.mentions.members?.first()?.id || "";
                 break;
             case "channel":
                 mentionId = options.message.mentions.channels.first()?.id || "";
@@ -168,7 +208,10 @@ export function getFirstMentionId(options: { message?: Message; content?: string
  * @param userId - The ID of the user to fetch. */
 export async function fetchUser(client: Client<true>, userId: string | undefined | null): Promise<User | null> {
     if (!userId) return null;
-    return client.users.cache.get(__zero(userId)) || (await client.users.fetch(__zero(userId)).catch(() => null));
+    const key = `${client.user.id}-${userId}`;
+    const cached = client.users.cache.get(__zero(userId));
+    if (cached) return cached;
+    return createCachedFetch(fetchUserPromises, () => client.users.fetch(__zero(userId)).catch(() => null), key);
 }
 
 /** Fetch a guild from the client, checking the cache first.
@@ -176,7 +219,10 @@ export async function fetchUser(client: Client<true>, userId: string | undefined
  * @param guildId - The ID of the guild to fetch. */
 export async function fetchGuild(client: Client<true>, guildId: string | undefined | null): Promise<Guild | null> {
     if (!guildId) return null;
-    return client.guilds.cache.get(__zero(guildId)) || (await client.guilds.fetch(__zero(guildId)).catch(() => null));
+    const key = `${client.user.id}-${guildId}`;
+    const cached = client.guilds.cache.get(__zero(guildId));
+    if (cached) return cached;
+    return createCachedFetch(fetchGuildPromises, () => client.guilds.fetch(__zero(guildId)).catch(() => null), key);
 }
 
 /** Fetch a member from a guild, checking the cache first.
@@ -184,7 +230,10 @@ export async function fetchGuild(client: Client<true>, guildId: string | undefin
  * @param memberId - The ID of the member to fetch. */
 export async function fetchMember(guild: Guild, memberId: string | undefined | null): Promise<GuildMember | null> {
     if (!memberId) return null;
-    return guild.members.cache.get(__zero(memberId)) || (await guild.members.fetch(__zero(memberId)).catch(() => null));
+    const key = `${guild.id}-${memberId}`;
+    const cached = guild.members.cache.get(__zero(memberId));
+    if (cached) return cached;
+    return createCachedFetch(fetchMemberPromises, () => guild.members.fetch(__zero(memberId)).catch(() => null), key);
 }
 
 /** Fetch a channel from a guild, checking the cache first.
@@ -199,18 +248,19 @@ export async function fetchChannel<T extends ChannelType>(
     type?: T
 ): Promise<FetchedChannel<T> | null> {
     if (!channelId) return null;
-    const channel =
-        guild.channels.cache.get(__zero(channelId)) || (await guild.channels.fetch(__zero(channelId)).catch(() => null));
+    const key = `${guild.id}-${channelId}`;
+    const cached = guild.channels.cache.get(__zero(channelId)) ?? null;
+    if (cached) {
+        if (type && cached.type !== type) return null;
+        return cached as FetchedChannel<T>;
+    }
+    const channel = await createCachedFetch(
+        fetchChannelPromises,
+        () => guild.channels.fetch(__zero(channelId)).catch(() => null),
+        key
+    );
     if (type && channel?.type !== type) return null;
-    return channel as any;
-}
-
-/** Fetch a role from a guild, checking the cache first.
- * @param guild - The guild to fetch the role from.
- * @param roleId - The ID of the role to fetch. */
-export async function fetchRole(guild: Guild, roleId: string | undefined | null): Promise<Role | null> {
-    if (!roleId) return null;
-    return guild.roles.cache.get(__zero(roleId)) || (await guild.roles.fetch(__zero(roleId)).catch(() => null)) || null;
+    return channel as FetchedChannel<T>;
 }
 
 /** Fetch a message from a channel, checking the cache first.
@@ -221,9 +271,19 @@ export async function fetchMessage(
     messageId: string | undefined | null
 ): Promise<Message | null> {
     if (!messageId) return null;
-    return (
-        channel.messages.cache.get(__zero(messageId)) ||
-        (await channel.messages.fetch(__zero(messageId)).catch(() => null)) ||
-        null
-    );
+    const key = `${channel.guild.id}-${messageId}`;
+    const cached = channel.messages.cache.get(__zero(messageId));
+    if (cached) return cached;
+    return createCachedFetch(fetchMessagePromises, () => channel.messages.fetch(__zero(messageId)).catch(() => null), key);
+}
+
+/** Fetch a role from a guild, checking the cache first.
+ * @param guild - The guild to fetch the role from.
+ * @param roleId - The ID of the role to fetch. */
+export async function fetchRole(guild: Guild, roleId: string | undefined | null): Promise<Role | null> {
+    if (!roleId) return null;
+    const key = `${guild.id}-${roleId}`;
+    const cached = guild.roles.cache.get(__zero(roleId));
+    if (cached) return cached;
+    return createCachedFetch(fetchRolePromises, () => guild.roles.fetch(__zero(roleId)).catch(() => null), key);
 }

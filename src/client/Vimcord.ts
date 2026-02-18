@@ -4,6 +4,7 @@ import { slashCommandHandler } from "@/modules/builtins/slash-command.builtins";
 import { CommandManager } from "@/modules/command.manager";
 import { EventManager } from "@/modules/event.manager";
 import { StatusManager } from "@/modules/status.manager";
+import { fetchGuild, fetchUser } from "@/tools/utils";
 import { DatabaseManager } from "@/types/database";
 import { VimcordCLI } from "@/utils/vimcord.cli";
 import { Client, ClientOptions } from "discord.js";
@@ -204,41 +205,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return this;
     }
 
-    /**
-     * Imports modules into the client.
-     * @param type The type of modules to import.
-     * @param options The options to import the module with.
-     * @param set Replaces already imported modules with the ones found.
-     */
-    async importModules<T extends keyof AppModuleImports>(
-        type: T,
-        options: AppModuleImports[T],
-        set?: boolean
-    ): Promise<this> {
-        await moduleImporters[type](this, options, set);
-        return this;
-    }
-
-    /**
-     * Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
-     * @param options Options for dotenv
-     * @see https://www.npmjs.com/package/dotenv
-     */
-    useEnv(options?: DotenvConfigOptions) {
-        this.logger.database("Using", "dotenv");
-        configDotenv({ quiet: true, ...options });
-    }
-
-    /**
-     * Connects to a database.
-     * @param db The database manager to use.
-     */
-    async useDatabase(db: DatabaseManager): Promise<boolean> {
-        this.db = db;
-        this.logger.database("Using", db.moduleName);
-        return this.db.connect();
-    }
-
     /** Builds the client by importing modules and registering builtin handlers. */
     async build(): Promise<this> {
         this.configure("app", this.config.app);
@@ -271,6 +237,60 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
 
         return this;
+    }
+
+    /**
+     * Imports modules into the client.
+     * @param type The type of modules to import.
+     * @param options The options to import the module with.
+     * @param set Replaces already imported modules with the ones found.
+     */
+    async importModules<T extends keyof AppModuleImports>(
+        type: T,
+        options: AppModuleImports[T],
+        set?: boolean
+    ): Promise<this> {
+        await moduleImporters[type](this, options, set);
+        return this;
+    }
+
+    /**
+     * Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
+     * @param options Options for dotenv
+     * @see https://www.npmjs.com/package/dotenv
+     */
+    useEnv(options?: DotenvConfigOptions): this {
+        this.logger.database("Using", "dotenv");
+        configDotenv({ quiet: true, ...options });
+        return this;
+    }
+
+    /**
+     * Connects to a database.
+     * @param db The database manager to use.
+     */
+    async useDatabase(db: DatabaseManager): Promise<boolean> {
+        this.db = db;
+        this.logger.database("Using", db.moduleName);
+        return this.db.connect();
+    }
+
+    /**
+     * Fetches a user from the client, checking the cache first.
+     * @param userId The ID of the user to fetch.
+     */
+    async fetchUser(userId: string | undefined | null) {
+        const client = await Vimcord.getReadyInstance(this.clientId);
+        return fetchUser(client, userId);
+    }
+
+    /**
+     * Fetches a guild from the client, checking the cache first.
+     * @param guildId The ID of the guild to fetch.
+     */
+    async fetchGuild(guildId: string | undefined | null) {
+        const client = await Vimcord.getReadyInstance(this.clientId);
+        return fetchGuild(client, guildId);
     }
 
     /**
