@@ -4,6 +4,7 @@ import { EventConfig } from "@ctypes/event.base";
 import { ClientEvents } from "discord.js";
 import { randomUUID } from "node:crypto";
 import _ from "lodash";
+import { logger } from "@/tools/Logger";
 
 export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> implements EventConfig<T> {
     readonly uuid: string = randomUUID();
@@ -213,22 +214,20 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
         try {
             // Check if event is enabled
             if (!this.enabled) {
-                // TODO: Implement disabled console error
                 return;
             }
 
             // Check rate limits
             if (this.isRateLimited()) {
+                logger.warn(`Event '${this.name}' (${this.event}) is rate limited`);
                 if (this.rateLimit?.onRateLimit) {
                     return await this.rateLimit.onRateLimit(...args);
                 }
-                // TODO: Implement rate-limited console error
                 return;
             }
 
             // Check conditions
             if (!(await this.checkConditions(...args))) {
-                // TODO: Implement missing conditions console error
                 return;
             }
 
@@ -252,7 +251,7 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
             }
 
             // Log error if no custom handler
-            console.error(`Error in event '${this.name}':`, err);
+            logger.error(`Event execution error '${this.name}' (${this.event}):`, err as Error)
             throw err;
         }
     }

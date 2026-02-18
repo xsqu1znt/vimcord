@@ -71,7 +71,6 @@ export interface VimcordFeatures {
      * @defaultValue true */
     useDefaultContextCommandHandler?: boolean;
 
-    // TODO: Find a way to implement this as default, then rethrow the error afterwards
     /** Reply to the user with an Uh-oh! embed when a command fails. If not using our default command handlers, you will have to implement this yourself using {@link sendCommandErrorEmbed}
      * @example
      * ```ts
@@ -87,15 +86,11 @@ export interface VimcordFeatures {
      * ``` */
     enableCommandErrorMessage?: boolean | CommandErrorMessageConfig;
 
-    // TODO: This should be default and not require an option
-    /** Update the state of {@link globalToolsConfig.devMode} whenever {@link AppConfig.devMode} is updated in the client. This is mainly useful for {@link BetterEmbed} to switch between devMode and production colors during runtime without having to update the global config manually @defaultValue `false` */
-    hookToolsDevMode?: boolean;
 
     /** Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
      * @defaultValue `false` */
     useEnv?: boolean | DotenvConfigOptions;
 
-    // TODO: Move this to client login options
     /** The maximum number of attempts to log into Discord @defaultValue `3` */
     maxLoginAttempts?: number;
 

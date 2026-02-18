@@ -118,7 +118,7 @@ Agents must work incrementally. Do not attempt to refactor, scaffold, or fix mul
 
 1. **Identify** the single unit of work (one file, one function, one type change).
 2. **Make the change**, keeping the diff as small as reasonably possible.
-3. **Run `pnpm build`** (or `pnpm tsc --noEmit` for a type-only check) and capture the output.
+3. **Run `pnpm check`** and capture the output.
 4. **Report any type errors** encountered — include the file path, line number, and the full error message. Do not silently swallow compiler output.
 5. **Resolve errors before moving on.** Do not proceed to the next file or concern while the current step has unresolved TypeScript errors.
 6. **Confirm the step is clean**, then repeat from step 1 for the next unit of work.
