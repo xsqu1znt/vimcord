@@ -2,7 +2,7 @@ import { type Vimcord } from "@/client";
 import { Logger } from "@/tools/Logger";
 import { EventBuilder } from "@builders/event.builder";
 import { ClientEvents, Events } from "discord.js";
-import { ModuleImporter } from "./base-module.importer";
+import { ModuleImporter } from "./baseModule.importer";
 
 export class EventManager extends ModuleImporter<EventBuilder<any>> {
     readonly items: Map<string, EventBuilder<any>> = new Map();

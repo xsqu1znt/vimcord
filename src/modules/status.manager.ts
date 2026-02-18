@@ -4,7 +4,7 @@ import { fetchGuild } from "@/tools/utils";
 import { ClientActivity, ClientStatus, createVimcordStatusConfig, VimcordClientStatus } from "@/types/status";
 import EventEmitter from "node:events";
 import { $, Loop } from "qznt";
-import { PartialDeep } from "@/utils/types.utils";
+import { PartialDeep } from "@/utils/typesUtils";
 
 type StatusManagerEvents = {
     changed: [ClientActivity];

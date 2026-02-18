@@ -14,7 +14,7 @@ import {
     CommandRateLimitOptions
 } from "@ctypes/command.options";
 import { Guild, GuildMember, TextBasedChannel, User } from "discord.js";
-import { deepMerge } from "@/utils/merge.utils";
+import { deepMerge } from "@/utils/mergeUtils";
 import { randomUUID } from "node:crypto";
 
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {

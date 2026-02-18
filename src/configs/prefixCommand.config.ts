@@ -1,5 +1,5 @@
 import { Vimcord } from "@/client";
-import { createConfigFactory } from "@/utils/config.factory";
+import { createConfigFactory } from "@/utils/configFactory";
 import { BaseCommandConfig, CommandType } from "@ctypes/command.base";
 
 export interface PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {

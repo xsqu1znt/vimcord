@@ -1,4 +1,4 @@
-import { createConfigFactory } from "@/utils/config.factory";
+import { createConfigFactory } from "@/utils/configFactory";
 import { BaseCommandConfig, CommandType } from "@ctypes/command.base";
 
 export interface SlashCommandConfig extends BaseCommandConfig<CommandType.Slash> {}

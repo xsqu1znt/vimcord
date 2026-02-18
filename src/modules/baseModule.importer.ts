@@ -1,5 +1,5 @@
 import { Vimcord } from "@/client";
-import { importModulesFromDir } from "@/utils/import.utils";
+import { importModulesFromDir } from "@/utils/importUtils";
 
 export abstract class ModuleImporter<T> {
     readonly client: Vimcord;

@@ -1,4 +1,4 @@
-import { sendCommandErrorEmbed } from "@/utils/command-error.utils";
+import { sendCommandErrorEmbed } from "@/modules/builtins/commandError.builtin";
 import { CommandInteraction, Guild, Message } from "discord.js";
 import { Vimcord } from "./Vimcord";
 

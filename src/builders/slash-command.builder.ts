@@ -3,7 +3,7 @@ import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuil
 import { AnySlashCommandBuilder } from "@ctypes/command.options";
 import { BaseCommandBuilder } from "@/builders/base-command.builder";
 import { type Vimcord } from "@/client";
-import { deepMerge } from "@/utils/merge.utils";
+import { deepMerge } from "@/utils/mergeUtils";
 
 interface _SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {
     builder: AnySlashCommandBuilder | ((builder: DJSSlashCommandBuilder) => AnySlashCommandBuilder);

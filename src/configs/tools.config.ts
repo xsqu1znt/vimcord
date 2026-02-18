@@ -1,6 +1,6 @@
-import { createConfigFactory } from "@/utils/config.factory";
+import { createConfigFactory } from "@/utils/configFactory";
 import { ColorResolvable } from "discord.js";
-import { PartialDeep } from "@/utils/types.utils";
+import { PartialDeep } from "@/utils/typesUtils";
 
 export interface ToolsConfig {
     devMode: boolean;

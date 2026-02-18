@@ -1,5 +1,5 @@
-import { PartialDeep } from "./types.utils";
-import { deepMerge } from "./merge.utils";
+import { PartialDeep } from "./typesUtils";
+import { deepMerge } from "./mergeUtils";
 
 export function createConfigFactory<T extends object>(defaultConfig: T, validate?: (config: T) => void) {
     return (options: PartialDeep<T> = {} as PartialDeep<T>, existing?: T): T => {

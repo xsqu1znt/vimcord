@@ -24,7 +24,7 @@ import { BetterContainer } from "./BetterContainer";
 import { BetterEmbed } from "./BetterEmbed";
 import { dynaSend, DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend";
 import { EmbedResolvable, SendHandler, SendMethod } from "./types";
-import { PartialDeep } from "@/utils/types.utils";
+import { PartialDeep } from "@/utils/typesUtils";
 
 /* NOTE: SinglePageResolvable now supports AttachmentBuilder for image-only pages */
 export type SinglePageResolvable = string | EmbedResolvable | ContainerBuilder | BetterContainer | AttachmentBuilder;
