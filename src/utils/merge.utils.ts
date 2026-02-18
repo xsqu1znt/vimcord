@@ -1,8 +1,3 @@
-/**
- * Deep merge utility - recursively merges objects
- * Replaces lodash's _.merge
- */
-
 /** Check if value is a plain object */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     if (typeof value !== "object" || value === null) return false;
