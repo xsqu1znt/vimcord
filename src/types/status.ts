@@ -1,6 +1,6 @@
 import { ActivityType } from "discord.js";
-import { PartialDeep } from "type-fest";
-import _ from "lodash";
+import { PartialDeep } from "@/utils/types.utils";
+import { deepMerge } from "@/utils/merge.utils";
 
 export enum StatusType {
     DND = "dnd",
@@ -49,5 +49,5 @@ const defaultPresence: VimcordClientStatus = {
 };
 
 export function createVimcordStatusConfig(options: PartialDeep<VimcordClientStatus> = {}): VimcordClientStatus {
-    return _.merge(defaultPresence, options);
+    return deepMerge({ ...defaultPresence }, options);
 }

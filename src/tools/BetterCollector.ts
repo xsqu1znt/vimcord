@@ -7,7 +7,7 @@ import {
     MessageComponentType,
     UserResolvable
 } from "discord.js";
-import { PartialDeep } from "type-fest";
+import { PartialDeep } from "@/utils/types.utils";
 
 type Func = (...args: any[]) => any;
 type Listener = { fn: Func; options?: ListenerOptions };

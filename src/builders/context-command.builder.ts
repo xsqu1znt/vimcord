@@ -1,9 +1,9 @@
 import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
 import { ContextMenuCommandBuilder, ContextMenuCommandInteraction } from "discord.js";
-import { BaseCommandBuilder } from "@builders/baseCommand.builder";
+import { BaseCommandBuilder } from "@/builders/base-command.builder";
 import { AppCommandDeployment } from "@ctypes/command.options";
 import { type Vimcord } from "@/client";
-import _ from "lodash";
+import { deepMerge } from "@/utils/merge.utils";
 
 interface _ContextCommandConfig extends BaseCommandConfig<CommandType.Context>, BaseAppCommandConfig {
     builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
@@ -56,7 +56,7 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
     }
 
     setDeployment(deployment: AppCommandDeployment): this {
-        this.options.deployment = _.merge(this.options.deployment || {}, deployment);
+        this.options.deployment = deepMerge(this.options.deployment || {}, deployment);
         return this;
     }
 

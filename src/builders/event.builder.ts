@@ -3,7 +3,7 @@ import { EventParameters } from "@ctypes/event.helpers";
 import { EventConfig } from "@ctypes/event.base";
 import { ClientEvents } from "discord.js";
 import { randomUUID } from "node:crypto";
-import _ from "lodash";
+import { deepMerge } from "@/utils/merge.utils";
 import { logger } from "@/tools/Logger";
 
 export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> implements EventConfig<T> {
@@ -141,12 +141,12 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
     }
 
     setMetadata(metadata: EventMetadata): this {
-        this.metadata = _.merge(this.metadata, metadata);
+        this.metadata = deepMerge(this.metadata || {}, metadata);
         return this;
     }
 
     setDeployment(deployment: EventDeployment): this {
-        this.deployment = _.merge(this.deployment, deployment);
+        this.deployment = deepMerge(this.deployment || {}, deployment);
         return this;
     }
 
@@ -251,7 +251,7 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
             }
 
             // Log error if no custom handler
-            logger.error(`Event execution error '${this.name}' (${this.event}):`, err as Error)
+            logger.error(`Event execution error '${this.name}' (${this.event}):`, err as Error);
             throw err;
         }
     }

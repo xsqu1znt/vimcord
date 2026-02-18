@@ -1,6 +1,6 @@
 {
     "name": "vimcord",
-    "version": "1.0.37",
+    "version": "1.0.38",
     "description": "A powerful Discord.js wrapper.",
     "license": "MIT",
     "author": "xsqu1znt",
@@ -26,17 +26,12 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "axios": "^1.13.5",
         "chalk": "^4.1.2",
         "discord.js": "^14.25.1",
         "dotenv": "^16.6.1",
-        "lodash": "^4.17.23",
-        "node-cron": "^4.2.1",
-        "qznt": "^1.0.36",
-        "type-fest": "^4.41.0"
+        "qznt": "^1.0.36"
     },
     "devDependencies": {
-        "@types/lodash": "^4.17.23",
         "@types/node": "^22.19.11",
         "mongoose": "^8.23.0",
         "prettier": "^3.8.1",

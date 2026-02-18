@@ -20,7 +20,7 @@ export default defineConfig({
     },
 
     // Ensure proper external handling
-    external: ["discord.js", "mongoose", "axios", "chalk", "dotenv", "lodash"],
+    external: ["discord.js", "mongoose", "chalk", "dotenv"],
 
     // Bundle analysis
     metafile: true
