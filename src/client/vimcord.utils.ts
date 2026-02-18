@@ -3,10 +3,10 @@ import { createContextCommandConfig } from "@/configs/context-command.config";
 import { createPrefixCommandConfig } from "@/configs/prefix-command.config";
 import { createSlashCommandConfig } from "@/configs/slash-command.config";
 import { createStaffConfig } from "@/configs/staff.config";
-import { PartialDeep } from "type-fest";
+import { PartialDeep } from "@/types/helpers";
+import { ClientOptions } from "discord.js";
 import { Vimcord } from "./Vimcord";
 import { AppModuleImports, ModuleImportOptions, VimcordConfig, VimcordFeatures } from "./vimcord.types";
-import { ClientOptions } from "discord.js";
 
 export const DEFAULT_MODULE_SUFFIXES = {
     slashCommands: ".slash",
@@ -105,10 +105,14 @@ export function useReadyClient(clientId?: number, timeoutMs?: number) {
 /**
  * Creates a new instance of Vimcord.
  */
+<<<<<<< HEAD
 export function createClient(
     options: import("discord.js").ClientOptions,
     features?: import("./vimcord.types").VimcordFeatures,
     config?: import("type-fest").PartialDeep<import("./vimcord.types").VimcordConfig>
 ) {
+=======
+export function createClient(options: ClientOptions, features?: VimcordFeatures, config?: PartialDeep<VimcordConfig>) {
+>>>>>>> dev
     return Vimcord.create(options, features, config);
 }

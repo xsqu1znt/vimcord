@@ -12,7 +12,7 @@ import {
 import { createToolsConfig, globalToolsConfig, ToolsConfig } from "@/configs/tools.config";
 import { DynaSendOptions, dynaSend } from "./dynaSend";
 import { SendHandler } from "./types";
-import { PartialDeep } from "type-fest";
+import { PartialDeep } from "@/types/helpers";
 
 export interface BetterContainerData {
     color?: ColorResolvable | ColorResolvable[] | null;

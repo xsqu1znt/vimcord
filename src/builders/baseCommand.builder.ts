@@ -14,7 +14,7 @@ import {
     CommandRateLimitOptions
 } from "@ctypes/command.options";
 import { Guild, GuildMember, TextBasedChannel, User } from "discord.js";
-import _ from "lodash";
+import { deepMerge } from "@/utils/mergeUtils";
 import { randomUUID } from "node:crypto";
 
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {
@@ -32,8 +32,7 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
         [RateLimitScope.Channel]: new Map<string, CommandInternalRateLimitData>()
     };
 
-    /** * Mapping of CommandTypes to their respective config keys in the Vimcord client
-     */
+    /** Mapping of CommandTypes to their respective config keys in the Vimcord client */
     private readonly typeConfigMapping: Record<CommandType, string> = {
         [CommandType.Slash]: "slashCommands",
         [CommandType.Prefix]: "prefixCommands",
@@ -62,7 +61,7 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
         const typeKey = this.typeConfigMapping[this.commandType];
         const typeSpecificGlobals = (client.config as any)?.[typeKey] || {};
 
-        return _.merge({}, typeSpecificGlobals, this.options);
+        return deepMerge({}, typeSpecificGlobals, this.options) as O;
     }
 
     /**
@@ -209,13 +208,13 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
 
     /** Merge new permission requirements into the existing ones */
     setPermissions(perms: CommandPermissions): this {
-        this.options.permissions = _.merge(this.options.permissions || {}, perms);
+        this.options.permissions = deepMerge(this.options.permissions || {}, perms) as CommandPermissions;
         return this;
     }
 
-    /** Add custom logic checks that run before execution */
-    addConditions(...conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
-        this.options.conditions = [...(this.options.conditions || []), ...conditions];
+    /** Set the custom conditions that must be met for this command to execute */
+    setConditions(conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
+        this.options.conditions = conditions;
         return this;
     }
 
@@ -225,82 +224,16 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
         return this;
     }
 
-    /** * Set the custom conditions that must be met for this command to execute
-     */
-    setConditions(conditions: Array<(...args: BaseCommandParameters<T>) => boolean | Promise<boolean>>): this {
-        this.options.conditions = conditions;
-        return this;
-    }
-
-    /** * Set the command metadata configuration
-     */
+    /** Set the command metadata configuration */
     setMetadata(metadata: CommandMetadata): this {
-        this.options.metadata = _.merge(this.options.metadata || {}, metadata);
+        this.options.metadata = deepMerge(this.options.metadata || {}, metadata) as CommandMetadata;
         return this;
     }
 
-    /** * Set the rate limiting options for this command
-     */
+    /** Set the rate limiting options for this command */
     setRateLimit(options: CommandRateLimitOptions<(...args: BaseCommandParameters<T>) => any>): this {
         this.options.rateLimit = options;
         this.validateBaseConfig();
-        return this;
-    }
-
-    /** * Set whether to log whenever this command is executed
-     * @defaultValue true
-     */
-    setLogExecution(log: boolean): this {
-        this.options.logExecution = log;
-        return this;
-    }
-
-    /** * Set the function to execute before the main command logic
-     */
-    setBeforeExecute(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.beforeExecute = callback;
-        return this;
-    }
-
-    /** * Set the function to execute after successful command execution
-     */
-    setAfterExecute(callback: (result: any, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.afterExecute = callback;
-        return this;
-    }
-
-    /** * Set the function to execute when the required permissions are not met
-     */
-    setOnMissingPermissions(callback: (results: CommandPermissionResults, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.onMissingPermissions = callback;
-        return this;
-    }
-
-    /** * Set the function to execute when the required conditions are not met
-     */
-    setOnConditionsNotMet(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onConditionsNotMet = callback;
-        return this;
-    }
-
-    /** * Set the function to execute when this command is used when its disabled
-     */
-    setOnUsedWhenDisabled(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onUsedWhenDisabled = callback;
-        return this;
-    }
-
-    /** * Set the function to execute when the rate limit is hit
-     */
-    setOnRateLimit(callback: (...args: BaseCommandParameters<T>) => any): this {
-        this.options.onRateLimit = callback;
-        return this;
-    }
-
-    /** * Set a custom error handler for this command
-     */
-    setOnError(callback: (error: Error, ...args: BaseCommandParameters<T>) => any): this {
-        this.options.onError = callback;
         return this;
     }
 }

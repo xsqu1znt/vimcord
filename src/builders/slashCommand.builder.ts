@@ -1,9 +1,8 @@
-import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
-import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuilder } from "discord.js";
-import { AnySlashCommandBuilder, AppCommandDeployment } from "@ctypes/command.options";
-import { BaseCommandBuilder } from "@builders/baseCommand.builder";
+import { BaseCommandBuilder } from "@/builders/baseCommand.builder";
 import { type Vimcord } from "@/client";
-import _ from "lodash";
+import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
+import { AnySlashCommandBuilder } from "@ctypes/command.options";
+import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuilder } from "discord.js";
 
 interface _SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {
     builder: AnySlashCommandBuilder | ((builder: DJSSlashCommandBuilder) => AnySlashCommandBuilder);
@@ -66,22 +65,6 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, _
         return this;
     }
 
-    setDeferReply(defer: _SlashCommandConfig["deferReply"]): this {
-        this.options.deferReply = defer;
-        return this;
-    }
-
-    setDeployment(deployment: AppCommandDeployment): this {
-        this.options.deployment = _.merge(this.options.deployment || {}, deployment);
-        return this;
-    }
-
-    setRoutes(...routes: NonNullable<_SlashCommandConfig["routes"]>): this {
-        this.routes.clear();
-        this.addRoutes(...routes);
-        return this;
-    }
-
     addRoutes(...routes: NonNullable<_SlashCommandConfig["routes"]>): this {
         if (!this.options.routes) this.options.routes = [];
         for (const route of routes) {
@@ -91,11 +74,6 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, _
             if (existingIndex > -1) this.options.routes[existingIndex] = route;
             else this.options.routes.push(route);
         }
-        return this;
-    }
-
-    setUnknownRouteHandler(handler: _SlashCommandConfig["onUnknownRouteHandler"]): this {
-        this.options.onUnknownRouteHandler = handler;
         return this;
     }
 

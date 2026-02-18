@@ -11,7 +11,7 @@
         "module": "commonjs",
         "target": "ES2022",
         "moduleResolution": "node",
-        "types": ["node", "lodash"],
+        "types": ["node"],
 
         // Other Outputs
         "sourceMap": true,

@@ -1,5 +1,5 @@
-import { createConfigFactory } from "@/utils/config.factory";
-import { getDevMode, getPackageJson } from "@/utils/process.utils";
+import { createConfigFactory } from "@/utils/configFactory";
+import { getDevMode, getPackageJson } from "@/utils/processUtils";
 import { defineGlobalToolsConfig } from "./tools.config";
 
 export interface AppConfig {

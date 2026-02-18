@@ -2,7 +2,7 @@ import { DEFAULT_MODULE_SUFFIXES, Vimcord } from "@/client";
 import { CommandType } from "@ctypes/command.base";
 import { VimcordCommandBuilderByType } from "@ctypes/command.helpers";
 import { Routes } from "discord.js";
-import { ModuleImporter } from "./base-module.importer";
+import { ModuleImporter } from "./importers/baseModule.importer";
 
 export interface CommandFilter {
     names?: string[];

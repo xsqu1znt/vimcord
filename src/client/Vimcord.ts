@@ -1,19 +1,24 @@
-import { contextCommandHandler } from "@/modules/builtins/context-command.builtins";
-import { prefixCommandHandler } from "@/modules/builtins/prefix-command.builtins";
-import { slashCommandHandler } from "@/modules/builtins/slash-command.builtins";
+import { contextCommandHandler } from "@/modules/builtins/contextCommand.builtin";
+import { prefixCommandHandler } from "@/modules/builtins/prefixCommand.builtin";
+import { slashCommandHandler } from "@/modules/builtins/slashCommand.builtin";
 import { CommandManager } from "@/modules/command.manager";
 import { EventManager } from "@/modules/event.manager";
 import { StatusManager } from "@/modules/status.manager";
 import { fetchGuild, fetchUser } from "@/tools/utils";
 import { DatabaseManager } from "@/types/database";
-import { VimcordCLI } from "@/utils/vimcord.cli";
+import { VimcordCLI } from "@/client/vimcord.cli";
 import { Client, ClientOptions } from "discord.js";
 import { configDotenv, DotenvConfigOptions } from "dotenv";
 import { randomUUID } from "node:crypto";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
+<<<<<<< HEAD
 import { PartialDeep } from "type-fest";
 import { ErrorHandler } from "./error.handler";
+=======
+import { PartialDeep } from "@/types/helpers";
+import { ErrorHandler } from "./vimcord.errorHandler";
+>>>>>>> dev
 import { clientLoggerFactory } from "./vimcord.logger";
 import { AppModuleImports, VimcordConfig, VimcordCreateConfig, VimcordFeatures } from "./vimcord.types";
 import { configSetters as configCreators, defineVimcordConfig, moduleImporters } from "./vimcord.utils";
