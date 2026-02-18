@@ -4,9 +4,9 @@ import { createPrefixCommandConfig } from "@/configs/prefix-command.config";
 import { createSlashCommandConfig } from "@/configs/slash-command.config";
 import { createStaffConfig } from "@/configs/staff.config";
 import { PartialDeep } from "@/utils/types.utils";
+import { ClientOptions } from "discord.js";
 import { Vimcord } from "./Vimcord";
 import { AppModuleImports, ModuleImportOptions, VimcordConfig, VimcordFeatures } from "./vimcord.types";
-import { ClientOptions } from "discord.js";
 
 export const DEFAULT_MODULE_SUFFIXES = {
     slashCommands: ".slash",
@@ -89,16 +89,22 @@ export function defineVimcordConfig(config: PartialDeep<VimcordConfig>): Vimcord
  * Returns an instance of Vimcord.
  * @param clientId [default: 0]
  */
-export const useClient = Vimcord.getInstance;
+export function useClient(clientId?: number) {
+    return Vimcord.getInstance(clientId);
+}
 
 /**
  * Waits for a Vimcord instance to be ready.
  * @param clientId [default: 0]
  * @param timeoutMs [default: 60000]
  */
-export const useReadyClient = Vimcord.getReadyInstance;
+export function useReadyClient(clientId?: number, timeoutMs?: number) {
+    return Vimcord.getReadyInstance(clientId, timeoutMs);
+}
 
 /**
  * Creates a new instance of Vimcord.
  */
-export const createClient = Vimcord.create;
+export function createClient(options: ClientOptions, features?: VimcordFeatures, config?: PartialDeep<VimcordConfig>) {
+    return Vimcord.create(options, features, config);
+}
