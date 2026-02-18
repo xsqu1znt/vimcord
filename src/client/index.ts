@@ -1,4 +1,5 @@
 export * from "./Vimcord";
+export * from "./vimcord.cli";
 export * from "./vimcord.errorHandler";
 export * from "./vimcord.logger";
 export * from "./vimcord.types";

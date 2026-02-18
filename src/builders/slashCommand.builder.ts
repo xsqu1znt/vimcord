@@ -1,9 +1,8 @@
-import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
-import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuilder } from "discord.js";
-import { AnySlashCommandBuilder } from "@ctypes/command.options";
-import { BaseCommandBuilder } from "@/builders/base-command.builder";
+import { BaseCommandBuilder } from "@/builders/baseCommand.builder";
 import { type Vimcord } from "@/client";
-import { deepMerge } from "@/utils/mergeUtils";
+import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/command.base";
+import { AnySlashCommandBuilder } from "@ctypes/command.options";
+import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuilder } from "discord.js";
 
 interface _SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {
     builder: AnySlashCommandBuilder | ((builder: DJSSlashCommandBuilder) => AnySlashCommandBuilder);

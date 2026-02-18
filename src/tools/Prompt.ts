@@ -14,7 +14,7 @@ import { dynaSend, DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend";
 import { EmbedResolvable, SendHandler } from "./types";
 import { BetterContainer } from "./BetterContainer";
 import { BetterEmbed } from "./BetterEmbed";
-import { PartialDeep } from "@/utils/typesUtils";
+import { PartialDeep } from "@/types/helpers";
 
 export enum PromptResolveType {
     DisableComponents = 0,

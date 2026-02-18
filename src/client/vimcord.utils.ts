@@ -3,7 +3,7 @@ import { createContextCommandConfig } from "@/configs/contextCommand.config";
 import { createPrefixCommandConfig } from "@/configs/prefixCommand.config";
 import { createSlashCommandConfig } from "@/configs/slashCommand.config";
 import { createStaffConfig } from "@/configs/staff.config";
-import { PartialDeep } from "@/utils/typesUtils";
+import { PartialDeep } from "@/types/helpers";
 import { ClientOptions } from "discord.js";
 import { Vimcord } from "./Vimcord";
 import { AppModuleImports, ModuleImportOptions, VimcordConfig, VimcordFeatures } from "./vimcord.types";

@@ -12,7 +12,7 @@ import { configDotenv, DotenvConfigOptions } from "dotenv";
 import { randomUUID } from "node:crypto";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
-import { PartialDeep } from "@/utils/typesUtils";
+import { PartialDeep } from "@/types/helpers";
 import { ErrorHandler } from "./vimcord.errorHandler";
 import { clientLoggerFactory } from "./vimcord.logger";
 import { AppModuleImports, VimcordConfig, VimcordCreateConfig, VimcordFeatures } from "./vimcord.types";

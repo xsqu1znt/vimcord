@@ -16,10 +16,9 @@ export abstract class ModuleImporter<T> {
 
         const dirs = Array.isArray(dir) ? dir : [dir];
         const modules: T[] = [];
-        const effectiveSuffix = Array.isArray(suffix) ? suffix[0] : (suffix ?? this.itemSuffix);
 
         for (const _dir of dirs) {
-            const results = await importModulesFromDir<{ default: T }>(_dir, effectiveSuffix ?? undefined);
+            const results = await importModulesFromDir<{ default: T }>(_dir, suffix ?? this.itemSuffix);
             modules.push(...results.map(({ module }) => module.default));
         }
 

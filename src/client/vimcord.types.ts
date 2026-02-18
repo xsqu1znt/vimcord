@@ -5,7 +5,7 @@ import { SlashCommandConfig } from "@/configs/slashCommand.config";
 import { StaffConfig } from "@/configs/staff.config";
 import { EmbedResolvable } from "@/tools/types";
 import { ClientOptions, Guild } from "discord.js";
-import { PartialDeep } from "@/utils/typesUtils";
+import { PartialDeep } from "@/types/helpers";
 
 export interface ModuleImportOptions {
     /** The directories to import from. */

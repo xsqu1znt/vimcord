@@ -1,5 +1,5 @@
 import { ActivityType } from "discord.js";
-import { PartialDeep } from "@/utils/typesUtils";
+import { PartialDeep } from "@/types/helpers";
 import { deepMerge } from "@/utils/mergeUtils";
 
 export enum StatusType {

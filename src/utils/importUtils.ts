@@ -1,25 +1,29 @@
 import path from "node:path";
 import { $ } from "qznt";
 
-export function getProcessDir() {
+function getProcessDir() {
     const mainPath = process.argv[1];
     if (!mainPath) return "";
     return path.dirname(mainPath);
 }
 
-export async function importModulesFromDir<T extends any>(dir: string, suffix?: string) {
+function testFilenameSuffix(filename: string, suffix?: string | string[]) {
+    if (!suffix) return filename.endsWith(".ts") || filename.endsWith(".js");
+    if (Array.isArray(suffix)) {
+        return suffix.some(s => filename.endsWith(`${s}.ts`) || filename.endsWith(`${s}.js`));
+    } else {
+        return filename.endsWith(`${suffix}.ts`) || filename.endsWith(`${suffix}.js`);
+    }
+}
+
+export async function importModulesFromDir<T extends any>(dir: string, suffix?: string | string[]) {
     const cwd = getProcessDir();
     const MODULE_RELATIVE_PATH = path.join(cwd, dir);
     const MODULE_LOG_PATH = dir;
 
     /* Search the directory for event modules */
-    const files = $.fs
-        .readDir(MODULE_RELATIVE_PATH)
-        .filter(fn => fn.endsWith(`${suffix ? `.${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `.${suffix}` : ""}.ts`));
-
-    if (!files.length) {
-        return [];
-    }
+    const files = $.fs.readDir(MODULE_RELATIVE_PATH).filter(filename => testFilenameSuffix(filename, suffix));
+    if (!files.length) return [];
 
     // Import the modules found in the given directory
     const modules = await Promise.all(
