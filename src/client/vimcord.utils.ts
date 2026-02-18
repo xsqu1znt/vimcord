@@ -105,14 +105,6 @@ export function useReadyClient(clientId?: number, timeoutMs?: number) {
 /**
  * Creates a new instance of Vimcord.
  */
-<<<<<<< HEAD
-export function createClient(
-    options: import("discord.js").ClientOptions,
-    features?: import("./vimcord.types").VimcordFeatures,
-    config?: import("type-fest").PartialDeep<import("./vimcord.types").VimcordConfig>
-) {
-=======
 export function createClient(options: ClientOptions, features?: VimcordFeatures, config?: PartialDeep<VimcordConfig>) {
->>>>>>> dev
     return Vimcord.create(options, features, config);
 }

@@ -22,18 +22,8 @@ export async function importModulesFromDir<T extends any>(dir: string, suffix?: 
     const MODULE_LOG_PATH = dir;
 
     /* Search the directory for event modules */
-<<<<<<< HEAD:src/utils/import.utils.ts
-    const files = $.fs
-        .readDir(MODULE_RELATIVE_PATH)
-        .filter(fn => fn.endsWith(`${suffix ? `${suffix}` : ""}.js`) || fn.endsWith(`${suffix ? `${suffix}` : ""}.ts`));
-
-    if (!files.length) {
-        return [];
-    }
-=======
     const files = $.fs.readDir(MODULE_RELATIVE_PATH).filter(filename => testFilenameSuffix(filename, suffix));
     if (!files.length) return [];
->>>>>>> dev:src/utils/importUtils.ts
 
     // Import the modules found in the given directory
     const modules = await Promise.all(

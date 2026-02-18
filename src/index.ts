@@ -4,12 +4,8 @@ export * from "./builders/event.builder";
 export * from "./builders/prefixCommand.builder";
 export * from "./builders/slashCommand.builder";
 export * from "./client/Vimcord";
-<<<<<<< HEAD
-export * from "./client/error.handler";
-=======
 export * from "./client/vimcord.cli";
 export * from "./client/vimcord.errorHandler";
->>>>>>> dev
 export * from "./client/vimcord.logger";
 export * from "./client/vimcord.types";
 export * from "./client/vimcord.utils";

@@ -1,10 +1,6 @@
 {
     "name": "vimcord",
-<<<<<<< HEAD
-    "version": "1.0.39",
-=======
     "version": "1.0.38",
->>>>>>> dev
     "description": "A powerful Discord.js wrapper.",
     "license": "MIT",
     "author": "xsqu1znt",
