@@ -80,15 +80,16 @@ export function createVimcordConfig(config: PartialDeep<VimcordConfig>) {
  * Returns an instance of Vimcord.
  * @param clientId [default: 0]
  */
-export function useClient(clientId?: number): Vimcord | undefined {
-    return Vimcord.getInstance(clientId);
-}
+export const useClient = Vimcord.getInstance;
 
 /**
  * Waits for a Vimcord instance to be ready.
  * @param clientId [default: 0]
  * @param timeoutMs [default: 60000]
  */
-export async function useReadyClient(clientId?: number, timeoutMs: number = 60_000): Promise<Vimcord<true>> {
-    return Vimcord.getReadyInstance(clientId, timeoutMs);
-}
+export const useReadyClient = Vimcord.getReadyInstance;
+
+/**
+ * Creates a new instance of Vimcord.
+ */
+export const createClient = Vimcord.create;

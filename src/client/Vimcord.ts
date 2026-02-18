@@ -1,6 +1,6 @@
-import { contextCommandHandler } from "@/modules/builtins/context-command.handler";
-import { prefixCommandHandler } from "@/modules/builtins/prefix-command.handler";
-import { slashCommandHandler } from "@/modules/builtins/slash-command.handler";
+import { contextCommandHandler } from "@/modules/builtins/context-command.builtins";
+import { prefixCommandHandler } from "@/modules/builtins/prefix-command.builtins";
+import { slashCommandHandler } from "@/modules/builtins/slash-command.builtins";
 import { CommandManager } from "@/modules/command.manager";
 import { EventManager } from "@/modules/event.manager";
 import { StatusManager } from "@/modules/status.manager";
@@ -21,6 +21,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     static instances = new Map<number, Vimcord>();
     private static emitter = new EventEmitter<{ ready: [Vimcord] }>();
     private clientStartingPromise: Promise<string | null> | null = null;
+
+    static create(options: ClientOptions, features: VimcordFeatures = {}, config: PartialDeep<VimcordConfig> = {}) {
+        return new Vimcord(options, features, config);
+    }
 
     /**
      * Returns an instance of Vimcord.
