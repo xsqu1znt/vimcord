@@ -1,8 +1,8 @@
-import { Routes } from "discord.js";
+import { DEFAULT_MODULE_SUFFIXES, Vimcord } from "@/client";
 import { CommandType } from "@ctypes/command.base";
 import { VimcordCommandBuilderByType } from "@ctypes/command.helpers";
-import { importModulesFromDir } from "@utils/dir";
-import { type Vimcord } from "@/client/client";
+import { Routes } from "discord.js";
+import { ModuleImporter } from "./base-module.importer";
 
 export interface CommandFilter {
     names?: string[];
@@ -17,16 +17,44 @@ export interface CommandByCategory<T extends CommandType> {
     commands: VimcordCommandBuilderByType<T>[];
 }
 
-export class BaseCommandManager<T extends CommandType> {
+export class BaseCommandManager<T extends CommandType> extends ModuleImporter<VimcordCommandBuilderByType<T>> {
     readonly type: T;
-    readonly client: Vimcord;
-    readonly commands = new Map<string, VimcordCommandBuilderByType<T>>();
-    readonly moduleSuffix?: string;
+    readonly items = new Map<string, VimcordCommandBuilderByType<T>>();
+    readonly itemSuffix: string | undefined;
 
-    constructor(client: Vimcord, type: T, moduleSuffix?: string) {
+    constructor(client: Vimcord, type: T, itemSuffix?: string) {
+        super(client);
         this.type = type;
-        this.client = client;
-        this.moduleSuffix = moduleSuffix;
+        switch (type) {
+            case CommandType.Slash:
+                this.itemSuffix = itemSuffix ?? DEFAULT_MODULE_SUFFIXES.slashCommands;
+                break;
+            case CommandType.Context:
+                this.itemSuffix = itemSuffix ?? DEFAULT_MODULE_SUFFIXES.contextCommands;
+                break;
+            case CommandType.Prefix:
+                this.itemSuffix = itemSuffix ?? DEFAULT_MODULE_SUFFIXES.prefixCommands;
+                break;
+        }
+    }
+
+    get commands() {
+        return this.items;
+    }
+
+    get itemName(): string {
+        switch (this.type) {
+            case CommandType.Slash:
+                return "Slash Commands";
+            case CommandType.Context:
+                return "Context Commands";
+            case CommandType.Prefix:
+                return "Prefix Commands";
+        }
+    }
+
+    protected getName(module: VimcordCommandBuilderByType<T>): string {
+        return "builder" in module ? module.builder.name : module.options.name;
     }
 
     /**
@@ -37,7 +65,7 @@ export class BaseCommandManager<T extends CommandType> {
             const config = this.client.config.prefixCommands;
             const search = config.allowCaseInsensitiveCommandNames ? name.toLowerCase() : name;
 
-            return Array.from(this.commands.values()).find(cmd => {
+            return Array.from(this.items.values()).find(cmd => {
                 const commandName = "builder" in cmd ? cmd.builder.name : cmd.options.name;
                 const trigger = config.allowCaseInsensitiveCommandNames ? commandName.toLowerCase() : commandName;
                 if (trigger === search) return true;
@@ -49,7 +77,7 @@ export class BaseCommandManager<T extends CommandType> {
                 }
             });
         } else {
-            return this.commands.get(name);
+            return this.items.get(name);
         }
     }
 
@@ -60,7 +88,7 @@ export class BaseCommandManager<T extends CommandType> {
         const matchedCommands = new Map<string, VimcordCommandBuilderByType<T>>();
         const isDev = this.client.config.app.devMode;
 
-        for (const cmd of this.commands.values()) {
+        for (const cmd of this.items.values()) {
             const commandName = "builder" in cmd ? cmd.builder.name : cmd.options.name;
 
             // 1. Name Filtering
@@ -102,7 +130,7 @@ export class BaseCommandManager<T extends CommandType> {
     sortByCategory() {
         const categories = new Map<string, CommandByCategory<T>>();
 
-        for (const cmd of this.commands.values()) {
+        for (const cmd of this.items.values()) {
             const metadata = cmd.options.metadata;
             if (!metadata?.category) continue;
 
@@ -131,61 +159,23 @@ export class BaseCommandManager<T extends CommandType> {
                 return cat;
             });
     }
-
-    /**
-     * Imports command modules from a directory.
-     * @param dir Path of one or more folders.
-     * @param set Replaces imported command modules with the ones found.
-     */
-    async importFrom(dir: string | string[], set = false) {
-        if (set) this.commands.clear();
-
-        const dirs = Array.isArray(dir) ? dir : [dir];
-        const modules: VimcordCommandBuilderByType<T>[] = [];
-
-        for (const _dir of dirs) {
-            const results = await importModulesFromDir<{ default: VimcordCommandBuilderByType<T> }>(_dir, this.moduleSuffix);
-            modules.push(...results.map(({ module }) => module.default));
-        }
-
-        for (const module of modules) {
-            const commandName = "builder" in module ? module.builder.name : module.options.name;
-            this.commands.set(commandName, module);
-        }
-
-        let moduleType: string;
-        switch (this.type) {
-            case CommandType.Slash:
-                moduleType = "Slash Commands";
-                break;
-            case CommandType.Context:
-                moduleType = "Context Commands";
-                break;
-            case CommandType.Prefix:
-                moduleType = "Prefix Commands";
-                break;
-        }
-        this.client.logger.moduleLoaded(moduleType, modules.length);
-
-        return this.commands;
-    }
 }
 
 export class SlashCommandManager extends BaseCommandManager<CommandType.Slash> {
     constructor(client: Vimcord) {
-        super(client, CommandType.Slash, client.config.app.moduleSuffixes.slashCommand);
+        super(client, CommandType.Slash);
     }
 }
 
 export class ContextCommandManager extends BaseCommandManager<CommandType.Context> {
     constructor(client: Vimcord) {
-        super(client, CommandType.Context, client.config.app.moduleSuffixes.contextCommand);
+        super(client, CommandType.Context);
     }
 }
 
 export class PrefixCommandManager extends BaseCommandManager<CommandType.Prefix> {
     constructor(client: Vimcord) {
-        super(client, CommandType.Prefix, client.config.app.moduleSuffixes.prefixCommand);
+        super(client, CommandType.Prefix);
     }
 }
 
@@ -207,7 +197,7 @@ export class CommandManager {
     }
 
     async registerGlobal(options: CommandFilter = {}) {
-        const client = await this.client.waitForReady();
+        const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands globally: REST is not initialized`);
             return;
@@ -235,7 +225,7 @@ export class CommandManager {
     }
 
     async unregisterGlobal() {
-        const client = await this.client.waitForReady();
+        const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to remove app commands globally: REST is not initialized`);
             return;
@@ -250,7 +240,7 @@ export class CommandManager {
     }
 
     async registerGuild(options: CommandFilter & { guilds?: string[] } = {}) {
-        const client = await this.client.waitForReady();
+        const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
             return;
@@ -289,7 +279,7 @@ export class CommandManager {
     }
 
     async unregisterGuild(options: { guilds?: string[] } = {}) {
-        const client = await this.client.waitForReady();
+        const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
             console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
             return;

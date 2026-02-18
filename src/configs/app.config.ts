@@ -1,5 +1,5 @@
-import { createConfigFactory } from "@/utils/configUtils";
-import { getDevMode, getPackageJson } from "@/utils/utils";
+import { createConfigFactory } from "@/utils/config.factory";
+import { getDevMode, getPackageJson } from "@/utils/process.utils";
 
 export interface AppConfig {
     /** The name of the bot displayed in logs and startup banner.

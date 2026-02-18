@@ -5,7 +5,7 @@ try {
     throw new Error("MongoDatabase requires the mongoose package, install it with `npm install mongoose`");
 }
 
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 import mongoose, { ClientSessionOptions, Connection, ConnectionStates } from "mongoose";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
@@ -128,10 +128,9 @@ export class MongoDatabase {
         try {
             const stopLoader = this.client.logger.loader("Connecting to MongoDB...");
 
-            await $.async.retry(
-                () => this.mongoose.connect(connectionUri, { autoIndex: true, ...connectionOptions }),
-                maxRetries
-            );
+            await $.async.retry(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...connectionOptions }), {
+                retries: maxRetries
+            });
 
             MongoDatabase.emitter.emit("ready", this);
             stopLoader("Connected to MongoDB    ");

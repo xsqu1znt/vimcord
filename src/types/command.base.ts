@@ -6,7 +6,7 @@ import {
     CommandRateLimitOptions
 } from "./command.options";
 import { ChatInputCommandInteraction, ContextMenuCommandInteraction, Message } from "discord.js";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 
 export enum CommandType {
     Slash = 0,

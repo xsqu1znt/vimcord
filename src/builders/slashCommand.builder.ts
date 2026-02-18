@@ -2,7 +2,7 @@ import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/co
 import { ChatInputCommandInteraction, SlashCommandBuilder as DJSSlashCommandBuilder } from "discord.js";
 import { AnySlashCommandBuilder, AppCommandDeployment } from "@ctypes/command.options";
 import { BaseCommandBuilder } from "@builders/baseCommand.builder";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 import _ from "lodash";
 
 interface _SlashCommandConfig extends BaseCommandConfig<CommandType.Slash>, BaseAppCommandConfig {

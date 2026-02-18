@@ -1,18 +1,18 @@
-import { EventBuilder } from "@builders/event.builder";
-import { importModulesFromDir } from "@utils/dir";
-import { ClientEvents, Events } from "discord.js";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 import { Logger } from "@/tools/Logger";
+import { EventBuilder } from "@builders/event.builder";
+import { ClientEvents, Events } from "discord.js";
+import { ModuleImporter } from "./base-module.importer";
 
-export class EventManager {
-    client: Vimcord;
-    events: Map<string, EventBuilder<any>> = new Map();
+export class EventManager extends ModuleImporter<EventBuilder<any>> {
+    readonly items: Map<string, EventBuilder<any>> = new Map();
+    readonly itemSuffix = "event";
+    readonly itemName = "Event Handlers";
     logger: Logger;
 
     constructor(client: Vimcord) {
-        this.client = client;
+        super(client);
 
-        // Define custom logger instance
         this.logger = new Logger({ prefixEmoji: "📋", prefix: `EventManager (i${this.client.clientId})` });
 
         for (const event of Object.values(Events)) {
@@ -22,9 +22,13 @@ export class EventManager {
         }
     }
 
+    protected getName(module: EventBuilder<any>): string {
+        return module.name;
+    }
+
     register<T extends keyof ClientEvents>(...events: EventBuilder<T>[]): void {
         for (const event of events) {
-            this.events.set(event.name, event);
+            this.items.set(event.name, event);
 
             if (this.client.config.app.verbose) {
                 this.logger.debug(`'${event.name}' registered for EventType '${event.event}'`);
@@ -34,10 +38,10 @@ export class EventManager {
 
     unregister(...names: string[]): void {
         for (const name of names) {
-            const event = this.events.get(name);
+            const event = this.items.get(name);
             if (!event) continue;
 
-            this.events.delete(name);
+            this.items.delete(name);
 
             if (this.client.config.app.verbose) {
                 this.logger.debug(`'${event.name}' unregistered for EventType '${event.event}'`);
@@ -46,24 +50,24 @@ export class EventManager {
     }
 
     clear() {
-        this.events.forEach(e => this.unregister(e.name));
-        this.events.clear();
+        this.items.forEach(e => this.unregister(e.name));
+        this.items.clear();
     }
 
     get(name: string): EventBuilder | undefined {
-        return this.events.get(name);
+        return this.items.get(name);
     }
 
     getByTag(tag: string): EventBuilder[] {
-        return Array.from(this.events.values()).filter(event => event.metadata?.tags?.includes(tag));
+        return Array.from(this.items.values()).filter(event => event.metadata?.tags?.includes(tag));
     }
 
     getByCategory(category: string): EventBuilder[] {
-        return Array.from(this.events.values()).filter(event => event.metadata?.category?.includes(category));
+        return Array.from(this.items.values()).filter(event => event.metadata?.category?.includes(category));
     }
 
     getByEvent<T extends keyof ClientEvents>(eventType: T): EventBuilder<T>[] {
-        return Array.from(this.events.values()).filter(event => event.event === eventType);
+        return Array.from(this.items.values()).filter(event => event.event === eventType);
     }
 
     async executeEvents<T extends keyof ClientEvents>(eventType: T, ...args: ClientEvents[T]): Promise<void> {
@@ -84,36 +88,5 @@ export class EventManager {
                 }
             })
         );
-    }
-
-    /** Import event modules that end with `.event` */
-    async importFrom(dir: string | string[], replaceAll?: boolean) {
-        dir = Array.isArray(dir) ? dir : [dir];
-
-        const eventModules = await Promise.all(
-            dir.map(dir => importModulesFromDir<{ default: EventBuilder<any> }>(dir, "event"))
-        );
-
-        // Clear current registered events
-        if (replaceAll) {
-            this.clear();
-        }
-
-        let importedEvents = 0;
-        let ignoredEvents = 0;
-
-        // Register the imported event modules
-        for (const event of eventModules.flat()) {
-            if (!event.module.default.enabled) {
-                ignoredEvents++;
-            } else {
-                importedEvents++;
-            }
-
-            this.register(event.module.default);
-        }
-
-        this.client.logger.moduleLoaded("Event Handlers", importedEvents, ignoredEvents);
-        return this.events;
     }
 }

@@ -1,11 +1,6 @@
 import path from "node:path";
 import { $ } from "qznt";
 
-export function getCallerFileName() {
-    const stack = new Error().stack?.split("\n");
-    return stack?.at(4)?.split("at file")?.at(1)?.split("/").at(-1)?.split(":").at(0)?.split(".").at(0);
-}
-
 export function getProcessDir() {
     const mainPath = process.argv[1];
     if (!mainPath) return "";

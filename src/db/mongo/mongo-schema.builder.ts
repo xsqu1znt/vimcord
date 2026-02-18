@@ -5,7 +5,6 @@ try {
     throw new Error("MongoSchemaBuilder requires the mongoose package, install it with `npm install mongoose`");
 }
 
-import { MongoDatabase } from "@/modules/db/mongo/mongo";
 import { Logger } from "@/tools/Logger";
 import {
     AggregateOptions,
@@ -31,6 +30,7 @@ import {
 } from "mongoose";
 import { randomBytes } from "node:crypto";
 import { $ } from "qznt";
+import { MongoDatabase } from "./mongo.database";
 
 export type MongoPlugin<Definition extends object> = (builder: MongoSchemaBuilder<Definition>) => void;
 
@@ -215,10 +215,13 @@ export class MongoSchemaBuilder<Definition extends object = any> {
      * @param maxRetries [default: 3]
      */
     async execute<T extends (model: Model<Definition>) => any>(fn: T, maxRetries: number = 3): Promise<ExtractReturn<T>> {
-        return await $.async.retry(async () => {
-            const model = await this.getModel();
-            return await fn(model);
-        }, maxRetries);
+        return await $.async.retry(
+            async () => {
+                const model = await this.getModel();
+                return await fn(model);
+            },
+            { retries: maxRetries }
+        );
     }
 
     async startSession(options?: ClientSessionOptions) {

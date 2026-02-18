@@ -1,7 +1,7 @@
 import { BaseInteraction, CommandInteraction, GuildMember, PermissionResolvable, User } from "discord.js";
 import { CommandPermissionResults, CommandPermissions } from "@ctypes/command.options";
 import { MissingPermissionReason } from "@ctypes/command.base";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 
 function __existsAndTrue(value: boolean | undefined) {
     return value !== undefined && value;

@@ -1,9 +1,11 @@
+import { type Vimcord } from "@/client";
+import { validateCommandPermissions } from "@/modules/validators/permissions.validator";
 import {
-    CommandType,
-    RateLimitScope,
-    BaseCommandParameters,
     BaseCommandConfig,
-    CommandInternalRateLimitData
+    BaseCommandParameters,
+    CommandInternalRateLimitData,
+    CommandType,
+    RateLimitScope
 } from "@ctypes/command.base";
 import {
     CommandMetadata,
@@ -12,10 +14,8 @@ import {
     CommandRateLimitOptions
 } from "@ctypes/command.options";
 import { Guild, GuildMember, TextBasedChannel, User } from "discord.js";
-import { validateCommandPermissions } from "@validators/permissions.validator";
-import { randomUUID } from "node:crypto";
-import { type Vimcord } from "@/client/client";
 import _ from "lodash";
+import { randomUUID } from "node:crypto";
 
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {
     readonly uuid: string = randomUUID();

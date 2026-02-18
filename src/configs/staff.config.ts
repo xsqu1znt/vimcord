@@ -1,4 +1,4 @@
-import { createConfigFactory } from "@/utils/configUtils";
+import { createConfigFactory } from "@/utils/config.factory";
 
 export interface StaffConfig {
     ownerId: string | null;

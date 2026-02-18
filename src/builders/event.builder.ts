@@ -1,7 +1,6 @@
 import { EventDeployment, EventMetadata, EventRateLimitOptions } from "@ctypes/event.options";
 import { EventParameters } from "@ctypes/event.helpers";
 import { EventConfig } from "@ctypes/event.base";
-import { getCallerFileName } from "@utils/dir";
 import { ClientEvents } from "discord.js";
 import { randomUUID } from "node:crypto";
 import _ from "lodash";
@@ -10,7 +9,7 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
     readonly uuid: string = randomUUID();
 
     event: T;
-    name: string = getCallerFileName() || this.uuid;
+    name: string = this.uuid;
     enabled;
     once;
     priority;

@@ -1,7 +1,7 @@
 import { BaseCommandConfig, CommandType } from "@ctypes/command.base";
 import { BaseCommandBuilder } from "@builders/baseCommand.builder";
 import { Message } from "discord.js";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 
 /**
  * Configuration specific to Prefix-based commands

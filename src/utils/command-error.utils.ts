@@ -1,3 +1,7 @@
+import { type Vimcord } from "@/client";
+import { BetterEmbed } from "@/tools/BetterEmbed";
+import { dynaSend } from "@/tools/dynaSend";
+import { SendMethod } from "@/tools/types";
 import {
     ActionRowBuilder,
     AttachmentBuilder,
@@ -8,9 +12,6 @@ import {
     Guild,
     Message
 } from "discord.js";
-import { BetterEmbed } from "@/tools/BetterEmbed";
-import { SendMethod } from "@/tools/types";
-import { type Vimcord } from "@/client/client";
 
 export async function sendCommandErrorEmbed(
     client: Vimcord,
@@ -57,7 +58,8 @@ export async function sendCommandErrorEmbed(
         });
 
     // Send the embed
-    const msg = await embed_error.send(messageOrInteraction, {
+    const msg = await dynaSend(messageOrInteraction, {
+        embeds: [embed_error],
         components: [actionRow],
         flags: config?.ephemeral ? "Ephemeral" : undefined,
         deleteAfter: config?.deleteAfter
@@ -85,7 +87,8 @@ export async function sendCommandErrorEmbed(
         buttons.details.setDisabled(true);
 
         // Update the action row
-        embed_error.send(messageOrInteraction, {
+        dynaSend(messageOrInteraction, {
+            embeds: [embed_error],
             sendMethod: messageOrInteraction instanceof Message ? SendMethod.MessageEdit : undefined,
             components: [actionRow]
         });

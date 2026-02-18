@@ -1,7 +1,7 @@
 import { Logger } from "@/tools/Logger";
 import { createInterface, Interface } from "node:readline";
 import { $ } from "qznt";
-import { useClient } from "./clientUtils";
+import { useClient } from "@/client";
 
 export type VimcordCLIMode = "on" | "off";
 

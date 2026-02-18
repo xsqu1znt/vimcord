@@ -2,7 +2,7 @@ import { BaseAppCommandConfig, BaseCommandConfig, CommandType } from "@ctypes/co
 import { ContextMenuCommandBuilder, ContextMenuCommandInteraction } from "discord.js";
 import { BaseCommandBuilder } from "@builders/baseCommand.builder";
 import { AppCommandDeployment } from "@ctypes/command.options";
-import { type Vimcord } from "@/client/client";
+import { type Vimcord } from "@/client";
 import _ from "lodash";
 
 interface _ContextCommandConfig extends BaseCommandConfig<CommandType.Context>, BaseAppCommandConfig {

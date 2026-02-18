@@ -1,4 +1,4 @@
-import { Vimcord } from "@/client/client";
+import { Vimcord } from "@/client";
 import { Logger } from "@/tools/Logger";
 import { fetchGuild } from "@/tools/utils";
 import { ClientActivity, ClientStatus, createVimcordStatusConfig, VimcordClientStatus } from "@/types/status";
@@ -52,7 +52,7 @@ export class StatusManager {
     }
 
     private async getReadyClient() {
-        const client = await this.client.waitForReady();
+        const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.user) throw new Error("Cannot manage the client's activity when its user is not hydrated");
         return client;
     }

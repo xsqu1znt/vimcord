@@ -1,7 +1,7 @@
 import { Logger } from "@/tools/Logger";
 import chalk from "chalk";
 import { version } from "../../package.json";
-import { Vimcord } from "./client";
+import { Vimcord } from "./Vimcord";
 
 export const clientLoggerFactory = (client: Vimcord) =>
     new Logger({ prefixEmoji: "⚡", prefix: `vimcord (i${client.clientId})` }).extend({

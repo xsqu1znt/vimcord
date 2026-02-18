@@ -1,4 +1,4 @@
-import { createConfigFactory } from "@/utils/configUtils";
+import { createConfigFactory } from "@/utils/config.factory";
 import { ColorResolvable } from "discord.js";
 import { PartialDeep } from "type-fest";
 
