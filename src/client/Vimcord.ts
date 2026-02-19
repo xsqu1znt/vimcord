@@ -178,6 +178,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             ]);
         }
 
+        // Log client banner
+        this.logger.clientBanner(this);
+
         // Enable the VimcordCLI
         if (this.config.app.enableCLI) {
             VimcordCLI.setMode("on");
@@ -315,8 +318,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
             // Build the client
             await this.build();
-            // Log client banner
-            this.logger.clientBanner(this);
 
             try {
                 const stopLoader = this.logger.loader("Connecting to Discord...");
