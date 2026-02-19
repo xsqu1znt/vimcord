@@ -10,13 +10,13 @@
 
 ### Core Modules
 
-| Module            | Responsibility                                                                                            |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `CommandManager`  | Slash, Prefix, and Context command orchestration with permission inference and automated error boundaries |
-| `DatabaseManager` | MongoDB/Mongoose integration via `createMongoSchema` and `useMongoDatabase`                               |
-| `DiscordTools`    | Stateful UI helpers: `Paginator`, `Prompt`, `BetterModal`                                                 |
-| `DiscordUtils`    | Discord-specific utility functions                                                                        |
-| `Logger`          | Retro-style terminal logger for structured, actionable output                                             |
+| Module            | Responsibility                                                                                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CommandManager`  | Slash, Prefix, and Context command orchestration with permission inference and automated error boundaries                                                                                                                     |
+| `DatabaseManager` | MongoDB/Mongoose integration via `createMongoSchema`. Use `client.useDatabase()` to initialize a database on the client, and `useMongoDatabase()` in code without direct client access to retrieve the active Mongo instance. |
+| `DiscordTools`    | Stateful UI helpers: `Paginator`, `Prompt`, `BetterModal` — imported directly from `"vimcord"`, not from a `DiscordTools` namespace                                                                                           |
+| `DiscordUtils`    | Discord-specific utility functions                                                                                                                                                                                            |
+| `Logger`          | Retro-style terminal logger for structured, actionable output                                                                                                                                                                 |
 
 ---
 
@@ -85,15 +85,39 @@ Agents must respect and reinforce the following structural conventions:
 - **Shared logic must be extracted into utilities**, not duplicated. If a pattern appears in two command files, it belongs in `utils/` or a Vimcord tool.
 - **Event handlers are single-responsibility.** One file handles one event. Do not combine `messageCreate` and `interactionCreate` logic.
 - **Do not mutate module-level state.** Use closures, class instances, or the database layer for persistent state.
+- **Static configuration belongs in `constants/` (outside `src/`).** JSON files placed there are picked up by the hot-reload dev server without a rebuild. Do not move configuration into `src/` — doing so silently breaks this pattern. Re-export values through `src/constants.ts` as needed.
 
 ---
 
 ## Error Handling
 
 - Wrap all async operations in `try/catch`. Do not let unhandled promise rejections propagate.
-- Log errors through Vimcord's `Logger` — do not use `console.error` directly.
+- Log errors through Vimcord's `Logger` — do not use `console.error` directly, **except** at the process boundary (e.g., `main().catch(console.error)`) where the Logger may not yet be initialized.
 - Return early on error conditions. Avoid deeply nested `if` chains.
-- Use typed error classes where the error type is meaningful to the caller. Avoid throwing plain strings.
+- Use typed error classes where the error type is meaningful to the caller. Avoid throwing plain strings. Example:
+
+```typescript
+class PermissionError extends Error {
+    constructor(
+        public readonly missing: string[],
+        message = `Missing permissions: ${missing.join(", ")}`
+    ) {
+        super(message);
+        this.name = "PermissionError";
+    }
+}
+
+// Caller can now discriminate:
+try {
+    await requirePermissions(member, ["BanMembers"]);
+} catch (err) {
+    if (err instanceof PermissionError) {
+        await interaction.reply({ content: err.message, flags: "Ephemeral" });
+        return;
+    }
+    throw err;
+}
+```
 
 ---
 
@@ -102,13 +126,16 @@ Agents must respect and reinforce the following structural conventions:
 - **Always use `pnpm`** for any package operations. `npm` and `yarn` are not used in this project.
 
 ```bash
-  pnpm add <package>
-  pnpm remove <package>
-  pnpm install
+pnpm add <package>
+pnpm remove <package>
+pnpm install
 ```
 
-- Run `pnpm build` to verify compilation before finalizing any change.
-- Do not commit changes that fail to compile or have unresolved TypeScript errors.
+- Run `pnpm check` after each incremental step to catch type errors early.
+- Run `pnpm build` before finalizing any change to verify the full compile pipeline (TypeScript emit + path alias resolution). A clean `pnpm check` does not guarantee a clean build.
+- Do not commit changes that fail `pnpm build` or have unresolved TypeScript errors.
+
+---
 
 ## Agent Execution Protocol
 
@@ -122,10 +149,13 @@ Agents must work incrementally. Do not attempt to refactor, scaffold, or fix mul
 4. **Report any type errors** encountered — include the file path, line number, and the full error message. Do not silently swallow compiler output.
 5. **Resolve errors before moving on.** Do not proceed to the next file or concern while the current step has unresolved TypeScript errors.
 6. **Confirm the step is clean**, then repeat from step 1 for the next unit of work.
+7. **Run `pnpm build`** once all steps for a task are complete. Resolve any build-only failures (e.g., path alias resolution errors) before committing.
+
+> **Note:** A clean `pnpm check` confirms type correctness but does not validate runtime behavior. If a change produces correct types but incorrect Discord API behavior (e.g., missing event registrations, commands not appearing, module auto-imports failing), stop and report the behavioral issue with reproduction steps before continuing.
 
 ### Hard Limits
 
-- **Do not modify more than 3 files in a single step** unless the changes are purely mechanical and non-type-affecting (e.g., renaming an import path across files after a module move).
+- **Do not modify more than 3 files in a single step** for semantic changes. Purely mechanical changes (e.g., renaming an import path across files after a module move) may exceed this limit — if so, explicitly state that the changes are mechanical and non-type-affecting before proceeding.
 - **Do not speculatively refactor.** Only change what is directly required by the current task. If you notice something unrelated that should be fixed, note it as a follow-up rather than fixing it inline.
 - **Do not suppress type errors** with `// @ts-ignore` or `// @ts-expect-error` as a workaround. These are only acceptable as a last resort and must include a comment explaining why and a linked follow-up task.
 - **If a step produces more than 5 type errors, stop.** Report all of them, explain what went wrong, and wait for guidance before continuing.
@@ -147,8 +177,10 @@ Never summarize errors vaguely (e.g., "there were some type issues"). Always rep
 
 ---
 
-## Commit & Testing Standards
+## Commit & Branch Standards
 
+- **Always work on a feature branch.** Do not commit directly to `main`. Branch names should be short and descriptive: `fix/paginator-timeout`, `feat/rate-limit-scope`, `refactor/schema-plugin-types`.
+- **Each commit should represent one clean, passing unit of work.** Do not bundle unrelated changes in a single commit.
+- **Write descriptive commit messages in imperative mood:** `Add paginator timeout option`, not `added timeout`.
+- **Signal readiness for review** by opening a pull request and leaving a short description of what changed and why. Do not silently push a branch without a PR.
 - Test all changes locally before committing.
-- Write descriptive commit messages in imperative mood: `Add paginator timeout option`, not `added timeout`.
-- Do not bundle unrelated changes in a single commit.
