@@ -155,6 +155,43 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
     }
 
+    /** Builds the client by importing modules and registering builtin handlers. */
+    private async build(): Promise<this> {
+        this.configure("app", this.config.app);
+        this.configure("staff", this.config.staff);
+        this.configure("slashCommands", this.config.slashCommands);
+        this.configure("prefixCommands", this.config.prefixCommands);
+        this.configure("contextCommands", this.config.contextCommands);
+
+        // Log client banner
+        this.logger.clientBanner(this);
+
+        if (this.features.importModules) {
+            const importModules = this.features.importModules;
+
+            await Promise.all([
+                importModules.events && this.importModules("events", importModules.events),
+                importModules.slashCommands && this.importModules("slashCommands", importModules.slashCommands),
+                importModules.prefixCommands && this.importModules("prefixCommands", importModules.prefixCommands),
+                importModules.contextCommands && this.importModules("contextCommands", importModules.contextCommands)
+            ]);
+        }
+
+        if (this.features.useDefaultSlashCommandHandler) {
+            this.events.register(slashCommandHandler);
+        }
+
+        if (this.features.useDefaultContextCommandHandler) {
+            this.events.register(contextCommandHandler);
+        }
+
+        if (this.features.useDefaultPrefixCommandHandler) {
+            this.events.register(prefixCommandHandler);
+        }
+
+        return this;
+    }
+
     /** Current app name */
     // prettier-ignore
     get $name() { return this.config.app.name; }
@@ -203,38 +240,25 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return this;
     }
 
-    /** Builds the client by importing modules and registering builtin handlers. */
-    private async build(): Promise<this> {
-        this.configure("app", this.config.app);
-        this.configure("staff", this.config.staff);
-        this.configure("slashCommands", this.config.slashCommands);
-        this.configure("prefixCommands", this.config.prefixCommands);
-        this.configure("contextCommands", this.config.contextCommands);
-
-        if (this.features.importModules) {
-            const importModules = this.features.importModules;
-
-            await Promise.all([
-                importModules.events && this.importModules("events", importModules.events),
-                importModules.slashCommands && this.importModules("slashCommands", importModules.slashCommands),
-                importModules.prefixCommands && this.importModules("prefixCommands", importModules.prefixCommands),
-                importModules.contextCommands && this.importModules("contextCommands", importModules.contextCommands)
-            ]);
-        }
-
-        if (this.features.useDefaultSlashCommandHandler) {
-            this.events.register(slashCommandHandler);
-        }
-
-        if (this.features.useDefaultContextCommandHandler) {
-            this.events.register(contextCommandHandler);
-        }
-
-        if (this.features.useDefaultPrefixCommandHandler) {
-            this.events.register(prefixCommandHandler);
-        }
-
+    /**
+     * Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
+     * @param options Options for dotenv
+     * @see https://www.npmjs.com/package/dotenv
+     */
+    useEnv(options?: DotenvConfigOptions): this {
+        this.logger.plugin("ENV", "Using", "dotenv");
+        configDotenv({ quiet: true, ...options });
         return this;
+    }
+
+    /**
+     * Connects to a database.
+     * @param db The database manager to use.
+     */
+    async useDatabase(db: DatabaseManager): Promise<boolean> {
+        this.db = db;
+        this.logger.database("Using", db.moduleName);
+        return this.db.connect();
     }
 
     /**
@@ -250,27 +274,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     ): Promise<this> {
         await moduleImporters[type](this, options, set);
         return this;
-    }
-
-    /**
-     * Allows Vimcord to handle environment variables using [dotenv](https://www.npmjs.com/package/dotenv).
-     * @param options Options for dotenv
-     * @see https://www.npmjs.com/package/dotenv
-     */
-    useEnv(options?: DotenvConfigOptions): this {
-        this.logger.database("Using", "dotenv");
-        configDotenv({ quiet: true, ...options });
-        return this;
-    }
-
-    /**
-     * Connects to a database.
-     * @param db The database manager to use.
-     */
-    async useDatabase(db: DatabaseManager): Promise<boolean> {
-        this.db = db;
-        this.logger.database("Using", db.moduleName);
-        return this.db.connect();
     }
 
     /**
@@ -318,8 +321,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
             // Build the client
             await this.build();
-            // Show client banner
-            this.logger.clientBanner(this);
 
             try {
                 const stopLoader = this.logger.loader("Connecting to Discord...");

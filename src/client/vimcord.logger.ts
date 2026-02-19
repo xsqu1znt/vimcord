@@ -64,6 +64,16 @@ export const clientLoggerFactory = (client: Vimcord) =>
             );
         },
 
+        plugin(pluginName: string, action: string, details?: string) {
+            console.log(
+                this.formatTimestamp(),
+                this.formatPrefix(),
+                chalk.hex("#FF6B9D")(`🔌 ${pluginName}`),
+                chalk.white(action),
+                details ? chalk.hex(this.colors.muted)(details) : ""
+            );
+        },
+
         database(action: string, details?: string) {
             console.log(
                 this.formatTimestamp(),
