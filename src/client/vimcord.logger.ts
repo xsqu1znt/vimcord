@@ -13,7 +13,7 @@ export const clientLoggerFactory = (client: Vimcord) =>
             console.log(
                 chalk.hex(this.colors.primary)("║") +
                     chalk.bold.hex(this.colors.text)(
-                        `  🚀 ${client.config.app.name} v${client.$version}`.padEnd(50 - (client.$devMode ? 12 : 0))
+                        `  🚀 ${client.$name} v${client.$version}`.padEnd(50 - (client.$devMode ? 12 : 0))
                     ) +
                     chalk.hex(this.colors.primary)(`${client.$devMode ? chalk.hex(this.colors.warn)("devMode ⚠️   ") : ""}║`)
             );
