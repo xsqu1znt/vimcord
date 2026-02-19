@@ -143,10 +143,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.commands = new CommandManager(this);
 
         /* - - - - - { Client } - - - - - */
-        this.configure("app", this.config.app);
-        // Log client banner
-        this.logger.clientBanner(this);
-
         // Log client ready
         this.once("clientReady", client => this.logger.clientReady(client.user.tag, client.guilds.cache.size));
 
@@ -322,6 +318,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
             // Build the client
             await this.build();
+            // Log client banner
+            this.logger.clientBanner(this);
 
             try {
                 const stopLoader = this.logger.loader("Connecting to Discord...");
@@ -330,7 +328,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                     delay: 1_000
                 });
                 stopLoader("Connected to Discord    ");
-                this.$verboseMode && this.logger.debug("Waiting for ready...");
+                this.logger.debug("Waiting for the client to be ready...");
 
                 if (typeof tokenOrPreHook === "function") {
                     await tokenOrPreHook(this);
