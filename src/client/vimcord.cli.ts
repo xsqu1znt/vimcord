@@ -19,7 +19,7 @@ export class VimcordCLI {
         if (mode === "on") {
             CLI.logger.log(`~ Type ${CLI.options.prefix}help to view available commands`);
         } else {
-            CLI.logger.log(`~ [MODE] Now set to "${mode}"`);
+            CLI.logger.log(`~ Updated mode to "${mode}"`);
         }
     }
 

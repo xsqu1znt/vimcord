@@ -125,16 +125,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.features = features;
         this.config = defineVimcordConfig(config);
 
+        /* - - - - - { Initialize } - - - - - */
         // Initialize error handler
         this.error = new VimcordErrorHandler(this);
-
-        /* - - - - - { Features } - - - - - */
-        // Configure default error handlers
-        if (this.features.useGlobalErrorHandlers) {
-            this.error.setupGlobalHandlers();
-        }
-
-        /* - - - - - { Initialize } - - - - - */
         // Configure the status manager
         this.status = new StatusManager(this);
         // Configure the event manager
@@ -143,35 +136,23 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.commands = new CommandManager(this);
 
         /* - - - - - { Client } - - - - - */
-        // Log client ready
         this.once("clientReady", client => this.logger.clientReady(client.user.tag, client.guilds.cache.size));
-
         // Add to global instances
         Vimcord.instances.set(this.clientId, this);
-
-        // Initialize the VimcordCLI
-        if (this.config.app.enableCLI) {
-            VimcordCLI.setMode("on");
-        }
     }
 
     /** Builds the client by importing modules and registering builtin handlers. */
     private async build(): Promise<this> {
+        /* - - - - - { Sync Configs } - - - - - */
         this.configure("app", this.config.app);
         this.configure("staff", this.config.staff);
         this.configure("slashCommands", this.config.slashCommands);
         this.configure("prefixCommands", this.config.prefixCommands);
         this.configure("contextCommands", this.config.contextCommands);
 
-        if (this.features.importModules) {
-            const importModules = this.features.importModules;
-
-            await Promise.all([
-                importModules.events && this.importModules("events", importModules.events),
-                importModules.slashCommands && this.importModules("slashCommands", importModules.slashCommands),
-                importModules.prefixCommands && this.importModules("prefixCommands", importModules.prefixCommands),
-                importModules.contextCommands && this.importModules("contextCommands", importModules.contextCommands)
-            ]);
+        /* - - - - - { Features } - - - - - */
+        if (this.features.useGlobalErrorHandlers) {
+            this.error.setupGlobalHandlers();
         }
 
         if (this.features.useDefaultSlashCommandHandler) {
@@ -184,6 +165,22 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
         if (this.features.useDefaultPrefixCommandHandler) {
             this.events.register(prefixCommandHandler);
+        }
+
+        if (this.features.importModules) {
+            const importModules = this.features.importModules;
+
+            await Promise.all([
+                importModules.events && this.importModules("events", importModules.events),
+                importModules.slashCommands && this.importModules("slashCommands", importModules.slashCommands),
+                importModules.prefixCommands && this.importModules("prefixCommands", importModules.prefixCommands),
+                importModules.contextCommands && this.importModules("contextCommands", importModules.contextCommands)
+            ]);
+        }
+
+        // Enable the VimcordCLI
+        if (this.config.app.enableCLI) {
+            VimcordCLI.setMode("on");
         }
 
         return this;
