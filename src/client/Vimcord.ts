@@ -143,6 +143,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.commands = new CommandManager(this);
 
         /* - - - - - { Client } - - - - - */
+        this.configure("app", this.config.app);
+        // Log client banner
+        this.logger.clientBanner(this);
+
         // Log client ready
         this.once("clientReady", client => this.logger.clientReady(client.user.tag, client.guilds.cache.size));
 
@@ -162,9 +166,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.configure("slashCommands", this.config.slashCommands);
         this.configure("prefixCommands", this.config.prefixCommands);
         this.configure("contextCommands", this.config.contextCommands);
-
-        // Log client banner
-        this.logger.clientBanner(this);
 
         if (this.features.importModules) {
             const importModules = this.features.importModules;
@@ -257,7 +258,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      */
     async useDatabase(db: DatabaseManager): Promise<boolean> {
         this.db = db;
-        this.logger.database("Using", db.moduleName);
+        this.logger.plugin("DATABASE", "Using", db.moduleName);
         return this.db.connect();
     }
 
