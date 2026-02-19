@@ -1,7 +1,7 @@
 import { AppConfig } from "@/configs/app.config";
-import { ContextCommandConfig } from "@/configs/context-command.config";
-import { PrefixCommandConfig } from "@/configs/prefix-command.config";
-import { SlashCommandConfig } from "@/configs/slash-command.config";
+import { ContextCommandConfig } from "@/configs/contextCommand.config";
+import { PrefixCommandConfig } from "@/configs/prefixCommand.config";
+import { SlashCommandConfig } from "@/configs/slashCommand.config";
 import { StaffConfig } from "@/configs/staff.config";
 import { EmbedResolvable } from "@/tools/types";
 import { ClientOptions, Guild } from "discord.js";

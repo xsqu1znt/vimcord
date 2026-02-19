@@ -2,7 +2,7 @@ import { sendCommandErrorEmbed } from "@/modules/builtins/commandError.builtin";
 import { CommandInteraction, Guild, Message } from "discord.js";
 import { Vimcord } from "./Vimcord";
 
-export class ErrorHandler {
+export class VimcordErrorHandler {
     readonly client: Vimcord;
 
     constructor(client: Vimcord) {

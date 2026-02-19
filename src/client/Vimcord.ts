@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import EventEmitter from "node:events";
 import { $ } from "qznt";
 import { PartialDeep } from "@/types/helpers";
-import { ErrorHandler } from "./vimcord.errorHandler";
+import { VimcordErrorHandler } from "./vimcord.errorHandler";
 import { clientLoggerFactory } from "./vimcord.logger";
 import { AppModuleImports, VimcordConfig, VimcordCreateConfig, VimcordFeatures } from "./vimcord.types";
 import { configSetters as configCreators, defineVimcordConfig, moduleImporters } from "./vimcord.utils";
@@ -116,7 +116,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     db?: DatabaseManager;
 
     readonly logger = clientLoggerFactory(this);
-    readonly error: ErrorHandler;
+    readonly error: VimcordErrorHandler;
 
     constructor(options: ClientOptions, features: VimcordFeatures = {}, config: PartialDeep<VimcordConfig> = {}) {
         super(options);
@@ -126,7 +126,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.config = defineVimcordConfig(config);
 
         // Initialize error handler
-        this.error = new ErrorHandler(this);
+        this.error = new VimcordErrorHandler(this);
 
         /* - - - - - { Features } - - - - - */
         // Configure default error handlers
