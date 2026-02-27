@@ -26,6 +26,7 @@ import {
     RootFilterQuery,
     Schema,
     SchemaDefinition,
+    SchemaOptions,
     UpdateQuery
 } from "mongoose";
 import { randomBytes } from "node:crypto";
@@ -39,14 +40,14 @@ export type LeanOrHydratedDocument<T, O extends QueryOptions<T>> = O["lean"] ext
     ? HydratedDocument<T>
     : Require_id<T>;
 
-export interface MongoSchemaOptions {
+export interface MongoSchemaOptions<Definition extends object> extends SchemaOptions<Definition> {
     instanceId?: number;
 }
 
 export function createMongoSchema<Definition extends object>(
     collection: string,
     definition: SchemaDefinition<Definition>,
-    options?: MongoSchemaOptions
+    options?: MongoSchemaOptions<Definition>
 ): MongoSchemaBuilder<Definition> {
     return MongoSchemaBuilder.create(collection, definition, options);
 }
@@ -128,7 +129,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
     static create<Definition extends object = any>(
         collection: string,
         definition: SchemaDefinition<Definition>,
-        options?: MongoSchemaOptions
+        options?: MongoSchemaOptions<Definition>
     ) {
         return new MongoSchemaBuilder(collection, definition, options);
     }
@@ -140,12 +141,12 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         this.globalPlugins.push(plugin);
     }
 
-    constructor(collection: string, definition: SchemaDefinition<Definition>, options: MongoSchemaOptions = {}) {
-        const { instanceId = 0 } = options;
+    constructor(collection: string, definition: SchemaDefinition<Definition>, options: MongoSchemaOptions<Definition> = {}) {
+        const { instanceId = 0, ...schemaOptions } = options;
 
         this.instanceId = instanceId;
         this.collection = collection;
-        this.schema = new Schema(definition, { versionKey: false });
+        this.schema = new Schema(definition, { versionKey: false, ...schemaOptions });
 
         this.logger = new Logger({
             prefixEmoji: "🥭",
