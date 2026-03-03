@@ -1,16 +1,5 @@
 # Database Examples
 
-## VSCode Snippets
-
-Use these snippets in VSCode for quick scaffolding:
-
-| Snippet               | Trigger                |
-| --------------------- | ---------------------- |
-| Mongo Schema          | `vMongoSchema`         |
-| Extended Mongo Schema | `vExtendedMongoSchema` |
-
----
-
 ## Connecting to MongoDB
 
 ```typescript

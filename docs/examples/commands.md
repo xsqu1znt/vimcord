@@ -1,17 +1,5 @@
 # Command Examples
 
-## VSCode Snippets
-
-Use these snippets in VSCode for quick scaffolding:
-
-| Snippet         | Trigger           |
-| --------------- | ----------------- |
-| Prefix Command  | `vPrefixCommand`  |
-| Slash Command   | `vSlashCommand`   |
-| Context Command | `vContextCommand` |
-
----
-
 ## Slash Command
 
 ```typescript

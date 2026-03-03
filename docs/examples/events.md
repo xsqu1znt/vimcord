@@ -1,15 +1,5 @@
 # Event Examples
 
-## VSCode Snippets
-
-Use these snippets in VSCode for quick scaffolding:
-
-| Snippet | Trigger  |
-| ------- | -------- |
-| Event   | `vEvent` |
-
----
-
 ## Simple Event
 
 ```typescript
