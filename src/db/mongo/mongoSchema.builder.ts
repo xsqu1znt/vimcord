@@ -30,7 +30,7 @@ import {
     UpdateQuery
 } from "mongoose";
 import { randomBytes } from "node:crypto";
-import { $ } from "qznt";
+import { retry } from "qznt";
 import { MongoDatabase } from "./mongo.database";
 
 export type MongoPlugin<Definition extends object> = (builder: MongoSchemaBuilder<Definition>) => void;
@@ -216,7 +216,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
      * @param maxRetries [default: 3]
      */
     async execute<T extends (model: Model<Definition>) => any>(fn: T, maxRetries: number = 3): Promise<ExtractReturn<T>> {
-        return await $.async.retry(
+        return retry(
             async () => {
                 const model = await this.getModel();
                 return await fn(model);
@@ -226,21 +226,21 @@ export class MongoSchemaBuilder<Definition extends object = any> {
     }
 
     async startSession(options?: ClientSessionOptions) {
-        return await this.execute(async () => {
+        return this.execute(async () => {
             if (!this.db) throw new Error("No database instance found");
             return await this.db.startSession(options);
         });
     }
 
     async useTransaction(fn: (session: ClientSession, model: Model<Definition>) => any) {
-        return await this.execute(async model => {
+        return this.execute(async model => {
             if (!this.db) throw new Error("No database instance found");
-            return await this.db!.useTransaction(session => fn(session, model));
+            return await this.db.useTransaction(session => fn(session, model));
         });
     }
 
     async createHexId(bytes: number, path: keyof Require_id<Definition>, maxRetries: number = 10) {
-        return await this.execute(async model => {
+        return this.execute(async model => {
             const createHex = () => randomBytes(bytes).toString("hex");
             let id = createHex();
             let tries = 0;
@@ -259,36 +259,36 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         filter?: RootFilterQuery<Definition>,
         options?: mongo.CountOptions & MongooseBaseQueryOptions<Definition> & mongo.Abortable
     ) {
-        return await this.execute(async model => model.countDocuments(filter, options));
+        return this.execute(async model => model.countDocuments(filter, options));
     }
 
     async exists(filter: RootFilterQuery<Definition>) {
-        return await this.execute(async model => !!(await model.exists(filter)));
+        return this.execute(async model => !!(await model.exists(filter)));
     }
 
     async create(query: Partial<Require_id<Definition>>[], options?: CreateOptions) {
-        return await this.execute(async model => model.create(query, options));
+        return this.execute(async model => model.create(query, options));
     }
 
     async upsert(
         filter: RootFilterQuery<Definition>,
         query: Partial<Require_id<Definition>>,
-        options?: QueryOptions<Definition>
+        options?: Exclude<QueryOptions<Definition>, "upsert">
     ) {
-        return await this.execute(async model =>
-            model.findOneAndUpdate(filter, query, { ...options, upsert: true, new: true })
+        return this.execute(async model =>
+            model.findOneAndUpdate(filter, query, { returnDocument: "after", ...options, upsert: true })
         );
     }
 
     async delete(filter: RootFilterQuery<Definition>, options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>) {
-        return await this.execute(async model => model.deleteOne(filter, options));
+        return this.execute(async model => model.deleteOne(filter, options));
     }
 
     async deleteAll(
         filter: RootFilterQuery<Definition>,
         options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>
     ) {
-        return await this.execute(async model => model.deleteMany(filter, options));
+        return this.execute(async model => model.deleteMany(filter, options));
     }
 
     async distinct<K extends keyof Require_id<Definition> & string>(
@@ -296,17 +296,35 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         filter?: RootFilterQuery<Definition>,
         options?: QueryOptions<Definition>
     ) {
-        return await this.execute(async model => model.distinct(key, filter, options));
+        return this.execute(async model => model.distinct(key, filter, options));
     }
 
     async fetch<Options extends QueryOptions<Definition>>(
         filter?: RootFilterQuery<Definition>,
         projection?: ProjectionType<Definition>,
-        options?: Options
+        options?: Options & { required?: boolean }
+    ): Promise<LeanOrHydratedDocument<Definition, Options> | null | undefined>;
+    async fetch<Options extends QueryOptions<Definition>>(
+        filter?: RootFilterQuery<Definition>,
+        projection?: ProjectionType<Definition>,
+        options?: Options & { required: true }
+    ): Promise<LeanOrHydratedDocument<Definition, Options>>;
+    async fetch<Options extends QueryOptions<Definition>>(
+        filter?: RootFilterQuery<Definition>,
+        projection?: ProjectionType<Definition>,
+        options?: Options & {
+            /**
+             * Makes the return type forced truthy. Use this when you know the will document always exists.
+             * @defaultValue false
+             */
+            required?: boolean;
+        }
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null | undefined> {
-        return await this.execute(async model =>
+        const result = await this.execute(async model =>
             model.findOne(filter, projection, { ...options, lean: options?.lean ?? true })
         );
+        if (options?.required && !result) throw new Error("Document not found");
+        return result;
     }
 
     async fetchAll<Options extends QueryOptions<Definition>>(
@@ -314,9 +332,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         projection?: ProjectionType<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options>[]> {
-        return await this.execute(async model =>
-            model.find(filter, projection, { ...options, lean: options?.lean ?? true })
-        );
+        return this.execute(async model => model.find(filter, projection, { ...options, lean: options?.lean ?? true }));
     }
 
     async update<Options extends QueryOptions<Definition>>(
@@ -324,7 +340,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         update: UpdateQuery<Definition>,
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null | undefined> {
-        return await this.execute(async model =>
+        return this.execute(async model =>
             model.findOneAndUpdate(filter, update, { ...options, lean: options?.lean ?? true })
         );
     }
@@ -334,21 +350,21 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         update: UpdateQuery<Definition>,
         options?: mongo.UpdateOptions & MongooseUpdateQueryOptions<Definition>
     ) {
-        return await this.execute(async model => model.updateMany(filter, update, options));
+        return this.execute(async model => model.updateMany(filter, update, options));
     }
 
     async aggregate<T extends any>(pipeline: PipelineStage[], options?: AggregateOptions): Promise<T[]> {
-        return await this.execute(async model => {
+        return this.execute(async model => {
             const result = await model.aggregate<T>(pipeline, options);
             return result?.length ? result : [];
         });
     }
 
     async bulkWrite(ops: AnyBulkWriteOperation[], options?: MongooseBulkWriteOptions) {
-        return await this.execute(async model => model.bulkWrite(ops, options));
+        return this.execute(async model => model.bulkWrite(ops, options));
     }
 
     async bulkSave(docs: Document[], options?: MongooseBulkWriteOptions) {
-        return await this.execute(async model => model.bulkSave(docs, options));
+        return this.execute(async model => model.bulkSave(docs, options));
     }
 }
