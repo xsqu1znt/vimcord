@@ -29,12 +29,10 @@ import {
     SchemaOptions,
     UpdateQuery
 } from "mongoose";
-import { randomBytes } from "node:crypto";
 import { retry } from "qznt";
 import { MongoDatabase } from "./mongo.database";
 
 export type MongoPlugin<Definition extends object> = (builder: MongoSchemaBuilder<Definition>) => void;
-
 export type ExtractReturn<T> = T extends (this: any, ...args: any) => infer R ? Awaited<R> : never;
 export type LeanOrHydratedDocument<T, O extends QueryOptions<T>> = O["lean"] extends false
     ? HydratedDocument<T>
@@ -239,17 +237,16 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         });
     }
 
-    async createHexId(bytes: number, path: keyof Require_id<Definition>, maxRetries: number = 10) {
+    async createUniqueId(collisionPath: keyof Require_id<Definition>, fn: () => string, maxRetries: number = 10) {
         return this.execute(async model => {
-            const createHex = () => randomBytes(bytes).toString("hex");
-            let id = createHex();
+            let id: string;
             let tries = 0;
 
-            while (await model.exists({ [path]: id } as Partial<Require_id<Definition>>)) {
-                if (tries >= maxRetries) throw Error(`Failed to generate a unique hex ID after ${tries} attempt(s)`);
-                id = createHex();
+            do {
+                if (tries >= maxRetries) throw new Error(`Failed to generate a unique ID after ${tries} attempt(s)`);
+                id = fn();
                 tries++;
-            }
+            } while (await model.exists({ [collisionPath]: id } as Partial<Require_id<Definition>>));
 
             return id;
         });
