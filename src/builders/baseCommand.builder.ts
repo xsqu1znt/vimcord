@@ -1,7 +1,9 @@
 import { type Vimcord } from "@/client";
 import { validateCommandPermissions } from "@/modules/validators/permissions.validator";
+import { deepMerge } from "@/utils/mergeUtils";
 import {
     BaseCommandConfig,
+    BeforeExecuteOptions,
     BaseCommandParameters,
     CommandInternalRateLimitData,
     CommandType,
@@ -14,7 +16,6 @@ import {
     CommandRateLimitOptions
 } from "@ctypes/command.options";
 import { Guild, GuildMember, TextBasedChannel, User } from "discord.js";
-import { deepMerge } from "@/utils/mergeUtils";
 import { randomUUID } from "node:crypto";
 
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {
@@ -71,6 +72,11 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
     async run(client: Vimcord<true>, ...args: BaseCommandParameters<T>): Promise<void> {
         const config = this.resolveConfig(client);
         const ctx = this.extractContext(args);
+        let cancel = false;
+
+        /* const executeOptions: BeforeExecuteOptions = {
+            cancel: () => (cancel = true)
+        }; */
 
         try {
             // 1. Availability
@@ -95,7 +101,8 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
             }
 
             // 5. Execution Pipeline
-            await config.beforeExecute?.(...args);
+            await config.beforeExecute?.({ cancel: () => (cancel = true) }, ...args);
+            if (cancel) return;
 
             if (config.logExecution !== false) {
                 // Resolve name based on builder type

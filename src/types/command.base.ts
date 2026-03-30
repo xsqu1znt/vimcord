@@ -34,12 +34,16 @@ export enum RateLimitScope {
 }
 
 export type BaseCommandParameters<T extends CommandType> = T extends CommandType.Slash
-    ? [client: Vimcord<true>, interaction: ChatInputCommandInteraction]
+    ? [client: Vimcord<true>, interaction: ChatInputCommandInteraction, options?: BeforeExecuteOptions]
     : T extends CommandType.Prefix
-      ? [client: Vimcord<true>, message: Message]
+      ? [client: Vimcord<true>, message: Message, options?: BeforeExecuteOptions]
       : T extends CommandType.Context
-        ? [client: Vimcord<true>, interaction: ContextMenuCommandInteraction]
+        ? [client: Vimcord<true>, interaction: ContextMenuCommandInteraction, options?: BeforeExecuteOptions]
         : never;
+
+export interface BeforeExecuteOptions {
+    cancel: () => void;
+}
 
 export interface BaseCommandConfig<T extends CommandType> {
     /** Is this command enabled? @defaultValue true */
@@ -56,7 +60,7 @@ export interface BaseCommandConfig<T extends CommandType> {
     logExecution?: boolean;
 
     /** Executed before the main command logic */
-    beforeExecute?: (...args: BaseCommandParameters<T>) => any;
+    beforeExecute?: (options: BeforeExecuteOptions, ...args: BaseCommandParameters<T>) => any;
     /** The main command function that will be executed */
     execute?: (...args: BaseCommandParameters<T>) => any;
     /** Executed after successful execution */
