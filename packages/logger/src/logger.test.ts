@@ -72,9 +72,6 @@ const loaderTasks = [
 // --- Test Runner ---
 
 async function runLogTest(): Promise<void> {
-    logger.section("Logger Visual Test");
-    await wait(400);
-
     logger.info("Starting randomized log output...");
     await wait(300);
 
@@ -135,40 +132,26 @@ async function runLogTest(): Promise<void> {
     // Log an actual error with stack
     const [errMsg, errObj] = randomItem(errorMessages)!;
     logger.error(errMsg, errObj);
-
-    await wait(300);
-
-    // Table output
-    logger.table("Client Stats", {
-        guilds: 12,
-        users: "4,821",
-        uptime: "3h 22m",
-        ping: "48ms",
-        "card drops": 382,
-        "active loaders": 0
-    });
-
-    await wait(300);
-    logger.section("Test Complete");
 }
 
-// runLogTest().catch(console.error);
-
 async function runBannerTest(): Promise<void> {
-    logger.banner({
-        name: "Jimin",
+    await logger.banner({
+        name: "My Amazing Bot",
         version: "1.0.0",
         poweredBy: "Powered by Vimcord v2.0.0",
         devMode: true,
-        meta: {
-            "📦 Events": "2 loaded",
-            "📦 Slash Commands": "3 loaded",
-            "📦 Prefix Commands": "14 loaded",
-            "📦 Context Commands": "2 loaded",
-            "": "",
-            "🔌 Plugin": "@vimcord/plugin-mongoose"
-        }
+        meta: [
+            ["📦 Events", "2 ·"],
+            ["📦 Slash Commands", "3 ·"],
+            ["📦 Prefix Commands", "14 ·"],
+            ["📦 Context Commands", "2 ·"],
+            ["", ""],
+            ["🔌 Plugin", "@vimcord/plugin-mongoose ·"],
+            ["🔌 Plugin", "@vimcord/plugin-multi-instance ·"]
+        ]
     });
+
+    await runLogTest().catch(console.error);
 }
 
 runBannerTest().catch(console.error);
