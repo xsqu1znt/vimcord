@@ -1,0 +1,15 @@
+{
+    "name": "@vimcord/logger",
+    "version": "0.1.0",
+    "description": "",
+    "author": "xsqu1znt",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "types": "dist/index.d.js",
+    "type": "module",
+    "scripts": {
+        "build": "tsup",
+        "check": "tsc --noEmit",
+        "format": "prettier --write \"./**/*.{ts,json}\""
+    }
+}
