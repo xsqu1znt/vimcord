@@ -1,7 +1,7 @@
 {
     "name": "@vimcord/logger",
     "version": "0.1.0",
-    "description": "",
+    "description": "A lightweight, extendable 4k ultra HD retro-color logger for use within the vimcord framework.",
     "author": "xsqu1znt",
     "license": "MIT",
     "main": "dist/index.js",
@@ -11,5 +11,11 @@
         "build": "tsup",
         "check": "tsc --noEmit",
         "format": "prettier --write \"./**/*.{ts,json}\""
+    },
+    "dependencies": {
+        "ansis": "^4.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.5.0"
     }
 }
