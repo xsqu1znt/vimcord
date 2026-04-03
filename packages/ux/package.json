@@ -13,6 +13,7 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
+        "@vimcord/internal": "workspace:*",
         "discord.js": "^14.26.0"
     },
     "devDependencies": {

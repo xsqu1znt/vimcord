@@ -1,12 +1,12 @@
 import type { ClientOptions } from "discord.js";
-import type { PartialDeep } from "@vimcord/internal/dist/index.js";
+import type { PartialDeep } from "@vimcord/internal";
 import type { CommandHooks } from "@/commands/hooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
 import type { AppOptions, StaffOptions } from "./options.js";
 
 import { Client } from "discord.js";
-import { mergeDeep } from "@vimcord/internal/dist/index.js";
+import { mergeDeep } from "@vimcord/internal";
 import { PluginManager } from "@/plugins/PluginManager.js";
 import { defaultAppOptions, defaultStaffOptions } from "./options.js";
 
