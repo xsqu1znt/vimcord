@@ -2,8 +2,9 @@
     "name": "vimcord-monorepo",
     "private": true,
     "scripts": {
-        "test": "pnpm -r build",
-        "format": "pnpm -r format"
+        "build": "pnpm -r build",
+        "format": "pnpm -r format",
+        "check": "pnpm -r check"
     },
     "devDependencies": {
         "@ianvs/prettier-plugin-sort-imports": "^4.7.1",

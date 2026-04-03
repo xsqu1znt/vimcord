@@ -34,6 +34,12 @@ importers:
         specifier: ^25.5.0
         version: 25.5.0
 
+  packages/internal:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+
   packages/logger:
     dependencies:
       ansis:
@@ -44,11 +50,15 @@ importers:
         specifier: ^25.5.0
         version: 25.5.0
 
-  packages/tools:
+  packages/ux:
     dependencies:
-      '@vimcord/core':
-        specifier: workspace:*
-        version: link:../core
+      discord.js:
+        specifier: ^14.26.0
+        version: 14.26.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
 
   packages/vimcord:
     dependencies:
