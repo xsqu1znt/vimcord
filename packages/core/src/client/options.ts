@@ -1,4 +1,4 @@
-import { getDevMode, getPackageJson } from "@/utils/processUtils.js";
+import { getDevMode, getPackageJson } from "@vimcord/internal/dist/index.js";
 
 export interface AppOptions {
     /** The name of the bot displayed in logs and startup banner.

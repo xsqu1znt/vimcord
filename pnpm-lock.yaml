@@ -26,6 +26,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@vimcord/internal':
+        specifier: workspace:*
+        version: link:../internal
       discord.js:
         specifier: ^14.26.0
         version: 14.26.0
