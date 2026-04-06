@@ -1,0 +1,372 @@
+import type { ButtonInteraction, CommandInteraction, ModalSubmitInteraction, RepliableInteraction } from "discord.js";
+import type { DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend.js";
+import type { EmbedResolvable, InteractionResolveable, SendHandler, UserResolvable } from "./dynaSend.types.js";
+
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ComponentType,
+    EmbedBuilder,
+    Message,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
+} from "discord.js";
+import { dynaSend } from "./dynaSend.js";
+
+// NOTES: These will eventually come from a global config
+const OPTIONS = {
+    timeout: 60_000,
+    confirmLabel: "Confirm",
+    rejectLabel: "Reject",
+    promptTitle: "Confirmation Required",
+    promptDescription: "Please confirm or reject this action.",
+    inputLabel: "Your answer",
+    inputPlaceholder: "Enter yes or no",
+    modalId: "prompt_modal",
+    inputRowId: "prompt_input"
+} as const;
+
+export enum PromptResolveType {
+    DisableComponents = 0,
+    ClearComponents = 1,
+    DeleteOnConfirm = 3,
+    DeleteOnReject = 4
+}
+
+export interface CustomButton {
+    builder: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
+    handler?: (interaction: ButtonInteraction) => void | Promise<void>;
+    index?: number;
+}
+
+export interface PromptMessageOptions {
+    participants?: UserResolvable[];
+    content?: string;
+    embed?: EmbedResolvable;
+    buttons?: {
+        confirm?: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
+        reject?: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
+    };
+    customButtons?: Record<string, CustomButton>;
+    onResolve?: PromptResolveType[];
+    timeout?: number;
+}
+
+export interface PromptMessageResult {
+    message: Message | null;
+    confirmed: boolean | null;
+    customId: string | null;
+    timedOut: boolean;
+}
+
+export interface PromptModalOptions {
+    timeout?: number;
+    customId?: string;
+    inputLabel?: string;
+    inputPlaceholder?: string;
+    inputRowId?: string;
+    onResolve?: PromptResolveType[];
+}
+
+export interface PromptModalResult {
+    confirmed: boolean | null;
+    value: string;
+    timedOut: boolean;
+}
+
+// Builds a button from an optional override or creates a default with the given customId, label, and style
+function buildButton(
+    option: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder) | undefined,
+    customId: string,
+    defaultLabel: string,
+    defaultStyle: ButtonStyle
+): ButtonBuilder {
+    if (typeof option === "function") {
+        return option(new ButtonBuilder());
+    }
+
+    return (
+        option ??
+        new ButtonBuilder({
+            customId,
+            label: defaultLabel,
+            style: defaultStyle
+        })
+    );
+}
+
+// Builds an ActionRow with confirm/reject buttons and custom buttons at their specified positions
+// Positions: 0 = before confirm, 1 = between confirm/reject, 2+ = after reject
+function buildActionRow(
+    confirmBtn: ButtonBuilder,
+    rejectBtn: ButtonBuilder,
+    customButtons: Map<string, { button: ButtonBuilder; handler?: CustomButton["handler"]; index: number }>,
+    disable: Record<string, boolean> = {}
+): ActionRowBuilder<ButtonBuilder> {
+    const confirmDisabled = disable.confirm ? new ButtonBuilder(confirmBtn.data).setDisabled(true) : confirmBtn;
+
+    const rejectDisabled = disable.reject ? new ButtonBuilder(rejectBtn.data).setDisabled(true) : rejectBtn;
+
+    const buttons: ButtonBuilder[] = [];
+    const customArray = Array.from(customButtons.entries()).map(([id, data]) => ({
+        id,
+        btn: disable[id] ? new ButtonBuilder(data.button.data).setDisabled(true) : data.button,
+        index: data.index
+    }));
+
+    customArray.sort((a, b) => a.index - b.index);
+
+    for (const custom of customArray) {
+        if (custom.index === 0) buttons.push(custom.btn);
+    }
+
+    buttons.push(confirmDisabled);
+
+    for (const custom of customArray) {
+        if (custom.index === 1) buttons.push(custom.btn);
+    }
+
+    buttons.push(rejectDisabled);
+
+    for (const custom of customArray) {
+        if (custom.index >= 2) buttons.push(custom.btn);
+    }
+
+    return new ActionRowBuilder<ButtonBuilder>({ components: buttons });
+}
+
+// Checks if a user ID is in the allowed participants list (empty list = everyone allowed)
+function isParticipant(userId: string, participants: UserResolvable[]): boolean {
+    if (participants.length === 0) return true;
+    return participants.some(p => {
+        if (typeof p === "string") return p === userId;
+        if (typeof p === "object" && "id" in p) return p.id === userId;
+        return false;
+    });
+}
+
+// Creates the default embed for prompts using OPTIONS values
+function createDefaultEmbed(): EmbedBuilder {
+    return new EmbedBuilder().setTitle(OPTIONS.promptTitle).setDescription(OPTIONS.promptDescription);
+}
+
+// Handles post-resolution actions on the prompt message (delete, disable, or clear components)
+async function handleResolve(
+    message: Message,
+    confirmed: boolean | null,
+    onResolve: PromptResolveType[],
+    customButtons: Map<string, unknown>
+): Promise<void> {
+    const shouldDelete =
+        (confirmed === true && onResolve.includes(PromptResolveType.DeleteOnConfirm)) ||
+        (confirmed === false && onResolve.includes(PromptResolveType.DeleteOnReject));
+
+    if (shouldDelete) {
+        await message.delete().catch(() => {});
+        return;
+    }
+
+    if (onResolve.includes(PromptResolveType.ClearComponents)) {
+        await message.edit({ components: [] }).catch(() => {});
+    } else if (onResolve.includes(PromptResolveType.DisableComponents)) {
+        const disableAll: Record<string, boolean> = { confirm: true, reject: true };
+        for (const id of customButtons.keys()) {
+            disableAll[id] = true;
+        }
+        const confirmBtn = new ButtonBuilder()
+            .setCustomId("btn_confirm")
+            .setLabel(OPTIONS.confirmLabel)
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true);
+        const rejectBtn = new ButtonBuilder()
+            .setCustomId("btn_reject")
+            .setLabel(OPTIONS.rejectLabel)
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(true);
+        await message.edit({ components: [buildActionRow(confirmBtn, rejectBtn, new Map(), disableAll)] }).catch(() => {});
+    }
+}
+
+/**
+ * Sends a prompt message with Confirm/Reject buttons and awaits a response.
+ *
+ * @param handler The send handler (channel, interaction, user, or message)
+ * @param options Prompt options (embed, content, custom buttons, etc.)
+ * @param sendOptions Additional options passed to dynaSend
+ */
+export async function promptMessage(
+    handler: SendHandler,
+    options?: PromptMessageOptions,
+    sendOptions?: DynaSendOptions
+): Promise<PromptMessageResult> {
+    // Extract options with defaults
+    const timeout = options?.timeout ?? OPTIONS.timeout;
+    const participants = options?.participants ?? [];
+    const onResolve = options?.onResolve ?? [PromptResolveType.DeleteOnConfirm, PromptResolveType.DeleteOnReject];
+
+    // Build confirm/reject buttons with custom overrides
+    const confirmBtn = buildButton(options?.buttons?.confirm, "btn_confirm", OPTIONS.confirmLabel, ButtonStyle.Success);
+    const rejectBtn = buildButton(options?.buttons?.reject, "btn_reject", OPTIONS.rejectLabel, ButtonStyle.Danger);
+
+    // Build custom buttons map from options
+    const customButtons = new Map<string, { button: ButtonBuilder; handler?: CustomButton["handler"]; index: number }>();
+    if (options?.customButtons) {
+        for (const [id, { builder, handler, index = 2 }] of Object.entries(options.customButtons)) {
+            const btn = typeof builder === "function" ? builder(new ButtonBuilder()) : builder;
+            customButtons.set(id, { button: btn, handler, index });
+        }
+    }
+
+    // Create embed (custom or default)
+    const embed = options?.embed ?? createDefaultEmbed();
+
+    // Build send data for dynaSend
+    const sendData: DynaSendOptions = {
+        ...sendOptions,
+        embeds: [embed],
+        content: options?.content,
+        components: [buildActionRow(confirmBtn, rejectBtn, customButtons)]
+    };
+
+    // Send the prompt message
+    const message = await dynaSend(handler, sendData as RequiredDynaSendOptions);
+    if (!message) {
+        return { message: null, confirmed: null, customId: null, timedOut: true };
+    }
+
+    // Set up valid custom IDs for the collector filter
+    const validCustomIds = new Set(["btn_confirm", "btn_reject", ...customButtons.keys()]);
+
+    try {
+        // Await button interaction
+        const interaction = await message.awaitMessageComponent({
+            componentType: ComponentType.Button,
+            filter: i => validCustomIds.has(i.customId) && isParticipant(i.user.id, participants),
+            time: timeout
+        });
+
+        // Defer the button update to acknowledge receipt
+        await interaction.deferUpdate().catch(() => {});
+
+        // Determine if confirmed or rejected
+        let confirmed: boolean | null = null;
+        if (interaction.customId === "btn_confirm") {
+            confirmed = true;
+        } else if (interaction.customId === "btn_reject") {
+            confirmed = false;
+        }
+
+        // Run custom button handler if one exists
+        const customBtn = customButtons.get(interaction.customId);
+        if (customBtn?.handler) {
+            await customBtn.handler(interaction);
+        }
+
+        // Handle post-resolution actions
+        await handleResolve(message, confirmed, onResolve, customButtons);
+
+        return {
+            message,
+            confirmed,
+            customId: interaction.customId,
+            timedOut: false
+        };
+    } catch {
+        // Handle timeout
+        await handleResolve(message, null, onResolve, customButtons);
+        return {
+            message,
+            confirmed: null,
+            customId: null,
+            timedOut: true
+        };
+    }
+}
+
+/**
+ * Prompts the user with a modal containing a text input asking a yes/no question.
+ * Input is case-insensitive and accepts "yes", "y", "no", "n".
+ * If invalid input is provided, shows an error and re-prompts.
+ *
+ * @param interaction The interaction to show the modal on (must not have been replied to yet)
+ * @param question The question to display in the modal input
+ * @param options Modal prompt options (timeout, custom IDs, labels)
+ */
+export async function promptModal(
+    interaction: CommandInteraction,
+    question: string,
+    options?: PromptModalOptions
+): Promise<PromptModalResult> {
+    // Extract options with defaults
+    const timeout = options?.timeout ?? OPTIONS.timeout;
+    const customId = options?.customId ?? OPTIONS.modalId;
+    const inputLabel = options?.inputLabel ?? OPTIONS.inputLabel;
+    const inputPlaceholder = options?.inputPlaceholder ?? OPTIONS.inputPlaceholder;
+    const inputRowId = options?.inputRowId ?? OPTIONS.inputRowId;
+
+    // Re-prompt loop for invalid input
+    while (true) {
+        // Build the modal with a text input
+        const modal = new ModalBuilder({
+            customId,
+            title: question,
+            components: [
+                new ActionRowBuilder<TextInputBuilder>({
+                    components: [
+                        new TextInputBuilder()
+                            .setCustomId(inputRowId)
+                            .setLabel(inputLabel)
+                            .setStyle(TextInputStyle.Short)
+                            .setPlaceholder(inputPlaceholder)
+                            .setRequired(true)
+                    ]
+                })
+            ]
+        });
+
+        try {
+            // Show the modal to the user
+            await interaction.showModal(modal);
+
+            // Await modal submission
+            const modalSubmit = await interaction.awaitModalSubmit({
+                filter: (i: ModalSubmitInteraction) => i.customId === customId,
+                time: timeout
+            });
+
+            // Get and normalize the input value
+            const value = modalSubmit.fields.getTextInputValue(inputRowId).trim().toLowerCase();
+
+            // Validate yes/no input
+            const validYes = ["yes", "y"].includes(value);
+            const validNo = ["no", "n"].includes(value);
+
+            // If invalid, show error and re-prompt
+            if (!validYes && !validNo) {
+                await modalSubmit.reply({
+                    content: "Invalid response. Please enter yes/no (or y/n).",
+                    ephemeral: true
+                });
+                continue;
+            }
+
+            // Acknowledge the submission
+            await modalSubmit.deferReply().catch(() => {});
+
+            return {
+                confirmed: validYes,
+                value,
+                timedOut: false
+            };
+        } catch {
+            // Handle timeout
+            return {
+                confirmed: null,
+                value: "",
+                timedOut: true
+            };
+        }
+    }
+}

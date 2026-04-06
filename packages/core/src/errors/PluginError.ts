@@ -1,4 +1,4 @@
-import { VimcordError } from "./VimcordError.js";
+import { VimcordError } from "@vimcord/internal";
 
 export class PluginError extends VimcordError {
     constructor(message: string) {

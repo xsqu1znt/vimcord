@@ -222,7 +222,7 @@ describe("dynaSend", () => {
                 flags: ["Ephemeral"] as any
             });
 
-            expect(mockChannel.send).toHaveBeenCalledWith(expect.objectContaining({ flags: [] }));
+            expect(mockChannel.send).toHaveBeenCalledWith(expect.objectContaining({ flags: undefined }));
         });
 
         it("should filter Ephemeral and SuppressNotifications for EditReply method", async () => {
@@ -234,7 +234,7 @@ describe("dynaSend", () => {
                 flags: ["Ephemeral", "SuppressNotifications"] as any
             });
 
-            expect(mockInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ flags: [] }));
+            expect(mockInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ flags: undefined }));
         });
 
         it("should preserve non-filtered flags", async () => {
