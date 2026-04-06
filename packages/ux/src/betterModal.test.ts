@@ -1,4 +1,18 @@
-import type { BetterModalComponent } from "./betterModal.js";
+import type {
+    BetterAPIModalComponent,
+    BetterAPIStringSelectComponent,
+    BetterAPITextInputComponent,
+    BetterChannelSelectComponent,
+    BetterCheckboxComponent,
+    BetterCheckboxGroupComponent,
+    BetterFileUploadComponent,
+    BetterMentionableSelectComponent,
+    BetterModalComponent,
+    BetterRoleSelectComponent,
+    BetterStringSelectComponent,
+    BetterTextInputComponent,
+    BetterUserSelectComponent
+} from "./betterModal.js";
 
 import { ComponentType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
@@ -26,12 +40,11 @@ describe("BetterModal", () => {
 
         it("should add components if provided in options", () => {
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const modal = new BetterModal({ components: [component] });
+            const modal = new BetterModal({ components: [{ textInput: component }] });
             expect(modal.customId).toBe("mock-random-id");
         });
     });
@@ -48,30 +61,27 @@ describe("BetterModal", () => {
         it("should set components and return this", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const result = modal.setComponents(component);
+            const result = modal.setComponents({ textInput: component });
             expect(result).toBe(modal);
         });
 
         it("should clear existing components before setting new ones", () => {
             const modal = new BetterModal();
             const component1 = {
-                type: ComponentType.TextInput,
                 label: "Input 1",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
             const component2 = {
-                type: ComponentType.TextInput,
                 label: "Input 2",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            modal.setComponents(component1);
-            modal.setComponents(component2);
+            modal.setComponents({ textInput: component1 });
+            modal.setComponents({ textInput: component2 });
         });
     });
 
@@ -79,12 +89,11 @@ describe("BetterModal", () => {
         it("should add multiple components and return this", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const result = modal.addComponents(component);
+            const result = modal.addComponents({ textInput: component });
             expect(result).toBe(modal);
         });
     });
@@ -93,14 +102,13 @@ describe("BetterModal", () => {
         it("should allow 25 components in modal", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
             modal.setTitle("Test");
             for (let i = 0; i < 25; i++) {
-                modal.addComponents(component);
+                modal.addComponents({ textInput: component });
             }
             const json = modal.toJSON();
             expect(json.components?.length).toBe(25);
@@ -116,12 +124,11 @@ describe("BetterModal", () => {
         it("should return JSON when title is set with components", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            modal.setTitle("Test Modal").setComponents(component);
+            modal.setTitle("Test Modal").setComponents({ textInput: component });
             const json = modal.toJSON();
             expect(json).toBeDefined();
             expect(json.title).toBe("Test Modal");
@@ -138,12 +145,11 @@ describe("BetterModal", () => {
 
         it("should clone with components", () => {
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const modal = new BetterModal().setTitle("Test").setComponents(component);
+            const modal = new BetterModal().setTitle("Test").setComponents({ textInput: component });
             const cloned = modal.clone();
 
             expect(cloned.customId).toBe(modal.customId);
@@ -203,13 +209,12 @@ describe("BetterModal", () => {
             };
 
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1,
                 customId: "input-1"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const modal = new BetterModal().setTitle("Test Modal").addComponents(component);
+            const modal = new BetterModal().setTitle("Test Modal").addComponents({ textInput: component });
 
             const result = await modal.awaitSubmit(mockInteraction as any);
 
@@ -233,13 +238,12 @@ describe("BetterModal", () => {
             };
 
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1,
                 customId: "input-1"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const modal = new BetterModal().setTitle("Test Modal").addComponents(component);
+            const modal = new BetterModal().setTitle("Test Modal").addComponents({ textInput: component });
 
             await modal.awaitSubmit(mockInteraction as any, { deferUpdate: true });
 
@@ -261,13 +265,12 @@ describe("BetterModal", () => {
             };
 
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 style: 1,
                 customId: "input-1"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            const modal = new BetterModal().setTitle("Test Modal").addComponents(component);
+            const modal = new BetterModal().setTitle("Test Modal").addComponents({ textInput: component });
 
             const result = await modal.awaitSubmit(mockInteraction as any);
 
@@ -305,13 +308,12 @@ describe("BetterModal", () => {
         it("should handle TextInput component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Text Input",
                 customId: "text-input",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ textInput: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -319,13 +321,12 @@ describe("BetterModal", () => {
         it("should handle StringSelect component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.StringSelect,
                 label: "Select",
                 customId: "string-select",
                 options: [{ label: "Option 1", value: "1" }]
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterStringSelectComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ stringSelect: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -333,12 +334,11 @@ describe("BetterModal", () => {
         it("should handle ChannelSelect component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.ChannelSelect,
                 label: "Channel Select",
                 customId: "channel-select"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterChannelSelectComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ channelSelect: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -346,12 +346,11 @@ describe("BetterModal", () => {
         it("should handle UserSelect component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.UserSelect,
                 label: "User Select",
                 customId: "user-select"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterUserSelectComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ userSelect: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -359,12 +358,11 @@ describe("BetterModal", () => {
         it("should handle RoleSelect component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.RoleSelect,
                 label: "Role Select",
                 customId: "role-select"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterRoleSelectComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ roleSelect: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -372,12 +370,11 @@ describe("BetterModal", () => {
         it("should handle MentionableSelect component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.MentionableSelect,
                 label: "Mentionable Select",
                 customId: "mentionable-select"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterMentionableSelectComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ mentionableSelect: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -385,12 +382,11 @@ describe("BetterModal", () => {
         it("should handle Checkbox component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.Checkbox,
                 label: "Checkbox",
                 custom_id: "checkbox"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterCheckboxComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ checkbox: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -398,13 +394,12 @@ describe("BetterModal", () => {
         it("should handle CheckboxGroup component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.CheckboxGroup,
                 label: "Checkbox Group",
                 custom_id: "checkbox-group",
                 options: [{ label: "Option 1", value: "1" }]
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterCheckboxGroupComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ checkboxGroup: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -412,12 +407,11 @@ describe("BetterModal", () => {
         it("should handle FileUpload component", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.FileUpload,
                 label: "File Upload",
                 custom_id: "file-upload"
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterFileUploadComponent;
 
-            modal.addComponents(component);
+            modal.addComponents({ fileUpload: component });
             const json = modal.setTitle("Test").toJSON();
             expect(json).toBeDefined();
         });
@@ -427,13 +421,12 @@ describe("BetterModal", () => {
         it("should use provided custom_id for components", () => {
             const modal = new BetterModal({ customId: "modal-123" });
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test",
                 customId: "my-custom-id",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            modal.setTitle("Test").addComponents(component);
+            modal.setTitle("Test").addComponents({ textInput: component });
             const json = modal.toJSON();
             expect(json).toBeDefined();
         });
@@ -443,13 +436,12 @@ describe("BetterModal", () => {
         it("should set description when provided", () => {
             const modal = new BetterModal();
             const component = {
-                type: ComponentType.TextInput,
                 label: "Test Input",
                 description: "This is a description",
                 style: 1
-            } as unknown as BetterModalComponent;
+            } as unknown as BetterTextInputComponent;
 
-            modal.setTitle("Test").addComponents(component);
+            modal.setTitle("Test").addComponents({ textInput: component });
             const json = modal.toJSON();
             expect(json).toBeDefined();
         });

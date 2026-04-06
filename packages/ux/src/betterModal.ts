@@ -45,18 +45,38 @@ interface LabelComponentOptions {
     description?: string;
 }
 
-export type BetterTextInputComponent = Partial<TextInputComponentData> & LabelComponentOptions;
+export type BetterAPITextInputComponent = { textInput: BetterTextInputComponent };
+export type BetterAPICheckboxComponent = { checkbox: BetterCheckboxComponent };
+export type BetterAPICheckboxGroupComponent = { checkboxGroup: BetterCheckboxGroupComponent };
+export type BetterAPIRadioGroupComponent = { radioGroup: BetterRadioGroupComponent };
+export type BetterAPIStringSelectComponent = { stringSelect: BetterStringSelectComponent };
+export type BetterAPIChannelSelectComponent = { channelSelect: BetterChannelSelectComponent };
+export type BetterAPIUserSelectComponent = { userSelect: BetterUserSelectComponent };
+export type BetterAPIRoleSelectComponent = { roleSelect: BetterRoleSelectComponent };
+export type BetterAPIMentionableSelectComponent = { mentionableSelect: BetterMentionableSelectComponent };
+export type BetterAPIFileUploadComponent = { fileUpload: BetterFileUploadComponent };
 
+export type BetterAPIModalComponent =
+    | BetterAPITextInputComponent
+    | BetterAPICheckboxComponent
+    | BetterAPICheckboxGroupComponent
+    | BetterAPIRadioGroupComponent
+    | BetterAPIStringSelectComponent
+    | BetterAPIChannelSelectComponent
+    | BetterAPIUserSelectComponent
+    | BetterAPIRoleSelectComponent
+    | BetterAPIMentionableSelectComponent
+    | BetterAPIFileUploadComponent;
+
+export type BetterTextInputComponent = Partial<TextInputComponentData> & LabelComponentOptions;
 export type BetterCheckboxComponent = Partial<APICheckboxComponent> & LabelComponentOptions;
 export type BetterCheckboxGroupComponent = Partial<APICheckboxGroupComponent> & LabelComponentOptions;
 export type BetterRadioGroupComponent = Partial<APIRadioGroupComponent> & LabelComponentOptions;
-
 export type BetterStringSelectComponent = Partial<StringSelectMenuComponentData> & LabelComponentOptions;
 export type BetterChannelSelectComponent = Partial<ChannelSelectMenuComponentData> & LabelComponentOptions;
 export type BetterUserSelectComponent = Partial<UserSelectMenuComponentData> & LabelComponentOptions;
 export type BetterRoleSelectComponent = Partial<RoleSelectMenuComponentData> & LabelComponentOptions;
 export type BetterMentionableSelectComponent = Partial<MentionableSelectMenuComponentData> & LabelComponentOptions;
-
 export type BetterFileUploadComponent = Partial<APIFileUploadComponent> & LabelComponentOptions;
 
 export type BetterModalComponent =
@@ -73,7 +93,7 @@ export type BetterModalComponent =
 
 export interface BetterModalOptions {
     customId?: string;
-    components?: BetterModalComponent[];
+    components?: BetterAPIModalComponent[];
 }
 
 export interface AwaitModalSubmitOptions {
@@ -93,7 +113,7 @@ export interface BetterModalSubmitResult<T = unknown> {
 export class BetterModal {
     readonly customId: string;
 
-    private components: Map<string, BetterModalComponent> = new Map();
+    private components: Map<string, BetterAPIModalComponent> = new Map();
     private labelComponents: LabelBuilder[] = [];
     private modal: ModalBuilder;
 
@@ -148,7 +168,7 @@ export class BetterModal {
     }
 
     /** Sets components for the modal. */
-    setComponents(...components: BetterModalComponent[]): this {
+    setComponents(...components: BetterAPIModalComponent[]): this {
         this.components.clear();
         this.labelComponents = [];
         this.addComponents(...components);
@@ -156,54 +176,34 @@ export class BetterModal {
     }
 
     /** Adds components to the modal. */
-    addComponents(...components: BetterModalComponent[]): this {
+    addComponents(...components: BetterAPIModalComponent[]): this {
         for (const component of components) {
-            switch (component.type) {
-                case ComponentType.TextInput:
-                    this.addTextInput(component);
-                    break;
-
-                case ComponentType.Checkbox:
-                    this.addCheckbox(component);
-                    break;
-
-                case ComponentType.CheckboxGroup:
-                    this.addCheckboxGroup(component);
-                    break;
-
-                case ComponentType.RadioGroup:
-                    this.addRadioGroup(component);
-                    break;
-
-                case ComponentType.StringSelect:
-                    this.addStringSelect(component);
-                    break;
-
-                case ComponentType.ChannelSelect:
-                    this.addChannelSelect(component);
-                    break;
-
-                case ComponentType.UserSelect:
-                    this.addUserSelect(component);
-                    break;
-
-                case ComponentType.RoleSelect:
-                    this.addRoleSelect(component);
-                    break;
-
-                case ComponentType.MentionableSelect:
-                    this.addMentionableSelect(component);
-                    break;
-
-                case ComponentType.FileUpload:
-                    this.addFileUpload(component);
-                    break;
+            if ("textInput" in component) {
+                this.addTextInput(component.textInput);
+            } else if ("checkbox" in component) {
+                this.addCheckbox(component.checkbox);
+            } else if ("checkboxGroup" in component) {
+                this.addCheckboxGroup(component.checkboxGroup);
+            } else if ("radioGroup" in component) {
+                this.addRadioGroup(component.radioGroup);
+            } else if ("stringSelect" in component) {
+                this.addStringSelect(component.stringSelect);
+            } else if ("channelSelect" in component) {
+                this.addChannelSelect(component.channelSelect);
+            } else if ("userSelect" in component) {
+                this.addUserSelect(component.userSelect);
+            } else if ("roleSelect" in component) {
+                this.addRoleSelect(component.roleSelect);
+            } else if ("mentionableSelect" in component) {
+                this.addMentionableSelect(component.mentionableSelect);
+            } else if ("fileUpload" in component) {
+                this.addFileUpload(component.fileUpload);
             }
         }
         return this;
     }
 
-    private addTextInput(data: BetterTextInputComponent): this {
+    addTextInput(data: BetterTextInputComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -211,13 +211,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setTextInputComponent(textInput);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { textInput: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addStringSelect(data: BetterStringSelectComponent): this {
+    addStringSelect(data: BetterStringSelectComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -225,13 +225,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setStringSelectMenuComponent(select);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { stringSelect: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addCheckbox(data: BetterCheckboxComponent): this {
+    addCheckbox(data: BetterCheckboxComponent): this {
         this.validateComponentLength();
 
         const customId = data.custom_id ?? this.createComponentId();
@@ -239,13 +239,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setCheckboxComponent(checkbox);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { checkbox: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addCheckboxGroup(data: BetterCheckboxGroupComponent): this {
+    addCheckboxGroup(data: BetterCheckboxGroupComponent): this {
         this.validateComponentLength();
 
         const customId = data.custom_id ?? this.createComponentId();
@@ -253,13 +253,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setCheckboxGroupComponent(checkboxGroup);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { checkboxGroup: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addRadioGroup(data: BetterRadioGroupComponent): this {
+    addRadioGroup(data: BetterRadioGroupComponent): this {
         this.validateComponentLength();
 
         const customId = data.custom_id ?? this.createComponentId();
@@ -267,13 +267,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setRadioGroupComponent(radioGroup);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { radioGroup: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addChannelSelect(data: BetterChannelSelectComponent): this {
+    addChannelSelect(data: BetterChannelSelectComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -281,13 +281,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setChannelSelectMenuComponent(channelSelect);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { channelSelect: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addUserSelect(data: BetterUserSelectComponent): this {
+    addUserSelect(data: BetterUserSelectComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -295,13 +295,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setUserSelectMenuComponent(userSelect);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { userSelect: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addRoleSelect(data: BetterRoleSelectComponent): this {
+    addRoleSelect(data: BetterRoleSelectComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -309,13 +309,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setRoleSelectMenuComponent(roleSelect);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { roleSelect: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addMentionableSelect(data: BetterMentionableSelectComponent): this {
+    addMentionableSelect(data: BetterMentionableSelectComponent): this {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
@@ -323,13 +323,13 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setMentionableSelectMenuComponent(mentionableSelect);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { mentionableSelect: data });
         this.labelComponents.push(label);
 
         return this;
     }
 
-    private addFileUpload(data: BetterFileUploadComponent): this {
+    addFileUpload(data: BetterFileUploadComponent): this {
         this.validateComponentLength();
 
         const customId = data.custom_id ?? this.createComponentId();
@@ -337,7 +337,7 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setFileUploadComponent(fileUpload);
 
-        this.components.set(customId, data);
+        this.components.set(customId, { fileUpload: data });
         this.labelComponents.push(label);
 
         return this;
