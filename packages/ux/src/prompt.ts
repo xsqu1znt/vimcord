@@ -1,6 +1,7 @@
-import type { ButtonInteraction, CommandInteraction, ModalSubmitInteraction, RepliableInteraction } from "discord.js";
+import type { ButtonInteraction, CommandInteraction } from "discord.js";
+import type { BetterModalSubmitResult } from "./betterModal.js";
 import type { DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend.js";
-import type { EmbedResolvable, InteractionResolveable, SendHandler, UserResolvable } from "./dynaSend.types.js";
+import type { EmbedResolvable, SendHandler, UserResolvable } from "./dynaSend.types.js";
 
 import {
     ActionRowBuilder,
@@ -9,10 +10,9 @@ import {
     ComponentType,
     EmbedBuilder,
     Message,
-    ModalBuilder,
-    TextInputBuilder,
     TextInputStyle
 } from "discord.js";
+import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 
 // NOTES: These will eventually come from a global config
@@ -23,9 +23,7 @@ const OPTIONS = {
     promptTitle: "Confirmation Required",
     promptDescription: "Please confirm or reject this action.",
     inputLabel: "Your answer",
-    inputPlaceholder: "Enter yes or no",
-    modalId: "prompt_modal",
-    inputRowId: "prompt_input"
+    inputPlaceholder: "Enter yes or no"
 } as const;
 
 export enum PromptResolveType {
@@ -55,25 +53,25 @@ export interface PromptMessageOptions {
 }
 
 export interface PromptMessageResult {
-    message: Message | null;
-    confirmed: boolean | null;
-    customId: string | null;
-    timedOut: boolean;
+    message?: Message;
+    replied: boolean;
+    confirmed: boolean;
+    denied: boolean;
 }
 
 export interface PromptModalOptions {
     timeout?: number;
-    customId?: string;
     inputLabel?: string;
     inputPlaceholder?: string;
-    inputRowId?: string;
     onResolve?: PromptResolveType[];
 }
 
 export interface PromptModalResult {
+    valid: boolean | null;
+    replied: boolean;
     confirmed: boolean | null;
-    value: string;
-    timedOut: boolean;
+    denied: boolean | null;
+    submitResult?: BetterModalSubmitResult<string>;
 }
 
 // Builds a button from an optional override or creates a default with the given customId, label, and style
@@ -192,9 +190,9 @@ async function handleResolve(
 /**
  * Sends a prompt message with Confirm/Reject buttons and awaits a response.
  *
- * @param handler The send handler (channel, interaction, user, or message)
- * @param options Prompt options (embed, content, custom buttons, etc.)
- * @param sendOptions Additional options passed to dynaSend
+ * @param handler The send handler,
+ * @param options Prompt options,
+ * @param sendOptions Additional options passed to dynaSend,
  */
 export async function promptMessage(
     handler: SendHandler,
@@ -233,7 +231,7 @@ export async function promptMessage(
     // Send the prompt message
     const message = await dynaSend(handler, sendData as RequiredDynaSendOptions);
     if (!message) {
-        return { message: null, confirmed: null, customId: null, timedOut: true };
+        return { replied: false, confirmed: false, denied: false };
     }
 
     // Set up valid custom IDs for the collector filter
@@ -267,106 +265,54 @@ export async function promptMessage(
         // Handle post-resolution actions
         await handleResolve(message, confirmed, onResolve, customButtons);
 
-        return {
-            message,
-            confirmed,
-            customId: interaction.customId,
-            timedOut: false
-        };
+        return { message, replied: true, confirmed: confirmed === true, denied: confirmed === false };
     } catch {
         // Handle timeout
         await handleResolve(message, null, onResolve, customButtons);
-        return {
-            message,
-            confirmed: null,
-            customId: null,
-            timedOut: true
-        };
+        return { replied: false, confirmed: false, denied: false };
     }
 }
 
 /**
  * Prompts the user with a modal containing a text input asking a yes/no question.
  * Input is case-insensitive and accepts "yes", "y", "no", "n".
- * If invalid input is provided, shows an error and re-prompts.
  *
- * @param interaction The interaction to show the modal on (must not have been replied to yet)
- * @param question The question to display in the modal input
- * @param options Modal prompt options (timeout, custom IDs, labels)
+ * @param interaction The interaction to show the modal on (must not have been replied to yet).
+ * @param question The question to display in the modal input.
+ * @param options Modal prompt options.
  */
 export async function promptModal(
     interaction: CommandInteraction,
     question: string,
     options?: PromptModalOptions
 ): Promise<PromptModalResult> {
-    // Extract options with defaults
-    const timeout = options?.timeout ?? OPTIONS.timeout;
-    const customId = options?.customId ?? OPTIONS.modalId;
-    const inputLabel = options?.inputLabel ?? OPTIONS.inputLabel;
-    const inputPlaceholder = options?.inputPlaceholder ?? OPTIONS.inputPlaceholder;
-    const inputRowId = options?.inputRowId ?? OPTIONS.inputRowId;
+    const {
+        timeout = OPTIONS.timeout,
+        inputLabel = OPTIONS.inputLabel,
+        inputPlaceholder = OPTIONS.inputPlaceholder
+    } = options ?? {};
 
-    // Re-prompt loop for invalid input
-    while (true) {
-        // Build the modal with a text input
-        const modal = new ModalBuilder({
-            customId,
-            title: question,
-            components: [
-                new ActionRowBuilder<TextInputBuilder>({
-                    components: [
-                        new TextInputBuilder()
-                            .setCustomId(inputRowId)
-                            .setLabel(inputLabel)
-                            .setStyle(TextInputStyle.Short)
-                            .setPlaceholder(inputPlaceholder)
-                            .setRequired(true)
-                    ]
-                })
-            ]
-        });
-
-        try {
-            // Show the modal to the user
-            await interaction.showModal(modal);
-
-            // Await modal submission
-            const modalSubmit = await interaction.awaitModalSubmit({
-                filter: (i: ModalSubmitInteraction) => i.customId === customId,
-                time: timeout
-            });
-
-            // Get and normalize the input value
-            const value = modalSubmit.fields.getTextInputValue(inputRowId).trim().toLowerCase();
-
-            // Validate yes/no input
-            const validYes = ["yes", "y"].includes(value);
-            const validNo = ["no", "n"].includes(value);
-
-            // If invalid, show error and re-prompt
-            if (!validYes && !validNo) {
-                await modalSubmit.reply({
-                    content: "Invalid response. Please enter yes/no (or y/n).",
-                    ephemeral: true
-                });
-                continue;
-            }
-
-            // Acknowledge the submission
-            await modalSubmit.deferReply().catch(() => {});
-
-            return {
-                confirmed: validYes,
-                value,
-                timedOut: false
-            };
-        } catch {
-            // Handle timeout
-            return {
-                confirmed: null,
-                value: "",
-                timedOut: true
-            };
+    // Build the modal with a text input using BetterModal
+    const modal = new BetterModal().setTitle(question).setComponents({
+        textInput: {
+            customId: "prompt_input",
+            label: inputLabel,
+            style: TextInputStyle.Short,
+            placeholder: inputPlaceholder,
+            required: true
         }
-    }
+    });
+
+    // Show and await modal submission
+    const submitResult = await modal.showAndAwait<string>(interaction, { timeout });
+    if (!submitResult) return { valid: false, replied: false, confirmed: false, denied: false };
+
+    // Get and normalize the input value
+    const value = (submitResult.getField("prompt_input") ?? "").trim().toLowerCase();
+
+    // Validate yes/no input
+    const validYes = ["yes", "y"].includes(value);
+    const validNo = ["no", "n"].includes(value);
+
+    return { valid: validYes || validNo, replied: true, confirmed: validYes, denied: validNo, submitResult };
 }

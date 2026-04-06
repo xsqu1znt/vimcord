@@ -7,6 +7,7 @@ import type {
     ChannelSelectMenuComponentData,
     CommandInteraction,
     MentionableSelectMenuComponentData,
+    MessageComponentInteraction,
     RoleSelectMenuComponentData,
     ShowModalOptions,
     StringSelectMenuComponentData,
@@ -19,7 +20,6 @@ import {
     ChannelSelectMenuBuilder,
     CheckboxBuilder,
     CheckboxGroupBuilder,
-    ComponentType,
     FileUploadBuilder,
     LabelBuilder,
     MentionableSelectMenuBuilder,
@@ -91,8 +91,11 @@ export type BetterModalComponent =
     | BetterMentionableSelectComponent
     | BetterFileUploadComponent;
 
+export type ModalShowableInteraction = CommandInteraction | MessageComponentInteraction;
+
 export interface BetterModalOptions {
     customId?: string;
+    title?: string;
     components?: BetterAPIModalComponent[];
 }
 
@@ -121,9 +124,8 @@ export class BetterModal {
         this.customId = options?.customId ?? createRandomId();
         this.modal = new ModalBuilder().setCustomId(this.customId);
 
-        if (options?.components?.length) {
-            this.addComponents(...options.components);
-        }
+        if (options?.title) this.setTitle(options.title);
+        if (options?.components?.length) this.addComponents(...options.components);
     }
 
     private validateComponentLength(): void {
@@ -149,9 +151,11 @@ export class BetterModal {
     }
 
     clone(): BetterModal {
-        const modal = new BetterModal({ customId: this.customId, components: this.components.values().toArray() });
-        if (this.modal.data.title) modal.setTitle(this.modal.data.title);
-        return modal;
+        return new BetterModal({
+            customId: this.customId,
+            title: this.modal.data.title,
+            components: this.components.values().toArray()
+        });
     }
 
     toJSON(): APIModalInteractionResponseCallbackData {
@@ -348,7 +352,7 @@ export class BetterModal {
      * @param interaction The command interaction to show the modal with.
      * @param options Modal options.
      */
-    async show(interaction: CommandInteraction, options?: Required<ShowModalOptions>): Promise<void> {
+    async show(interaction: ModalShowableInteraction, options?: Required<ShowModalOptions>): Promise<void> {
         const modal = this.build();
         await interaction.showModal(modal, options);
     }
@@ -359,7 +363,7 @@ export class BetterModal {
      * @param options Modal submission options.
      */
     async showAndAwait<T = unknown>(
-        interaction: CommandInteraction,
+        interaction: ModalShowableInteraction,
         options?: AwaitModalSubmitOptions
     ): Promise<BetterModalSubmitResult<T> | null> {
         await this.show(interaction);
@@ -372,7 +376,7 @@ export class BetterModal {
      * @param options Modal submission options.
      */
     async awaitSubmit<T = unknown>(
-        interaction: CommandInteraction,
+        interaction: ModalShowableInteraction,
         options?: AwaitModalSubmitOptions
     ): Promise<BetterModalSubmitResult<T> | null> {
         const timeout = options?.timeout ?? DEFAULT_OPTIONS.timeout;
