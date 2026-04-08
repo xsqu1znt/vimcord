@@ -35,11 +35,6 @@ import {
 import { createRandomId } from "@vimcord/internal";
 import { dynaSend } from "./dynaSend.js";
 
-// NOTES: Will eventually come from global config
-const DEFAULT_OPTIONS = {
-    timeout: 60_000
-} as const;
-
 interface LabelComponentOptions {
     label: string;
     description?: string;
@@ -112,6 +107,11 @@ export interface BetterModalSubmitResult<T = unknown> {
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     deferUpdate: () => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
 }
+
+// TODO: Will eventually come from global config
+const DEFAULT_CONFIG = {
+    timeout: 60_000
+} as const;
 
 export class BetterModal {
     readonly customId: string;
@@ -352,7 +352,11 @@ export class BetterModal {
      * @param interaction The command interaction to show the modal with.
      * @param options Modal options.
      */
-    async show(interaction: ModalShowableInteraction, options?: Required<ShowModalOptions>): Promise<void> {
+    async show(
+        interaction: ModalShowableInteraction | null | undefined,
+        options?: Required<ShowModalOptions>
+    ): Promise<void> {
+        if (!interaction) throw new Error("[BetterModal] Interaction is null or undefined");
         const modal = this.build();
         await interaction.showModal(modal, options);
     }
@@ -363,7 +367,7 @@ export class BetterModal {
      * @param options Modal submission options.
      */
     async showAndAwait<T = unknown>(
-        interaction: ModalShowableInteraction,
+        interaction: ModalShowableInteraction | null | undefined,
         options?: AwaitModalSubmitOptions
     ): Promise<BetterModalSubmitResult<T> | null> {
         await this.show(interaction);
@@ -376,10 +380,11 @@ export class BetterModal {
      * @param options Modal submission options.
      */
     async awaitSubmit<T = unknown>(
-        interaction: ModalShowableInteraction,
+        interaction: ModalShowableInteraction | null | undefined,
         options?: AwaitModalSubmitOptions
     ): Promise<BetterModalSubmitResult<T> | null> {
-        const timeout = options?.timeout ?? DEFAULT_OPTIONS.timeout;
+        if (!interaction) throw new Error("[BetterModal] Interaction is null or undefined");
+        const timeout = options?.timeout ?? DEFAULT_CONFIG.timeout;
 
         try {
             const modalSubmit = await interaction.awaitModalSubmit({

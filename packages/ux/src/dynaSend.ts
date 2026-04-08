@@ -1,7 +1,10 @@
 import type {
     ActionRowBuilder,
     BaseMessageOptions,
+    CommandInteraction,
     ContainerBuilder,
+    DMChannel,
+    EmbedBuilder,
     ForwardOptions,
     GuildTextBasedChannel,
     InteractionEditReplyOptions,
@@ -11,12 +14,15 @@ import type {
     MessageEditOptions,
     MessageMentionOptions,
     MessageReplyOptions,
+    NewsChannel,
     PollData,
     RepliableInteraction,
     ReplyOptions,
-    StickerResolvable
+    StickerResolvable,
+    TextBasedChannel,
+    TextChannel,
+    ThreadChannel
 } from "discord.js";
-import type { EmbedResolvable, SendHandler } from "./dynaSend.types.js";
 
 import {
     BaseChannel,
@@ -27,20 +33,38 @@ import {
     MessageFlags,
     User
 } from "discord.js";
-import { SendMethod } from "./dynaSend.types.js";
 
 type Mutable<T> = {
     -readonly [P in keyof T]: T[P];
 };
 
-export type SendableComponent = ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
-
-type SendableContentKeys = "content" | "embeds" | "components" | "files" | "stickers" | "poll" | "forward";
-
 type AtLeastOne<T, Keys extends keyof T> = {
     [K in Keys]-?: Omit<T, Keys> & Required<Pick<T, K>> & Partial<Pick<T, Exclude<Keys, K>>>;
 }[Keys];
 
+type SendableContentKeys = "content" | "embeds" | "components" | "files" | "stickers" | "poll" | "forward";
+
+export enum SendMethod {
+    Reply = 0,
+    EditReply = 1,
+    FollowUp = 2,
+    Channel = 3,
+    MessageReply = 4,
+    MessageEdit = 5,
+    User = 6
+}
+
+export type SendHandler = CommandInteraction | RepliableInteraction | TextBasedChannel | Message | GuildMember | User;
+export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction;
+
+// TODO: Reimplement BetterEmbed when added to @vimcord/ux
+export type EmbedResolvable = EmbedBuilder;
+export type InteractionResolveable = CommandInteraction | RepliableInteraction;
+export type UserResolvable = GuildMember | User | string;
+
+export type SendableTextChannel = DMChannel | TextChannel | NewsChannel | ThreadChannel;
+
+export type SendableComponent = ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
 export type RequiredDynaSendOptions = AtLeastOne<DynaSendOptions, SendableContentKeys>;
 
 export interface DynaSendOptions {

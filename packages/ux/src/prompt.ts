@@ -15,8 +15,8 @@ import {
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 
-// NOTES: These will eventually come from a global config
-const OPTIONS = {
+// TODO: Will eventually come from a global config
+const DEFAULT_CONFIG = {
     timeout: 60_000,
     confirmLabel: "Confirm",
     rejectLabel: "Reject",
@@ -147,7 +147,7 @@ function isParticipant(userId: string, participants: UserResolvable[]): boolean 
 
 // Creates the default embed for prompts using OPTIONS values
 function createDefaultEmbed(): EmbedBuilder {
-    return new EmbedBuilder().setTitle(OPTIONS.promptTitle).setDescription(OPTIONS.promptDescription);
+    return new EmbedBuilder().setTitle(DEFAULT_CONFIG.promptTitle).setDescription(DEFAULT_CONFIG.promptDescription);
 }
 
 // Handles post-resolution actions on the prompt message (delete, disable, or clear components)
@@ -175,12 +175,12 @@ async function handleResolve(
         }
         const confirmBtn = new ButtonBuilder()
             .setCustomId("btn_confirm")
-            .setLabel(OPTIONS.confirmLabel)
+            .setLabel(DEFAULT_CONFIG.confirmLabel)
             .setStyle(ButtonStyle.Success)
             .setDisabled(true);
         const rejectBtn = new ButtonBuilder()
             .setCustomId("btn_reject")
-            .setLabel(OPTIONS.rejectLabel)
+            .setLabel(DEFAULT_CONFIG.rejectLabel)
             .setStyle(ButtonStyle.Danger)
             .setDisabled(true);
         await message.edit({ components: [buildActionRow(confirmBtn, rejectBtn, new Map(), disableAll)] }).catch(() => {});
@@ -200,13 +200,18 @@ export async function promptMessage(
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
     // Extract options with defaults
-    const timeout = options?.timeout ?? OPTIONS.timeout;
+    const timeout = options?.timeout ?? DEFAULT_CONFIG.timeout;
     const participants = options?.participants ?? [];
     const onResolve = options?.onResolve ?? [PromptResolveType.DeleteOnConfirm, PromptResolveType.DeleteOnReject];
 
     // Build confirm/reject buttons with custom overrides
-    const confirmBtn = buildButton(options?.buttons?.confirm, "btn_confirm", OPTIONS.confirmLabel, ButtonStyle.Success);
-    const rejectBtn = buildButton(options?.buttons?.reject, "btn_reject", OPTIONS.rejectLabel, ButtonStyle.Danger);
+    const confirmBtn = buildButton(
+        options?.buttons?.confirm,
+        "btn_confirm",
+        DEFAULT_CONFIG.confirmLabel,
+        ButtonStyle.Success
+    );
+    const rejectBtn = buildButton(options?.buttons?.reject, "btn_reject", DEFAULT_CONFIG.rejectLabel, ButtonStyle.Danger);
 
     // Build custom buttons map from options
     const customButtons = new Map<string, { button: ButtonBuilder; handler?: CustomButton["handler"]; index: number }>();
@@ -287,20 +292,18 @@ export async function promptModal(
     options?: PromptModalOptions
 ): Promise<PromptModalResult> {
     const {
-        timeout = OPTIONS.timeout,
-        inputLabel = OPTIONS.inputLabel,
-        inputPlaceholder = OPTIONS.inputPlaceholder
+        timeout = DEFAULT_CONFIG.timeout,
+        inputLabel = DEFAULT_CONFIG.inputLabel,
+        inputPlaceholder = DEFAULT_CONFIG.inputPlaceholder
     } = options ?? {};
 
     // Build the modal with a text input using BetterModal
-    const modal = new BetterModal().setTitle(question).setComponents({
-        textInput: {
-            customId: "prompt_input",
-            label: inputLabel,
-            style: TextInputStyle.Short,
-            placeholder: inputPlaceholder,
-            required: true
-        }
+    const modal = new BetterModal({ title: question }).addTextInput({
+        customId: "prompt_input",
+        label: inputLabel,
+        style: TextInputStyle.Short,
+        placeholder: inputPlaceholder,
+        required: true
     });
 
     // Show and await modal submission
