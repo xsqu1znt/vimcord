@@ -9,13 +9,16 @@ export function resolveParticipantId(participant: Participant): string {
     return participant.id;
 }
 
-// --- Timeout Actions ---
-export enum TimeoutAction {
+// --- Resolve Actions ---
+export enum ResolveAction {
     DisableComponents = "DisableComponents",
+    ClearComponents = "ClearComponents",
     DeleteMessage = "DeleteMessage",
+    DeleteMessageOnConfirm = "DeleteMessageOnConfirm",
+    DeleteMessageOnReject = "DeleteMessageOnReject",
     DoNothing = "DoNothing"
 }
-async function timeoutAction_disableComponents(message: Message | null | undefined): Promise<void> {
+async function resolveAction_disableComponents(message: Message | null | undefined): Promise<void> {
     if (!message?.editable) return;
 
     try {
@@ -39,28 +42,45 @@ async function timeoutAction_disableComponents(message: Message | null | undefin
         await message.edit({ components: updatedRows });
     } catch (err) {
         if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[TimeoutAction] Failed to disable components:", err);
+            console.error("[ResolveAction] Failed to disable components:", err);
         }
     }
 }
-async function timeoutAction_deleteMessage(message: Message | null | undefined): Promise<void> {
+async function resolveAction_clearComponents(message: Message | null | undefined): Promise<void> {
+    if (!message?.editable) return;
+
+    try {
+        const updatedRows = message.components
+            .map(row => row.toJSON())
+            .filter(json => json.type !== ComponentType.Container);
+
+        await message.edit({ components: updatedRows as never });
+    } catch (err) {
+        if (err instanceof Error && !err.message.includes("Unknown Message")) {
+            console.error("[ResolveAction] Failed to clear components:", err);
+        }
+    }
+}
+async function resolveAction_deleteMessage(message: Message | null | undefined): Promise<void> {
     if (!message?.deletable) return;
 
     try {
         await message.delete();
     } catch (err) {
         if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[TimeoutAction] Failed to delete message:", err);
+            console.error("[ResolveAction] Failed to delete message:", err);
         }
     }
 }
-export async function handleTimeoutAction(message: Message | null | undefined, action: TimeoutAction): Promise<void> {
+export async function handleResolveAction(message: Message | null | undefined, action: ResolveAction): Promise<void> {
     switch (action) {
-        case TimeoutAction.DisableComponents:
-            return timeoutAction_disableComponents(message);
-        case TimeoutAction.DeleteMessage:
-            return timeoutAction_deleteMessage(message);
-        case TimeoutAction.DoNothing:
+        case ResolveAction.DisableComponents:
+            return resolveAction_disableComponents(message);
+        case ResolveAction.ClearComponents:
+            return resolveAction_clearComponents(message);
+        case ResolveAction.DeleteMessage:
+            return resolveAction_deleteMessage(message);
+        case ResolveAction.DoNothing:
         default:
             break;
     }
