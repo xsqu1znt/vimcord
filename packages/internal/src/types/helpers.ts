@@ -13,3 +13,6 @@ export type PartialDeep<T> = T extends (...args: unknown[]) => unknown
                   [K in keyof T]?: PartialDeep<T[K]>;
               }
       : T;
+
+/** A function used for indexing something. */
+export type IndexFn<T> = (module: T) => string | string[] | undefined;

@@ -20,11 +20,18 @@ export type LoggerOptions = {
     prefixEmoji?: string | null;
     /** Prefix label shown before each message. */
     prefix?: string | null;
-    /** Minimum log level to output.
+    /**
+     * Minimum log level to output.
      * @default "debug"
      */
     minLevel?: LogLevel;
-    /** Show timestamp before each message.
+    /**
+     * Log verbose messages.
+     * @default false
+     */
+    verbose?: boolean;
+    /**
+     * Show timestamp before each message.
      * @default true
      */
     showTimestamp?: boolean;
@@ -89,7 +96,7 @@ function padVisible(str: string, length: number): string {
 // --- Logger ---
 
 export class Logger {
-    protected options: Required<LoggerOptions> & { colors: ColorScheme };
+    readonly options: Required<LoggerOptions> & { colors: ColorScheme };
 
     private activeLoaders: Map<number, LoaderEntry> = new Map();
     private nextLoaderId = 0;
@@ -101,6 +108,7 @@ export class Logger {
             prefix: null,
             prefixEmoji: null,
             minLevel: "debug",
+            verbose: false,
             showTimestamp: true,
             ...options,
             colors: { ...DEFAULT_COLORS, ...options.colors }
@@ -214,6 +222,11 @@ export class Logger {
         this.write("log", this.buildLine(this.fmtTimestamp(), this.fmtPrefix()), message, ...data);
     }
 
+    logVerbose(message: string, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.log(message, data);
+    }
+
     debug(message: string, ...data: unknown[]): void {
         if (!this.shouldLog("debug")) return;
         this.write(
@@ -224,9 +237,19 @@ export class Logger {
         );
     }
 
+    debugVerbose(message: string, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.debug(message, data);
+    }
+
     info(message: string, ...data: unknown[]): void {
         if (!this.shouldLog("info")) return;
         this.write("log", this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("info")), message, ...data);
+    }
+
+    infoVerbose(message: string, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.info(message, data);
     }
 
     success(message: string, ...data: unknown[]): void {
@@ -239,6 +262,11 @@ export class Logger {
         );
     }
 
+    successVerbose(message: string, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.success(message, data);
+    }
+
     warn(message: string, ...data: unknown[]): void {
         if (!this.shouldLog("warn")) return;
         this.write(
@@ -247,6 +275,11 @@ export class Logger {
             ansis.hex(this.options.colors.warn)(message),
             ...data
         );
+    }
+
+    warnVerbose(message: string, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.warn(message, data);
     }
 
     error(message: string, error?: Error, ...data: unknown[]): void {
@@ -260,6 +293,11 @@ export class Logger {
         if (error?.stack) {
             this.write("error", ansis.dim(error.stack));
         }
+    }
+
+    errorVerbose(message: string, error?: Error, ...data: unknown[]): void {
+        if (!this.options.verbose) return;
+        this.error(message, error, data);
     }
 
     // --- Structured Output ---
@@ -465,6 +503,14 @@ export class Logger {
     }
 
     // --- Configuration ---
+
+    setLevel(level: LogLevel) {
+        this.options.minLevel = level;
+    }
+
+    setVerbose(verbose: boolean) {
+        this.options.verbose = verbose;
+    }
 
     /** Creates a child logger that inherits this logger's config with overrides */
     clone(options: LoggerOptions): Logger {

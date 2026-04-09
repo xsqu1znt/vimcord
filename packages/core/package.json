@@ -17,6 +17,8 @@
     },
     "dependencies": {
         "@vimcord/internal": "workspace:*",
-        "discord.js": "^14.26.0"
+        "@vimcord/logger": "workspace:*",
+        "discord.js": "^14.26.0",
+        "human-id": "^4.1.3"
     }
 }

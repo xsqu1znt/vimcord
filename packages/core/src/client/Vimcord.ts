@@ -1,14 +1,27 @@
 import type { ClientOptions } from "discord.js";
 import type { PartialDeep } from "@vimcord/internal";
+import type { LogLevel } from "@vimcord/logger";
 import type { CommandHooks } from "@/commands/hooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
 import type { AppOptions, StaffOptions } from "./options.js";
 
+import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
+import { humanId } from "human-id";
 import { mergeDeep } from "@vimcord/internal";
 import { PluginManager } from "@/plugins/PluginManager.js";
+import { VimcordLogger, vimcordLogger } from "./logger.js";
 import { defaultAppOptions, defaultStaffOptions } from "./options.js";
+
+export type VimcordEvents = {
+    /** Returns the new Vimcord instance. */
+    create: [Vimcord];
+    /** Returns clientId. */
+    destroy: [string];
+    /** Returns the Vimcord instance. */
+    ready: [Vimcord];
+};
 
 interface VimcordOptions {
     /** App options. */
@@ -20,12 +33,40 @@ interface VimcordOptions {
 }
 
 export interface VimcordClientOptions extends ClientOptions, VimcordOptions {
+    /** Custom client id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
+    customId?: string;
+
     /** Vimcord features. */
     features?: VimcordFeatures;
+
+    // --- Debugging ---
+    /** Minimum console logging level. */
+    logLevel?: LogLevel;
+    /** Enable verbose logging. */
+    verbose?: boolean;
 }
 
 export class Vimcord extends Client {
-    private pluginManager = new PluginManager();
+    /** Active Vimcord instances. */
+    static $instances = new Map<string, Vimcord>();
+    /** Global event emitter for Vimcord instances. Use this to listen for Vimcord instance events. */
+    static $events = new EventEmitter<VimcordEvents>();
+
+    /**
+     * Gets an instance of Vimcord.
+     * @param clientId Defaults to the first instance if not provided.
+     */
+    static getInstance(clientId?: string): Vimcord | undefined {
+        if (clientId === undefined) {
+            return Vimcord.$instances.values().next().value;
+        }
+        return Vimcord.$instances.get(clientId);
+    }
+
+    readonly id: string;
+    readonly logger: VimcordLogger = vimcordLogger;
+
+    private plugins = new PluginManager();
 
     private appOptions: AppOptions;
     private staffOptions: StaffOptions;
@@ -34,14 +75,40 @@ export class Vimcord extends Client {
     hooks: CommandHooks;
 
     constructor(options: VimcordClientOptions) {
-        const { app, staff, features, hooks, ...djsOptions } = options;
+        const {
+            customId,
+
+            app,
+            staff,
+            features,
+            hooks,
+
+            // --- Debugging ---
+            logLevel = "debug",
+            verbose = false,
+
+            ...djsOptions
+        } = options;
+
         super(djsOptions);
+
+        this.logger.setLevel(logLevel);
+        this.logger.setVerbose(verbose);
+
+        this.id = customId ?? humanId({ separator: "-", capitalize: false });
 
         this.appOptions = mergeDeep(defaultAppOptions(), app);
         this.staffOptions = mergeDeep(defaultStaffOptions(), staff);
         this.djsOptions = djsOptions;
         this.features = features ?? {};
         this.hooks = hooks ?? {};
+
+        Vimcord.$instances.set(this.id, this);
+        Vimcord.$events.emit("create", this);
+
+        this.once("clientReady", client => {
+            Vimcord.$events.emit("ready", this);
+        });
     }
 
     // --- Shorthand Access ---
@@ -79,16 +146,16 @@ export class Vimcord extends Client {
 
     // --- Plugins ---
     async use(plugin: VimcordPlugin): Promise<this> {
-        await this.pluginManager.use(plugin, this);
+        await this.plugins.use(plugin, this);
         return this;
     }
 
     getPlugin(name: string): VimcordPlugin | undefined {
-        return this.pluginManager.get(name);
+        return this.plugins.get(name);
     }
 
     async removePlugin(name: string): Promise<this> {
-        await this.pluginManager.remove(name, this);
+        await this.plugins.remove(name, this);
         return this;
     }
 
@@ -108,6 +175,9 @@ export class Vimcord extends Client {
     toOptions(): VimcordClientOptions {
         return {
             ...this.djsOptions,
+            customId: this.id,
+            logLevel: this.logger.options.minLevel,
+            verbose: this.logger.options.verbose,
             app: this.appOptions,
             staff: this.staffOptions,
             features: this.features,
@@ -118,5 +188,11 @@ export class Vimcord extends Client {
     /** Makes a clone of this client. */
     clone(): Vimcord {
         return new Vimcord(this.toOptions());
+    }
+
+    override async destroy(): Promise<void> {
+        await this.destroy();
+        Vimcord.$instances.delete(this.id);
+        Vimcord.$events.emit("destroy", this.id);
     }
 }
