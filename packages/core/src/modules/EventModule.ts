@@ -1,7 +1,7 @@
 import type { ClientEvents } from "discord.js";
-import type { ModuleOptions } from "./abstracts/AbstractModule.js";
+import type { ModuleOptions } from "../abstracts/AbstractModule.js";
 
-import { AbstractModule } from "./abstracts/AbstractModule.js";
+import { AbstractModule } from "../abstracts/AbstractModule.js";
 
 /** Overrides the `clientReady` event so there's no double client args. */
 export type VimcordClientEvents = Omit<ClientEvents, "clientReady"> & { clientReady: [] };

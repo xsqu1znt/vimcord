@@ -2,7 +2,7 @@ import type { ClientEvents } from "discord.js";
 import type { EventModule } from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
 
-import { AbstractModuleImporter } from "../abstracts/AbstractModuleImporter.js";
+import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";
 
 type EventModuleIndexType = "name" | "event" | "category" | "tag";
 

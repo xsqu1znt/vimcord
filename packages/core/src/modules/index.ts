@@ -1,2 +1,2 @@
+export * from "./CommandModule.js";
 export * from "./EventModule.js";
-export * from "./abstracts/AbstractModule.js";
