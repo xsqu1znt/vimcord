@@ -8,8 +8,7 @@ import type { AppOptions, StaffOptions } from "./options.js";
 
 import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
-import { humanId } from "human-id";
-import { mergeDeep } from "@vimcord/internal";
+import { createHumanId, mergeDeep } from "@vimcord/internal";
 import { PluginManager } from "@/plugins/PluginManager.js";
 import { VimcordLogger, vimcordLogger } from "./logger.js";
 import { defaultAppOptions, defaultStaffOptions } from "./options.js";
@@ -46,6 +45,7 @@ export interface VimcordClientOptions extends ClientOptions, VimcordOptions {
     verbose?: boolean;
 }
 
+// TODO: Add jsDoc and implement client options?
 export class Vimcord extends Client {
     /** Active Vimcord instances. */
     static $instances = new Map<string, Vimcord>();
@@ -95,7 +95,7 @@ export class Vimcord extends Client {
         this.logger.setLevel(logLevel);
         this.logger.setVerbose(verbose);
 
-        this.id = customId ?? humanId({ separator: "-", capitalize: false });
+        this.id = customId ?? createHumanId();
 
         this.appOptions = mergeDeep(defaultAppOptions(), app);
         this.staffOptions = mergeDeep(defaultStaffOptions(), staff);

@@ -45,13 +45,13 @@ type AtLeastOne<T, Keys extends keyof T> = {
 type SendableContentKeys = "content" | "embeds" | "components" | "files" | "stickers" | "poll" | "forward";
 
 export enum SendMethod {
-    Reply = 0,
-    EditReply = 1,
-    FollowUp = 2,
-    Channel = 3,
-    MessageReply = 4,
-    MessageEdit = 5,
-    User = 6
+    Reply = "Reply",
+    EditReply = "EditReply",
+    FollowUp = "FollowUp",
+    Channel = "Channel",
+    MessageReply = "MessageReply",
+    MessageEdit = "MessageEdit",
+    UserDM = "UserDM"
 }
 
 export type SendHandler = CommandInteraction | RepliableInteraction | TextBasedChannel | Message | GuildMember | User;
@@ -136,7 +136,7 @@ function detectSendMethod(handler: SendHandler): SendMethod {
     }
     if (handler instanceof BaseChannel) return SendMethod.Channel;
     if (handler instanceof Message) return SendMethod.MessageReply;
-    if (handler instanceof GuildMember || handler instanceof User) return SendMethod.User;
+    if (handler instanceof GuildMember || handler instanceof User) return SendMethod.UserDM;
 
     throw new Error("[DynaSend] Unable to determine send method for handler type");
 }
@@ -157,7 +157,7 @@ function validateSendMethod(handler: SendHandler, method: SendMethod): void {
         throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires Message handler`);
     }
 
-    if (method === SendMethod.User && !(handler instanceof GuildMember || handler instanceof User)) {
+    if (method === SendMethod.UserDM && !(handler instanceof GuildMember || handler instanceof User)) {
         throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires User or GuildMember handler`);
     }
 }
@@ -170,7 +170,7 @@ type MessageDataMap = {
     [SendMethod.Channel]: MessageCreateOptions;
     [SendMethod.MessageReply]: MessageReplyOptions;
     [SendMethod.MessageEdit]: MessageEditOptions;
-    [SendMethod.User]: MessageCreateOptions;
+    [SendMethod.UserDM]: MessageCreateOptions;
 };
 
 // Constructs the message options object for a given send method
@@ -243,7 +243,7 @@ function createMessageData<M extends SendMethod>(options: DynaSendOptions, metho
             } as MessageDataMap[M];
 
         // User DM - filter out Ephemeral
-        case SendMethod.User:
+        case SendMethod.UserDM:
             return {
                 ...sharedBase,
                 tts: options.tts,
@@ -294,7 +294,7 @@ async function executeSend<M extends SendMethod>(
         }
 
         // Send DM to a user or guild member
-        case SendMethod.User:
+        case SendMethod.UserDM:
             return await (handler as GuildMember | User).send(data as MessageCreateOptions);
 
         default:

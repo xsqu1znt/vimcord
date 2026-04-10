@@ -40,7 +40,7 @@ export async function importModulesFromDir<T>(dir: string, suffix?: string | str
             try {
                 delete require.cache[require.resolve(modulePath)];
                 importedModule = require(modulePath);
-            } catch (err: unknown) {
+            } catch (err) {
                 // Log the warning to the console
                 console.warn(`Failed to import module at '${logPath}'`, err);
                 importedModule = null;

@@ -1,27 +1,27 @@
 import type { ClientEvents } from "discord.js";
-import type { EventBuilder } from "@/builders/index.js";
+import type { EventModule } from "@/modules/index.js";
 import type { ModuleIndex } from "../abstracts/AbstractModuleImporter.js";
 import type { Vimcord } from "../Vimcord.js";
 
 import { AbstractModuleImporter } from "../abstracts/AbstractModuleImporter.js";
 
-type EventModuleIndex = "event" | "name" | "category" | "tag";
+type EventModuleIndex = "name" | "event" | "category" | "tag";
 
-export class EventManager extends AbstractModuleImporter<EventBuilder> {
-    override modules = new Map<string, EventBuilder>();
-    override indexes = new Map<EventModuleIndex, ModuleIndex<EventBuilder>>();
+export class EventManager extends AbstractModuleImporter<EventModule> {
+    override modules = new Map<string, EventModule>();
+    override indexes = new Map<EventModuleIndex, ModuleIndex<EventModule>>();
     override fileSuffix = ".event";
 
     constructor(client: Vimcord) {
         super(client);
 
-        this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
         this.indexes.set("name", { key: m => m.name, map: new Map() });
+        this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
         this.indexes.set("category", { key: m => m.metadata.category, map: new Map(), isArray: true });
         this.indexes.set("tag", { key: m => m.metadata.tags, map: new Map(), isArray: true });
     }
 
-    protected override createModuleKey(module: EventBuilder): string {
+    protected override createModuleKey(module: EventModule): string {
         return module.id;
     }
 
@@ -30,36 +30,40 @@ export class EventManager extends AbstractModuleImporter<EventBuilder> {
         this.reindex();
     }
 
-    override get(id: string): EventBuilder | undefined {
+    override get(id: string): EventModule | undefined {
         return this.modules.get(id);
     }
 
-    getByEvent(event: string): EventBuilder[] {
+    getByEvent(event: string): EventModule[] {
         return this.getIndexed<EventModuleIndex>("event", event, true);
     }
 
-    getByName(name: string): EventBuilder[] {
+    getByName(name: string): EventModule[] {
         return this.getIndexed<EventModuleIndex>("name", name, true);
     }
 
-    getByCategory(category: string): EventBuilder[] {
+    getByCategory(category: string): EventModule[] {
         return this.getIndexed<EventModuleIndex>("category", category, true);
     }
 
-    getByTag(tag: string): EventBuilder[] {
+    getByTag(tag: string): EventModule[] {
         return this.getIndexed<EventModuleIndex>("tag", tag, true);
     }
 
-    register(...events: EventBuilder[]): void {
+    register(...events: EventModule[]): void {
         events.forEach(e => this.modules.set(e.id, e));
         this.reindex();
-        events.forEach(e => this.client.logger.debugVerbose(`Registered '${e.name}' for EventType '${e.event}'`));
+        events.forEach(e =>
+            this.client.logger.debugVerbose(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+        );
     }
 
-    unregister(...events: EventBuilder[]): void {
+    unregister(...events: EventModule[]): void {
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
-        events.forEach(e => this.client.logger.debugVerbose(`Unregistered '${e.name}' for EventType '${e.event}'`));
+        events.forEach(e =>
+            this.client.logger.debugVerbose(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+        );
     }
 
     async executeEvents<T extends keyof ClientEvents>(event: T, ...args: ClientEvents[T]): Promise<void> {
@@ -70,10 +74,13 @@ export class EventManager extends AbstractModuleImporter<EventBuilder> {
         await Promise.allSettled(
             sortedEvents.map(async e => {
                 try {
-                    // TODO: Implement base execute into AbstractBuilder or EventBuilder
+                    // TODO: Implement base execute into AbstractModule or EventModule
                     // await e.execute(this.client as Vimcord<true>, ...args);
                 } catch (err) {
-                    this.client.logger.error(`Failed to execute '${e.name}' for EventType '${e.event}'`, err as Error);
+                    this.client.logger.error(
+                        `[EventManager] Failed to execute '${e.name}' (${e.id}) for EventType '${e.event}'`,
+                        err as Error
+                    );
                 } finally {
                     if (e.once) this.unregister(e);
                 }
