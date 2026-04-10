@@ -77,7 +77,6 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
     readonly hooks: ModuleHooks<Args, ExecuteResult>;
 
     constructor(
-        /** The Vimcord client. */
         readonly client: Vimcord,
         options: ModuleOptions<Args>
     ) {
@@ -130,7 +129,13 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
         return { passed: true };
     }
 
-    /** Execute order: `testDeployment` -> `testConditions` */
+    /**
+     * Execute order:
+     *
+     * `testDeployment` -> `hook:onDeploymentTestFail`
+     *
+     * `testConditions` -> `hook:onConditionTestFail`
+     */
     protected async performTests(ctx: ModuleContext<Args, ExecuteResult>): Promise<boolean> {
         const deploymentTestResult = this.testDeployment();
         if (!deploymentTestResult.passed) {
@@ -163,7 +168,6 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
         return true;
     }
 
-    // --- Hooks ---
     async executeHook<K extends keyof ModuleHooks<Args, ExecuteResult>>(
         hook: K,
         ctx: ModuleContext<Args, ExecuteResult>,
@@ -182,7 +186,13 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
         }
     }
 
-    // --- Main ---
+    /**
+     * Execute order:
+     *
+     * try:`performTests` -> `hook:preExecute` -> `execute` -> `hook:postExecute`
+     *
+     * catch:`onError`
+     */
     protected async run(...args: Args): Promise<ExecuteResult | undefined> {
         const ctx: ModuleContext<Args, ExecuteResult> = { client: this.client, args };
 
