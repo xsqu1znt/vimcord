@@ -9,7 +9,7 @@ export type ModuleConditionFn<Args extends any[] = any[]> = (
 ) => Promise<ModuleTestResult> | ModuleTestResult;
 
 export interface ModuleContext<Args extends any[] = any[], ExecuteResult = unknown> {
-    client: Vimcord;
+    client: Vimcord<true>;
     args: Args;
     error?: Error;
     deploymentTestResult?: ModuleTestResult;
@@ -41,7 +41,7 @@ export interface ModuleOptions<Args extends any[] = any[], ExecuteResult = unkno
     hooks?: ModuleHooks<Args, ExecuteResult>;
 
     // --- Main ---
-    execute(client: Vimcord, ...args: Args): Promise<ExecuteResult>;
+    execute(client: Vimcord<true>, ...args: Args): Promise<ExecuteResult>;
 }
 
 export interface ModuleMetadata {
@@ -68,29 +68,28 @@ export interface ModuleHooks<Args extends any[] = any[], ExecuteResult = unknown
     /** @defaultBehavior Does nothing. */
     onError?(ctx: ModuleContext<Args, ExecuteResult>): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    preExecute?(ctx: ModuleContext<Args, ExecuteResult>): Promise<void>;
+    preExecute?(ctx: ModuleContext<Args, ExecuteResult>, next: () => void): Promise<void>;
     /** @defaultBehavior Does nothing. */
     postExecute?(ctx: ModuleContext<Args, ExecuteResult>): Promise<void>;
 }
 
 // --- Abstract Module ---
 export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult = unknown> {
+    readonly client: Vimcord | null = null;
+
     readonly id: string;
     readonly name: string;
     readonly metadata: ModuleMetadata;
 
     readonly enabled: boolean;
     readonly deployment: ModuleDeploymentRules;
-    readonly conditions: ModuleConditionFn<Args>[];
+    protected readonly conditions: ModuleConditionFn<Args>[];
 
-    readonly hooks: ModuleHooks<Args, ExecuteResult>;
+    protected readonly hooks: ModuleHooks<Args, ExecuteResult>;
 
-    readonly execute: (client: Vimcord, ...args: Args) => Promise<ExecuteResult>;
+    protected readonly execute: (client: Vimcord<true>, ...args: Args) => Promise<ExecuteResult>;
 
-    constructor(
-        readonly client: Vimcord,
-        options: ModuleOptions<Args, ExecuteResult>
-    ) {
+    constructor(options: ModuleOptions<Args, ExecuteResult>) {
         const { customId, name, metadata, enabled, deployment, conditions, hooks, execute } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
@@ -104,15 +103,32 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
         this.execute = execute;
     }
 
+    private async validateInjection(): Promise<boolean> {
+        if (!this.client) {
+            console.warn(`[Module] '${this.name}' (${this.id}) is not injected`);
+            return false;
+        }
+
+        const ready = await this.client.awaitReady();
+        if (!ready) console.warn(`[Module] '${this.name}' (${this.id}) client is not ready`);
+        return ready;
+    }
+
+    inject(client: Vimcord<true>): void {
+        if (!this.client) {
+            (this as { client: Vimcord | null }).client = client;
+        }
+    }
+
     // --- Tests & Rules ---
-    protected testDeployment(): ModuleTestResult {
+    protected async testDeployment(ctx: ModuleContext<Args, ExecuteResult>): Promise<ModuleTestResult> {
         if (this.deployment.environment === "both") {
             return { passed: true };
         }
-        if (this.client.$devMode && this.deployment.environment !== "development") {
+        if (ctx.client.$devMode && this.deployment.environment !== "development") {
             return { passed: false, reason: "Client is in development mode" };
         }
-        if (!this.client.$devMode && this.deployment.environment !== "production") {
+        if (!ctx.client.$devMode && this.deployment.environment !== "production") {
             return { passed: false, reason: "Client is in production mode" };
         }
 
@@ -152,7 +168,7 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
     protected async performTests(ctx: ModuleContext<Args, ExecuteResult>): Promise<boolean> {
         if (!this.enabled) return false;
 
-        const deploymentTestResult = this.testDeployment();
+        const deploymentTestResult = await this.testDeployment(ctx);
         if (!deploymentTestResult.passed) {
             ctx.deploymentTestResult = deploymentTestResult;
 
@@ -183,44 +199,13 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
         return true;
     }
 
-    /**
-     * Execute order:
-     *
-     * try:`performTests` -> `hook:preExecute` -> `execute` -> `hook:postExecute`
-     *
-     * catch:`onError`
-     */
-    protected async run(...args: Args): Promise<ExecuteResult | undefined> {
-        const ctx: ModuleContext<Args, ExecuteResult> = { client: this.client, args };
-
-        try {
-            const valid = this.validate();
-            if (!valid) return;
-
-            const passed = await this.performTests(ctx);
-            if (!passed) return;
-
-            await this.runHook("preExecute", ctx);
-            const executeResult = await this.execute(this.client, ...args);
-            ctx.executeResult = executeResult;
-
-            await this.runHook("postExecute", ctx);
-
-            return executeResult;
-        } catch (err) {
-            ctx.error = err as Error;
-            await this.runHook("onError", ctx, async () =>
-                this.client.logger.error(`[Module] Failed to execute '${this.name}' (${this.id})`, err as Error)
-            );
-        }
-    }
-
     /** Runs a hook with relevant context and an optional fallback. */
-    async runHook<K extends keyof ModuleHooks<Args, ExecuteResult>>(
+    protected async runHook<K extends keyof Omit<ModuleHooks<Args, ExecuteResult>, "preExecute">>(
         hook: K,
         ctx: ModuleContext<Args, ExecuteResult>,
         fallback?: (ctx: ModuleContext<Args, ExecuteResult>) => Promise<void>
     ): Promise<void> {
+        if (!(await this.validateInjection())) return;
         const hookFn = this.hooks[hook];
 
         try {
@@ -230,9 +215,47 @@ export abstract class AbstractModule<Args extends any[] = any[], ExecuteResult =
                 await fallback(ctx);
             }
         } catch (err) {
-            this.client.logger.error(`[Module] Hook '${hook}' failed for '${this.name}' (${this.id})`, err as Error);
+            this.client!.logger.error(`[Module] Hook '${hook}' failed for '${this.name}' (${this.id})`, err as Error);
         }
     }
 
-    abstract validate(): boolean;
+    /**
+     * Execute order:
+     *
+     * try:`performTests` -> `hook:preExecute` -> `execute` -> `hook:postExecute`
+     *
+     * catch:`onError`
+     */
+    async run(...args: Args): Promise<ExecuteResult | undefined> {
+        if (!(await this.validateInjection())) return;
+        const ctx: ModuleContext<Args, ExecuteResult> = { client: this.client as Vimcord<true>, args };
+
+        try {
+            const valid = this.validate();
+            if (!valid) return;
+
+            const passed = await this.performTests(ctx);
+            if (!passed) return;
+
+            if (this.hooks.preExecute) {
+                let next = false;
+                await this.hooks.preExecute(ctx, () => (next = true));
+                if (!next) return;
+            }
+
+            const executeResult = await this.execute(this.client as Vimcord<true>, ...args);
+            ctx.executeResult = executeResult;
+
+            await this.runHook("postExecute", ctx);
+
+            return executeResult;
+        } catch (err) {
+            ctx.error = err as Error;
+            await this.runHook("onError", ctx, async () =>
+                this.client!.logger.error(`[Module] Failed to execute '${this.name}' (${this.id})`, err as Error)
+            );
+        }
+    }
+
+    protected abstract validate(): boolean;
 }

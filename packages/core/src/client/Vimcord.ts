@@ -8,7 +8,7 @@ import type { AppOptions, StaffOptions } from "./options.js";
 
 import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
-import { createHumanId, mergeDeep } from "@vimcord/internal";
+import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { PluginManager } from "@/plugins/PluginManager.js";
 import { VimcordLogger, vimcordLogger } from "./logger.js";
 import { defaultAppOptions, defaultStaffOptions } from "./options.js";
@@ -45,8 +45,7 @@ export interface VimcordClientOptions extends ClientOptions, VimcordOptions {
     verbose?: boolean;
 }
 
-// TODO: Add jsDoc and implement client options?
-export class Vimcord extends Client {
+export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     /** Active Vimcord instances. */
     static $instances = new Map<string, Vimcord>();
     /** Global event emitter for Vimcord instances. Use this to listen for Vimcord instance events. */
@@ -72,7 +71,9 @@ export class Vimcord extends Client {
     private staffOptions: StaffOptions;
     private djsOptions: ClientOptions;
     private features: VimcordFeatures;
-    hooks: CommandHooks;
+    readonly hooks: CommandHooks;
+
+    private awaitReadyPromise: Promise<boolean> | null | undefined;
 
     constructor(options: VimcordClientOptions) {
         const {
@@ -161,13 +162,37 @@ export class Vimcord extends Client {
 
     // --- Utility ---
     /**
+     * Waits for the client to be ready.
+     * @param timeout `60_000` by default.
+     */
+    async awaitReady(timeout: number = 60_000): Promise<boolean> {
+        if (this.isReady()) return true;
+        if (this.awaitReadyPromise) return this.awaitReadyPromise;
+
+        this.awaitReadyPromise = new Promise(resolve => {
+            const _timeout = setTimeout(() => {
+                this.awaitReadyPromise = null;
+                resolve(false);
+            }, timeout);
+
+            this.once("clientReady", () => {
+                clearTimeout(_timeout);
+                this.awaitReadyPromise = null;
+                resolve(true);
+            });
+        });
+
+        return this.awaitReadyPromise;
+    }
+
+    /**
      * Modifies special client options.
      * @param options The options to set
      */
     configure(options: VimcordOptions): this {
         this.appOptions = mergeDeep(this.appOptions, options.app);
         this.staffOptions = mergeDeep(this.staffOptions, options.staff);
-        this.hooks = mergeDeep(this.hooks, options.hooks);
+        (this as { hooks: CommandHooks }).hooks = mergeDeep(this.hooks, options.hooks);
         return this;
     }
 

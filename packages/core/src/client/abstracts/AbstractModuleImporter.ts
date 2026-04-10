@@ -15,9 +15,9 @@ export type ModuleIndex<T> =
           isArray: true;
       };
 
-export abstract class AbstractModuleImporter<T> {
-    abstract readonly modules: Map<string, T>;
-    abstract readonly indexes: Map<string, ModuleIndex<T>>;
+export abstract class AbstractModuleImporter<T, K extends string = string> {
+    readonly modules: Map<string, T> = new Map();
+    readonly indexes: Map<K, ModuleIndex<T>> = new Map();
     abstract readonly fileSuffix: string | string[] | undefined;
 
     constructor(readonly client: Vimcord) {
@@ -30,9 +30,9 @@ export abstract class AbstractModuleImporter<T> {
 
     abstract get(id: string): T | undefined;
 
-    protected getIndexed<Indexes extends string>(index: Indexes, key: string, isArray?: false): T;
-    protected getIndexed<Indexes extends string>(index: Indexes, key: string, isArray: true): T[];
-    protected getIndexed<Indexes extends string>(index: Indexes, key: string, isArray?: boolean): T | T[] {
+    protected getIndexed(index: K, key: string, isArray?: false): T;
+    protected getIndexed(index: K, key: string, isArray: true): T[];
+    protected getIndexed(index: K, key: string, isArray?: boolean): T | T[] {
         const idx = this.indexes.get(index);
         if (!idx) {
             throw new Error(`Module index '${index}' does not exist; make sure it's implemented`);

@@ -1,15 +1,16 @@
 import type { ClientEvents } from "discord.js";
-import type { Vimcord } from "@/client/Vimcord.js";
 import type { ModuleOptions } from "./abstracts/AbstractModule.js";
 
 import { AbstractModule } from "./abstracts/AbstractModule.js";
 
-export interface EventModuleOptions<T extends keyof ClientEvents = keyof ClientEvents> extends ModuleOptions<
-    ClientEvents[T],
-    void
-> {
+/** Overrides the `clientReady` event so there's no double client args. */
+export type VimcordClientEvents = Omit<ClientEvents, "clientReady"> & { clientReady: [] };
+
+export interface EventModuleOptions<
+    Event extends keyof VimcordClientEvents = keyof VimcordClientEvents
+> extends ModuleOptions<VimcordClientEvents[Event], void> {
     /** The client event to trigger on. */
-    event: T;
+    event: Event;
     /**
      * Whether this event should be executed only once then unregistered.
      * @default false
@@ -23,24 +24,22 @@ export interface EventModuleOptions<T extends keyof ClientEvents = keyof ClientE
 }
 
 export class EventModule<
-    K extends keyof ClientEvents = keyof ClientEvents,
-    Args extends ClientEvents[K] = ClientEvents[K]
+    K extends keyof VimcordClientEvents = keyof VimcordClientEvents,
+    Args extends VimcordClientEvents[K] = VimcordClientEvents[K]
 > extends AbstractModule<Args, void> {
     readonly event: K;
-
     readonly once: boolean;
     readonly priority: number;
 
-    constructor(client: Vimcord, options: EventModuleOptions<K>) {
-        super(client, options);
+    constructor(options: EventModuleOptions<K>) {
+        super(options);
 
         this.event = options.event;
-
         this.once = options.once ?? false;
         this.priority = Math.max(0, options.priority ?? 0);
     }
 
-    override validate(): boolean {
+    protected override validate(): boolean {
         return true;
     }
 }

@@ -1,15 +1,12 @@
 import type { ClientEvents } from "discord.js";
 import type { EventModule } from "@/modules/index.js";
-import type { ModuleIndex } from "../abstracts/AbstractModuleImporter.js";
 import type { Vimcord } from "../Vimcord.js";
 
 import { AbstractModuleImporter } from "../abstracts/AbstractModuleImporter.js";
 
-type EventModuleIndex = "name" | "event" | "category" | "tag";
+type EventModuleIndexType = "name" | "event" | "category" | "tag";
 
-export class EventManager extends AbstractModuleImporter<EventModule> {
-    override modules = new Map<string, EventModule>();
-    override indexes = new Map<EventModuleIndex, ModuleIndex<EventModule>>();
+export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
     override fileSuffix = ".event";
 
     constructor(client: Vimcord) {
@@ -34,20 +31,20 @@ export class EventManager extends AbstractModuleImporter<EventModule> {
         return this.modules.get(id);
     }
 
-    getByEvent(event: string): EventModule[] {
-        return this.getIndexed<EventModuleIndex>("event", event, true);
+    getByEvent<K extends keyof ClientEvents>(event: K): EventModule<K>[] {
+        return this.getIndexed("event", event, true) as unknown as EventModule<K>[];
     }
 
     getByName(name: string): EventModule[] {
-        return this.getIndexed<EventModuleIndex>("name", name, true);
+        return this.getIndexed("name", name, true);
     }
 
     getByCategory(category: string): EventModule[] {
-        return this.getIndexed<EventModuleIndex>("category", category, true);
+        return this.getIndexed("category", category, true);
     }
 
     getByTag(tag: string): EventModule[] {
-        return this.getIndexed<EventModuleIndex>("tag", tag, true);
+        return this.getIndexed("tag", tag, true);
     }
 
     register(...events: EventModule[]): void {
@@ -58,7 +55,10 @@ export class EventManager extends AbstractModuleImporter<EventModule> {
         );
     }
 
-    unregister(...events: EventModule[]): void {
+    unregister(...ids: string[]): void {
+        const events = ids.map(id => this.modules.get(id)).filter((e): e is EventModule => e !== undefined);
+        if (!events.length) return;
+
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
         events.forEach(e =>
@@ -66,23 +66,22 @@ export class EventManager extends AbstractModuleImporter<EventModule> {
         );
     }
 
-    async executeEvents<T extends keyof ClientEvents>(event: T, ...args: ClientEvents[T]): Promise<void> {
-        const events = this.getByEvent(event);
+    async executeEvents<K extends keyof ClientEvents>(event: K, ...args: ClientEvents[K]): Promise<void> {
+        const events = this.getByEvent(event) as unknown as EventModule[];
         if (!events.length) return;
 
         const sortedEvents = events.sort((a, b) => b.priority - a.priority);
         await Promise.allSettled(
             sortedEvents.map(async e => {
                 try {
-                    // TODO: Implement base execute into AbstractModule or EventModule
-                    // await e.execute(this.client as Vimcord<true>, ...args);
+                    await e.run(...args);
                 } catch (err) {
                     this.client.logger.error(
                         `[EventManager] Failed to execute '${e.name}' (${e.id}) for EventType '${e.event}'`,
                         err as Error
                     );
                 } finally {
-                    if (e.once) this.unregister(e);
+                    if (e.once) this.unregister(e.id);
                 }
             })
         );
