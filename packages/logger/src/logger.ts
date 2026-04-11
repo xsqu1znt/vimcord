@@ -1,4 +1,5 @@
 import ansis from "ansis";
+import spinners from "unicode-animations";
 
 // --- Types ---
 
@@ -54,8 +55,6 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
     error: 4
 };
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
 export const DEFAULT_COLORS: ColorScheme = {
     primary: "#5865F2",
     success: "#57F287",
@@ -66,6 +65,9 @@ export const DEFAULT_COLORS: ColorScheme = {
     info: "#87CEEB",
     text: "#FFFFFF"
 };
+
+let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
+SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(`[${f}]`));
 
 export type BannerOptions = {
     /** Bot name displayed in the top border and left column */
@@ -130,11 +132,11 @@ export class Logger {
             process.stdout.write(`\x1b[${count}A`);
 
             for (const [, loader] of this.activeLoaders) {
-                const frame = ansis.hex(this.options.colors.warn)(SPINNER_FRAMES[this.frameIndex]!);
+                const frame = SPINNER_FRAMES[this.frameIndex]!;
                 const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
                 process.stdout.write(`\r\x1b[K${prefix} ${frame} ${loader.message}\n`);
             }
-        }, 80);
+        }, SPINNER_INTERVAL);
     }
 
     private stopLoaderRenderLoop(): void {
@@ -350,7 +352,7 @@ export class Logger {
         // Register and initial render
         this.activeLoaders.set(id, { message, frame: SPINNER_FRAMES[0]! });
         const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-        process.stdout.write(`${prefix} ${ansis.hex(colors.warn)(SPINNER_FRAMES[0]!)} ${message}\n`);
+        process.stdout.write(`${prefix} ${SPINNER_FRAMES[0]!} ${message}\n`);
 
         this.startLoaderRenderLoop();
 
@@ -381,7 +383,7 @@ export class Logger {
 
             // Redraw remaining loaders
             for (const [, loader] of this.activeLoaders) {
-                const frame = ansis.hex(colors.warn)(SPINNER_FRAMES[this.frameIndex]!);
+                const frame = SPINNER_FRAMES[this.frameIndex]!;
                 const pr = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
                 process.stdout.write(`${pr} ${frame} ${loader.message}\n`);
             }

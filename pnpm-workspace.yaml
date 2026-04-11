@@ -1,5 +1,7 @@
 packages:
-  - "packages/*"
-  - "packages/plugins/*/*"
+  - packages/*
+  - packages/plugins/*/*
+
 allowBuilds:
   esbuild: true
+  unicode-animations: true
