@@ -67,7 +67,7 @@ export const DEFAULT_COLORS: ColorScheme = {
 };
 
 let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
-SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(`[${f}]`));
+SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
 
 export type BannerOptions = {
     /** Bot name displayed in the top border and left column */

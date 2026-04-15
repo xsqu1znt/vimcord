@@ -1,4 +1,4 @@
-import type { AbstractCommandModule } from "@/modules/CommandModule.js";
+import type { AbstractCommandModule } from "@/modules/PrefixCommandModule.js";
 
 import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";
 

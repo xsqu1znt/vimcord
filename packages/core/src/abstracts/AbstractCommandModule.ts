@@ -1,13 +1,11 @@
 import type {
     CommandInteraction,
     ContextMenuCommandInteraction,
-    Guild,
     GuildMember,
     GuildResolvable,
     Message,
     PermissionResolvable,
     RoleResolvable,
-    User,
     UserResolvable
 } from "discord.js";
 import type {
@@ -51,12 +49,16 @@ export enum MissingPermissionReason {
     NotBotStaff = "NotBotStaff"
 }
 
-export type CommandModuleType = keyof CommandModuleParameters;
+export enum CommandModuleType {
+    Prefix = "Prefix",
+    Slash = "Slash",
+    Context = "Context"
+}
 
 export interface CommandModuleParameters {
-    prefix: [client: Vimcord<true>, message: Message];
-    slash: [client: Vimcord<true>, interaction: CommandInteraction];
-    context: [client: Vimcord<true>, interaction: ContextMenuCommandInteraction];
+    Prefix: [client: Vimcord<true>, message: Message];
+    Slash: [client: Vimcord<true>, interaction: CommandInteraction];
+    Context: [client: Vimcord<true>, interaction: ContextMenuCommandInteraction];
 }
 
 export interface CommandModuleOptions<K extends CommandModuleType> extends ModuleOptions<
@@ -67,6 +69,22 @@ export interface CommandModuleOptions<K extends CommandModuleType> extends Modul
     /** The permissions of the module. */
     permissions?: CommandModulePermissions;
     hooks?: CommandModuleHooks<K>;
+}
+
+export interface AppCommandModuleOptions<K extends CommandModuleType> extends CommandModuleOptions<K> {
+    deployment?: AppCommandModuleDeploymentRules;
+}
+
+export interface AppCommandModuleDeploymentRules extends ModuleDeploymentRules {
+    /** Only register this command to these guilds.
+     * @remarks This only applies when registering locally.
+     */
+    guilds?: GuildResolvable[];
+    /**
+     * Allow registering globally.
+     * @default true
+     */
+    global?: boolean;
 }
 
 export interface CommandModuleMetadata extends ModuleMetadata {
@@ -123,18 +141,6 @@ export interface CommandModulePermissions {
     botStaffOnly?: boolean;
 }
 
-export interface AppCommandModuleDeploymentRules extends ModuleDeploymentRules {
-    /** Only register this command to these guilds.
-     * @remarks This only applies when registering locally.
-     */
-    guilds?: GuildResolvable[];
-    /**
-     * Allow registering globally.
-     * @default true
-     */
-    global?: boolean;
-}
-
 export type PermissionTestResult =
     | ModuleTestResult<true>
     | (ModuleTestResult<false> & {
@@ -162,11 +168,12 @@ export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleT
     onPermissionTestFail?(ctx: CommandModuleContext<K>): Promise<void>;
 }
 
-export abstract class AbstractCommandModule<K extends CommandModuleType = CommandModuleType> extends AbstractModule<
+export abstract class AbstractCommandModule<K extends CommandModuleType> extends AbstractModule<
     CommandModuleParameters[K],
     Message | undefined,
     CommandModuleHooks<K>
 > {
+    abstract readonly type: K;
     protected readonly permissions: CommandModulePermissions;
     protected override readonly hooks: CommandModuleHooks<K>;
 
