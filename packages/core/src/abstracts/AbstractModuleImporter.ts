@@ -1,5 +1,5 @@
 import type { IndexFn } from "@vimcord/internal";
-import type { Vimcord } from "../Vimcord.js";
+import type { Vimcord } from "@/client/Vimcord.js";
 
 import { importModulesFromDir } from "@vimcord/internal";
 
@@ -18,9 +18,11 @@ export type ModuleIndex<T> =
 export abstract class AbstractModuleImporter<T, K extends string = string> {
     readonly modules: Map<string, T> = new Map();
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
-    abstract readonly fileSuffix: string | string[] | undefined;
 
-    constructor(readonly client: Vimcord) {
+    constructor(
+        protected readonly client: Vimcord,
+        readonly fileSuffix: string | string[] | undefined
+    ) {
         this.client = client;
     }
 

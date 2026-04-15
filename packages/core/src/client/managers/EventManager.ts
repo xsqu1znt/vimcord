@@ -4,16 +4,14 @@ import type { Vimcord } from "../Vimcord.js";
 
 import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";
 
-type EventModuleIndexType = "name" | "event" | "category" | "tag";
+type EventModuleIndexType = "event" | "name" | "category" | "tag";
 
 export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
-    override fileSuffix = ".event";
+    constructor(fileSuffix: string | string[] | undefined, client: Vimcord) {
+        super(fileSuffix, client);
 
-    constructor(client: Vimcord) {
-        super(client);
-
-        this.indexes.set("name", { key: m => m.name, map: new Map() });
         this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
+        this.indexes.set("name", { key: m => m.name, map: new Map() });
         this.indexes.set("category", { key: m => m.metadata.category, map: new Map(), isArray: true });
         this.indexes.set("tag", { key: m => m.metadata.tags, map: new Map(), isArray: true });
     }

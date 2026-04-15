@@ -168,7 +168,7 @@ export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleT
     onPermissionTestFail?(ctx: CommandModuleContext<K>): Promise<void>;
 }
 
-export abstract class AbstractCommandModule<K extends CommandModuleType> extends AbstractModule<
+export abstract class AbstractCommandModule<K extends CommandModuleType = CommandModuleType> extends AbstractModule<
     CommandModuleParameters[K],
     Message | undefined,
     CommandModuleHooks<K>
