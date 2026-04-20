@@ -3,7 +3,7 @@ import { EventBuilder } from "@/builders/event.builder";
 export const slashCommandHandler = new EventBuilder({
     event: "interactionCreate",
     name: "SlashCommandHandler",
-    async execute(client, interaction): Promise<void> {
+    async execute(client, interaction) {
         if (!interaction.isChatInputCommand()) return;
 
         const command = client.commands.slash.get(interaction.commandName);
@@ -12,15 +12,13 @@ export const slashCommandHandler = new EventBuilder({
             const content = `**/\`${interaction.commandName}\`** is not a registered command.`;
 
             if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content, flags: "Ephemeral" });
-            } else {
-                await interaction.reply({ content, flags: "Ephemeral" });
+                return interaction.followUp({ content, flags: "Ephemeral" });
             }
-            return;
+            return interaction.reply({ content, flags: "Ephemeral" });
         }
 
         try {
-            await command.run(client, client, interaction);
+            return await command.run(client, client, interaction);
         } catch (err) {
             await client.error.handleCommandError(err as Error, interaction.guild, interaction);
         }

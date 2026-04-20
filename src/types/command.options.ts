@@ -66,7 +66,7 @@ export interface AppCommandDeployment {
     environments?: ("development" | "production")[];
 }
 
-export interface CommandRateLimitOptions<OnRateLimitParams = (...args: unknown[]) => unknown> {
+export interface CommandRateLimitOptions<OnRateLimitParams extends (...args: any) => any = (...args: any) => any> {
     /** Max executions per interval */
     max: number;
     /** Interval in milliseconds */

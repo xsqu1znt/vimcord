@@ -57,12 +57,9 @@ export interface AppConfig {
     disableBanner: boolean;
 }
 
-const packageJson = getPackageJson();
-const version = typeof packageJson.version === "string" ? packageJson.version : "1.0.0";
-
 const defaultConfig: AppConfig = {
     name: "Discord Bot",
-    version,
+    version: getPackageJson()?.version ?? "1.0.0",
     devMode: getDevMode(),
     verbose: false,
     enableCLI: false,

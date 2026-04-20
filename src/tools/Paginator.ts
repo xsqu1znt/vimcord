@@ -389,7 +389,7 @@ export class Paginator {
                     newComponents.push(disabledNavRow);
                 }
 
-                await this.data.message.edit({ components: newComponents });
+                await this.data.message.edit({ components: newComponents }).catch(Boolean);
 
                 // If using reactions, remove them
                 if (this.options.useReactions) {
@@ -405,7 +405,7 @@ export class Paginator {
                 break;
 
             case PaginationTimeoutType.DeleteMessage:
-                await this.data.message.delete();
+                await this.data.message.delete().catch(Boolean);
                 break;
 
             case PaginationTimeoutType.DoNothing:
@@ -419,17 +419,17 @@ export class Paginator {
         if (!this.data.message?.editable) return;
 
         if (this.options.useReactions) {
-            await this.data.message.reactions.removeAll();
+            await this.data.message.reactions.removeAll().catch(Boolean);
         } else {
             const newComponents = this.data.message.components.filter(c => c.type !== ComponentType.Container);
-            await this.data.message.edit({ components: newComponents });
+            await this.data.message.edit({ components: newComponents }).catch(Boolean);
         }
     }
 
     private async nav_addReactions(): Promise<void> {
         if (!this.data.message || !this.options.useReactions || !this.data.navigation.reactions.length) return;
         for (const r of this.data.navigation.reactions) {
-            await this.data.message.react(r.id);
+            await this.data.message.react(r.id).catch(Boolean);
         }
     }
 
@@ -473,7 +473,7 @@ export class Paginator {
 
                 switch (i.customId) {
                     case "ssm_chapterSelect":
-                        await i.deferUpdate();
+                        await i.deferUpdate().catch(Boolean);
                         const chapterIndex = this.chapters.findIndex(
                             c => c.id === (i as StringSelectMenuInteraction).values[0]
                         );
@@ -482,28 +482,28 @@ export class Paginator {
                         break;
 
                     case "btn_first":
-                        await i.deferUpdate();
+                        await i.deferUpdate().catch(Boolean);
                         this.callEventStack("first", this.data.page.current!, this.data.page.index);
                         await this.setPage(this.data.page.index.chapter, 0);
                         await this.refresh();
                         break;
 
                     case "btn_back":
-                        await i.deferUpdate();
+                        await i.deferUpdate().catch(Boolean);
                         this.callEventStack("back", this.data.page.current!, this.data.page.index);
                         await this.setPage(this.data.page.index.chapter, this.data.page.index.nested - 1);
                         await this.refresh();
                         break;
 
                     case "btn_next":
-                        await i.deferUpdate();
+                        await i.deferUpdate().catch(Boolean);
                         this.callEventStack("next", this.data.page.current!, this.data.page.index);
                         await this.setPage(this.data.page.index.chapter, this.data.page.index.nested + 1);
                         await this.refresh();
                         break;
 
                     case "btn_last":
-                        await i.deferUpdate();
+                        await i.deferUpdate().catch(Boolean);
                         this.callEventStack("last", this.data.page.current!, this.data.page.index);
                         await this.setPage(
                             this.data.page.index.chapter,

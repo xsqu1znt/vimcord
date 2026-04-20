@@ -55,26 +55,26 @@ export interface BaseCommandConfig<T extends CommandType> {
     /** Command metadata configuration */
     metadata?: CommandMetadata;
     /** Rate limiting options */
-    rateLimit?: CommandRateLimitOptions<(...args: BaseCommandParameters<T>) => unknown>;
+    rateLimit?: CommandRateLimitOptions<(...args: BaseCommandParameters<T>) => any>;
     /** Log whenever a command is executed? @defaultValue true */
     logExecution?: boolean;
 
     /** Executed before the main command logic */
-    beforeExecute?: (options: BeforeExecuteOptions, ...args: BaseCommandParameters<T>) => void | Promise<void>;
+    beforeExecute?: (options: BeforeExecuteOptions, ...args: BaseCommandParameters<T>) => any;
     /** The main command function that will be executed */
-    execute?: (...args: BaseCommandParameters<T>) => unknown;
+    execute?: (...args: BaseCommandParameters<T>) => any;
     /** Executed after successful execution */
-    afterExecute?: (result: unknown, ...args: BaseCommandParameters<T>) => void | Promise<void>;
+    afterExecute?: (result: any, ...args: BaseCommandParameters<T>) => any;
     /** Executed when the required permissions are not met */
-    onMissingPermissions?: (results: CommandPermissionResults, ...args: BaseCommandParameters<T>) => void | Promise<void>;
+    onMissingPermissions?: (results: CommandPermissionResults, ...args: BaseCommandParameters<T>) => any;
     /** Executed when the required conditions are not met */
-    onConditionsNotMet?: (...args: BaseCommandParameters<T>) => void | Promise<void>;
+    onConditionsNotMet?: (...args: BaseCommandParameters<T>) => any;
     /** Executed when this command is used when its disabled */
-    onUsedWhenDisabled?: (...args: BaseCommandParameters<T>) => void | Promise<void>;
+    onUsedWhenDisabled?: (...args: BaseCommandParameters<T>) => any;
     /** Executed when the rate limit is hit */
-    onRateLimit?: (...args: BaseCommandParameters<T>) => void | Promise<void>;
+    onRateLimit?: (...args: BaseCommandParameters<T>) => any;
     /** Custom error handler */
-    onError?: (error: Error, ...args: BaseCommandParameters<T>) => void | Promise<void>;
+    onError?: (error: Error, ...args: BaseCommandParameters<T>) => any;
 }
 
 export interface BaseAppCommandConfig {

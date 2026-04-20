@@ -22,11 +22,11 @@ export interface EventConfig<T extends keyof ClientEvents> {
     /** Rate limiting options */
     rateLimit?: EventRateLimitOptions<T>;
     /** Before event execution */
-    beforeExecute?: (...args: EventParameters<T>) => void | Promise<void>;
+    beforeExecute?: (...args: EventParameters<T>) => any;
     /** The function that will be executed */
-    execute?: (...args: EventParameters<T>) => void | Promise<void>;
+    execute?: (...args: EventParameters<T>) => any;
     /** After successful execution */
-    afterExecute?: (result: unknown, ...args: EventParameters<T>) => void | Promise<void>;
+    afterExecute?: (result: any, ...args: EventParameters<T>) => any;
     /** Custom error handler */
-    onError?: (error: Error, ...args: EventParameters<T>) => void | Promise<void>;
+    onError?: (error: Error, ...args: EventParameters<T>) => any;
 }

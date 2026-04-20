@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Reads the `package.json` file from the current working directory. */
-export function getPackageJson(): Record<string, unknown> {
-    return JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8")) as Record<string, unknown>;
+export function getPackageJson(): any {
+    return JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
 }
 
 /** Checks if the process was ran using the `--dev` flag. */
