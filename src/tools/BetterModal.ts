@@ -101,8 +101,7 @@ export interface AwaitModalSubmitOptions {
 export interface BetterModalSubmitResult<T = unknown> {
     values: T[];
     interaction: ModalSubmitInteraction;
-    getField(customId: string, required: true): T;
-    getField(customId: string, required?: boolean): T | undefined;
+    getField(customId: string): T | undefined;
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     deferUpdate: () => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
@@ -113,10 +112,9 @@ const DEFAULT_CONFIG = {
     timeout: 60_000
 } as const;
 
-function createRandomId(): string {
+export function createRandomId(): string {
     return `v-${Math.random().toString(36).split(".")[1]!}`;
 }
-
 export class BetterModal {
     readonly customId: string;
 
@@ -426,9 +424,9 @@ export class BetterModal {
             return {
                 values: values as T[],
                 interaction: modalSubmit,
-                getField: customId => fields.get(customId) as T,
-                reply: options => dynaSend(modalSubmit, options),
-                followUp: async options => dynaSend(modalSubmit, options),
+                getField: (customId: string) => fields.get(customId) as T | undefined,
+                reply: (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
+                followUp: async (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
                 deferUpdate: () => modalSubmit.deferUpdate()
             };
         } catch {
