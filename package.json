@@ -1,6 +1,6 @@
 {
     "name": "vimcord",
-    "version": "1.0.53",
+    "version": "1.0.54",
     "description": "A powerful Discord.js wrapper.",
     "license": "MIT",
     "author": "xsqu1znt",
@@ -29,7 +29,7 @@
     "dependencies": {
         "blessed": "^0.1.81",
         "chalk": "^4.1.2",
-        "discord.js": "^14.25.1",
+        "discord.js": "^14.26.3",
         "dotenv": "^16.6.1",
         "qznt": "^1.0.36"
     },

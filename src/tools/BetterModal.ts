@@ -30,6 +30,7 @@ import {
     RoleSelectMenuBuilder,
     StringSelectMenuBuilder,
     TextInputBuilder,
+    TextInputStyle,
     UserSelectMenuBuilder
 } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
@@ -215,7 +216,8 @@ export class BetterModal {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
-        const textInput = new TextInputBuilder({ ...data, customId });
+        const { label: _, ...textInputData } = data;
+        const textInput = new TextInputBuilder({ style: TextInputStyle.Short, required: false, ...textInputData, customId });
         const label = this.createLabelComponent(data);
         label.setTextInputComponent(textInput);
 
