@@ -1,6 +1,7 @@
 import { DEFAULT_MODULE_SUFFIXES, Vimcord } from "@/client";
 import { CommandType } from "@ctypes/command.base";
 import { VimcordCommandBuilderByType } from "@ctypes/command.helpers";
+import { Logger } from "@/tools/Logger";
 import { Routes } from "discord.js";
 import { ModuleImporter } from "./importers/baseModule.importer";
 
@@ -184,117 +185,120 @@ export class CommandManager {
     readonly slash: SlashCommandManager;
     readonly prefix: PrefixCommandManager;
     readonly context: ContextCommandManager;
+    readonly logger: Logger;
 
     constructor(client: Vimcord) {
         this.client = client;
         this.slash = new SlashCommandManager(client);
         this.prefix = new PrefixCommandManager(client);
         this.context = new ContextCommandManager(client);
+        this.logger = new Logger({
+            prefixEmoji: "⚡",
+            prefix: `vimcord (i${client.clientId}) [CommandManager]`
+        });
     }
 
     getAllAppCommands(options: CommandFilter = {}) {
         return [...this.slash.getAll(options), ...this.context.getAll(options)];
     }
 
-    async registerGlobal(options: CommandFilter = {}) {
+    async registerGlobal(options: CommandFilter = {}): Promise<void> {
         const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
-            console.error(`[CommandManager] ✖ Failed to register app commands globally: REST is not initialized`);
+            this.logger.error("Failed to register app commands globally: REST is not initialized");
             return;
         }
 
         const commands = this.getAllAppCommands(options).map(cmd => cmd.builder.toJSON());
         if (!commands.length) {
-            console.log("[CommandManager] No commands to register globally");
+            this.logger.info("No commands to register globally");
             return;
         }
 
-        console.log(
-            `[CommandManager] Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} globally...`
-        );
+        this.logger.info(`Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} globally...`);
 
         try {
             await client.rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-            console.log(`[CommandManager] ✔ Registered app ${commands.length === 1 ? "command" : "commands"} globally`);
+            this.logger.success(`Registered app ${commands.length === 1 ? "command" : "commands"} globally`);
         } catch (err) {
-            console.error(
-                `[CommandManager] ✖ Failed to register app ${commands.length === 1 ? "command" : "commands"} globally`,
-                err
+            this.logger.error(
+                `Failed to register app ${commands.length === 1 ? "command" : "commands"} globally`,
+                err as Error
             );
         }
     }
 
-    async unregisterGlobal() {
+    async unregisterGlobal(): Promise<void> {
         const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
-            console.error(`[CommandManager] ✖ Failed to remove app commands globally: REST is not initialized`);
+            this.logger.error("Failed to remove app commands globally: REST is not initialized");
             return;
         }
 
         try {
             await client.rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-            console.log(`[CommandManager] ✔ Removed app commands globally`);
+            this.logger.success("Removed app commands globally");
         } catch (err) {
-            console.error(`[CommandManager] ✖ Failed to remove app commands globally`, err);
+            this.logger.error("Failed to remove app commands globally", err as Error);
         }
     }
 
-    async registerGuild(options: CommandFilter & { guilds?: string[] } = {}) {
+    async registerGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<void> {
         const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
-            console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
+            this.logger.error("Failed to register app commands by guild: REST is not initialized");
             return;
         }
 
         const commands = this.getAllAppCommands(options).map(cmd => cmd.builder.toJSON());
         if (!commands.length) {
-            console.log("[CommandManager] No commands to register by guild");
+            this.logger.info("No commands to register by guild");
             return;
         }
 
         const guildIds = options.guilds || client.guilds.cache.map(g => g.id);
-        console.log(
-            `[CommandManager] Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} for ${guildIds.length} guilds...`
+        this.logger.info(
+            `Registering (${commands.length}) ${commands.length === 1 ? "command" : "commands"} for ${guildIds.length} guilds...`
         );
 
         await Promise.all(
-            guildIds.map(guildId =>
-                client.rest
-                    .put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands })
-                    .then(() => {
-                        const gName = client.guilds.cache.get(guildId)?.name || "n/a";
-                        console.log(
-                            `[CommandManager] ✔ Set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`
-                        );
-                    })
-                    .catch(err => {
-                        const gName = client.guilds.cache.get(guildId)?.name || "n/a";
-                        console.log(
-                            `[CommandManager] ✖ Failed to set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`,
-                            err
-                        );
-                    })
-            )
+            guildIds.map(async guildId => {
+                try {
+                    await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
+                    const gName = client.guilds.cache.get(guildId)?.name || "n/a";
+                    this.logger.success(
+                        `Set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`
+                    );
+                } catch (err) {
+                    const gName = client.guilds.cache.get(guildId)?.name || "n/a";
+                    this.logger.error(
+                        `Failed to set app ${commands.length === 1 ? "command" : "commands"} in guild: ${guildId} (${gName})`,
+                        err as Error
+                    );
+                }
+            })
         );
     }
 
-    async unregisterGuild(options: { guilds?: string[] } = {}) {
+    async unregisterGuild(options: { guilds?: string[] } = {}): Promise<void> {
         const client = await Vimcord.getReadyInstance(this.client.clientId);
         if (!client.rest) {
-            console.error(`[CommandManager] ✖ Failed to register app commands by guild: REST is not initialized`);
+            this.logger.error("Failed to unregister app commands by guild: REST is not initialized");
             return;
         }
 
         const guildIds = options.guilds || client.guilds.cache.map(g => g.id);
-        console.log(`[CommandManager] Unregistering commands from ${guildIds.length} guilds...`);
+        this.logger.info(`Unregistering commands from ${guildIds.length} guilds...`);
 
         await Promise.all(
-            guildIds.map(guildId =>
-                client.rest
-                    .put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] })
-                    .then(() => console.log(`[CommandManager] ✔ Removed app commands in guild: ${guildId}`))
-                    .catch(err => console.log(`[CommandManager] ✖ Failed to remove app commands in guild: ${guildId}`, err))
-            )
+            guildIds.map(async guildId => {
+                try {
+                    await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
+                    this.logger.success(`Removed app commands in guild: ${guildId}`);
+                } catch (err) {
+                    this.logger.error(`Failed to remove app commands in guild: ${guildId}`, err as Error);
+                }
+            })
         );
     }
 }

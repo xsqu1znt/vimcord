@@ -16,7 +16,7 @@ function testFilenameSuffix(filename: string, suffix?: string | string[]) {
     }
 }
 
-export async function importModulesFromDir<T extends any>(dir: string, suffix?: string | string[]) {
+export async function importModulesFromDir<T>(dir: string, suffix?: string | string[]) {
     const cwd = getProcessDir();
     const MODULE_RELATIVE_PATH = path.join(cwd, dir);
     const MODULE_LOG_PATH = dir;
@@ -35,7 +35,7 @@ export async function importModulesFromDir<T extends any>(dir: string, suffix?: 
             try {
                 delete require.cache[require.resolve(_path)];
                 _module = require(_path);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 // Log the warning to the console
                 console.warn(`Failed to import module at '${_logPath}'`, err);
                 _module = null;

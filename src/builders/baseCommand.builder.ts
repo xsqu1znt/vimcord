@@ -60,9 +60,9 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
      */
     protected resolveConfig(client: Vimcord): O {
         const typeKey = this.typeConfigMapping[this.commandType];
-        const typeSpecificGlobals = (client.config as any)?.[typeKey] || {};
+        const typeSpecificGlobals = (client.config as unknown as Record<string, unknown>)?.[typeKey] || {};
 
-        return deepMerge({}, typeSpecificGlobals, this.options) as O;
+        return deepMerge({}, typeSpecificGlobals as object, this.options) as O;
     }
 
     /**
@@ -106,10 +106,14 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
 
             if (config.logExecution !== false) {
                 // Resolve name based on builder type
-                const cmdName = (this.options as any).name || (this as any).builder?.name || "Unknown";
+                const optionsWithName = this.options as { name?: string };
+                const builderWithName = this as { builder?: { name?: string } };
+                const cmdName = optionsWithName.name ?? builderWithName.builder?.name ?? "Unknown";
                 const location = ctx.guild ? `${ctx.guild.name} (${ctx.guild.id})` : "Direct Messages";
 
-                client.logger.commandExecuted(cmdName, ctx.user.username, location);
+                if (client.logger) {
+                    client.logger.commandExecuted(cmdName, ctx.user.username, location);
+                }
             }
 
             const result = await config.execute?.(...args);

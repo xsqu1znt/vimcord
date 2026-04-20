@@ -83,16 +83,15 @@ export class Logger {
         return this.colorScheme;
     }
 
-    extend<Extra extends Record<string, (...args: any) => void>>(extras: Extra & ThisType<Logger>): Logger & Extra {
-        for (const [key, fn] of Object.entries(extras as any)) {
+    extend<Extra extends Record<string, (...args: any[]) => void>>(extras: Extra & ThisType<Logger>): Logger & Extra {
+        for (const [key, fn] of Object.entries(extras)) {
             if (typeof fn === "function") {
-                (this as any)[key] = function (...args: any[]) {
-                    return fn.call(this, ...args);
-                };
+                (this as unknown as Record<string, (...args: any[]) => void>)[key] = (...args: any[]) =>
+                    fn.call(this, ...args);
             }
         }
 
-        return this as any as Logger & Extra;
+        return this as unknown as Logger & Extra;
     }
 
     setPrefix(prefix: string | null): this {
@@ -123,11 +122,11 @@ export class Logger {
         return this;
     }
 
-    log(message: string, ...args: any[]): void {
+    log(message: string, ...args: unknown[]): void {
         console.log(this.formatTimestamp(), this.formatPrefix(), message, ...args);
     }
 
-    debug(message: string, ...args: any[]): void {
+    debug(message: string, ...args: unknown[]): void {
         if (!this.shouldLog(LogLevel.DEBUG)) return;
         console.log(
             this.formatTimestamp(),
@@ -138,12 +137,12 @@ export class Logger {
         );
     }
 
-    info(message: string, ...args: any[]): void {
+    info(message: string, ...args: unknown[]): void {
         if (!this.shouldLog(LogLevel.INFO)) return;
         console.log(this.formatTimestamp(), this.formatPrefix(), chalk.hex("#87CEEB")("INFO"), message, ...args);
     }
 
-    success(message: string, ...args: any[]): void {
+    success(message: string, ...args: unknown[]): void {
         if (!this.shouldLog(LogLevel.SUCCESS)) return;
         console.log(
             this.formatTimestamp(),
@@ -154,7 +153,7 @@ export class Logger {
         );
     }
 
-    warn(message: string, ...args: any[]): void {
+    warn(message: string, ...args: unknown[]): void {
         if (!this.shouldLog(LogLevel.WARN)) return;
         console.warn(
             this.formatTimestamp(),
@@ -165,7 +164,7 @@ export class Logger {
         );
     }
 
-    error(message: string, error?: Error, ...args: any[]): void {
+    error(message: string, error?: Error, ...args: unknown[]): void {
         if (!this.shouldLog(LogLevel.ERROR)) return;
         console.error(
             this.formatTimestamp(),
@@ -199,7 +198,7 @@ export class Logger {
         };
     }
 
-    table(title: string, data: Record<string, any>): void {
+    table(title: string, data: Record<string, unknown>): void {
         console.log(this.formatTimestamp(), this.formatPrefix(), chalk.bold(title));
 
         Object.entries(data).forEach(([key, value]) => {
