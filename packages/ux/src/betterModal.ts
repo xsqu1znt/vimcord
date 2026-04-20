@@ -30,6 +30,7 @@ import {
     RoleSelectMenuBuilder,
     StringSelectMenuBuilder,
     TextInputBuilder,
+    TextInputStyle,
     UserSelectMenuBuilder
 } from "discord.js";
 import { createRandomId } from "@vimcord/internal";
@@ -102,7 +103,8 @@ export interface AwaitModalSubmitOptions {
 export interface BetterModalSubmitResult<T = unknown> {
     values: T[];
     interaction: ModalSubmitInteraction;
-    getField(customId: string): T | undefined;
+    getField(customId: string, required: true): T;
+    getField(customId: string, required?: boolean): T | undefined;
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     deferUpdate: () => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
@@ -211,7 +213,8 @@ export class BetterModal {
         this.validateComponentLength();
 
         const customId = data.customId ?? this.createComponentId();
-        const textInput = new TextInputBuilder({ ...data, customId });
+        const { label: _, ...textInputData } = data;
+        const textInput = new TextInputBuilder({ style: TextInputStyle.Short, required: false, ...textInputData, customId });
         const label = this.createLabelComponent(data);
         label.setTextInputComponent(textInput);
 
@@ -422,9 +425,9 @@ export class BetterModal {
             return {
                 values: values as T[],
                 interaction: modalSubmit,
-                getField: (customId: string) => fields.get(customId) as T | undefined,
-                reply: (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
-                followUp: async (options: RequiredDynaSendOptions) => dynaSend(modalSubmit, options),
+                getField: customId => fields.get(customId) as T,
+                reply: options => dynaSend(modalSubmit, options),
+                followUp: async options => dynaSend(modalSubmit, options),
                 deferUpdate: () => modalSubmit.deferUpdate()
             };
         } catch {

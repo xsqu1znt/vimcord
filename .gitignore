@@ -9,6 +9,7 @@ dist/
 # Files
 .DS_Store
 .env
+IDEAS.md
 
 # File Types
 *.zip
