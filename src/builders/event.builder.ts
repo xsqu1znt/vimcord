@@ -130,6 +130,9 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
     }
 
     async executeEvent(...args: EventParameters<T>): Promise<any> {
+        let canceled = false;
+        const cancel = () => (canceled = true);
+
         try {
             // Check if event is enabled
             if (!this.enabled) {
@@ -152,7 +155,8 @@ export class EventBuilder<T extends keyof ClientEvents = keyof ClientEvents> imp
 
             // Execute beforeExecute hook
             if (this.beforeExecute) {
-                await this.beforeExecute(...args);
+                await this.beforeExecute({ cancel }, ...args);
+                if (canceled) return;
             }
 
             // Execute main event

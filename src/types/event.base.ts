@@ -22,7 +22,7 @@ export interface EventConfig<T extends keyof ClientEvents> {
     /** Rate limiting options */
     rateLimit?: EventRateLimitOptions<T>;
     /** Before event execution */
-    beforeExecute?: (...args: EventParameters<T>) => any;
+    beforeExecute?: (ctx: { cancel: () => void }, ...args: EventParameters<T>) => any;
     /** The function that will be executed */
     execute?: (...args: EventParameters<T>) => any;
     /** After successful execution */
