@@ -56,7 +56,7 @@ export interface BaseCommandConfig<T extends CommandType> {
     logExecution?: boolean;
 
     /** Executed before the main command logic */
-    beforeExecute?: (...args: BaseCommandParameters<T>) => any;
+    beforeExecute?: (ctx: { cancel: () => void }, ...args: BaseCommandParameters<T>) => any;
     /** The main command function that will be executed */
     execute?: (...args: BaseCommandParameters<T>) => any;
     /** Executed after successful execution */

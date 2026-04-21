@@ -72,6 +72,9 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
         const config = this.resolveConfig(client);
         const ctx = this.extractContext(args);
 
+        let canceled = false;
+        const cancel = () => (canceled = true);
+
         try {
             // 1. Availability
             if (!config.enabled) {
@@ -95,7 +98,10 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
             }
 
             // 5. Execution Pipeline
-            await config.beforeExecute?.(...args);
+            if (config.beforeExecute) {
+                await config.beforeExecute?.({ cancel }, ...args);
+                if (canceled) return;
+            }
 
             if (config.logExecution !== false) {
                 // Resolve name based on builder type
