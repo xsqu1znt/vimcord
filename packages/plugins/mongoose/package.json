@@ -4,7 +4,8 @@
     "description": "",
     "author": "xsqu1znt",
     "license": "MIT",
-    "main": "dist/index.js",
+    "main": "dist/index.cjs",
+    "module": "dist/index.js",
     "types": "dist/index.d.js",
     "type": "module",
     "scripts": {
@@ -14,5 +15,8 @@
     },
     "dependencies": {
         "@vimcord/core": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^25.6.0"
     }
 }

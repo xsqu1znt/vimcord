@@ -69,23 +69,10 @@ export const DEFAULT_COLORS: ColorScheme = {
 let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
 SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
 
-export type BannerOptions = {
-    /** Bot name displayed in the top border and left column */
-    name: string;
-    /** Bot version displayed in the left column */
-    version: string;
-    /** Shows a DEV badge in the bottom border @defaultValue false */
-    devMode?: boolean;
-    /** Secondary line shown at the bottom of the left column */
-    poweredBy?: string;
-    /** Key/value pairs rendered in the right column */
-    meta?: [string, string][];
-};
-
 // --- Helpers ---
 
 /** Strips ANSI escape codes from a string for accurate length measurement */
-function stripAnsi(str: string): string {
+export function stripAnsi(str: string): string {
     return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
@@ -388,120 +375,6 @@ export class Logger {
                 process.stdout.write(`${pr} ${frame} ${loader.message}\n`);
             }
         };
-    }
-
-    /**
-     * Renders a two-column startup banner.
-     *
-     * @example
-     * ```ts
-     * logger.banner({
-     *   name: "STELLA",
-     *   version: "1.0.0",
-     *   devMode: true,
-     *   poweredBy: "Powered by Vimcord v2.0.0",
-     *   meta: { Guilds: "12", Prefix: "!", Uptime: "just now" }
-     * })
-     * ```
-     */
-    async banner(options: BannerOptions): Promise<void> {
-        const { name, version, devMode = false, poweredBy, meta = [] } = options;
-        const { colors } = this.options;
-
-        const pX = 2;
-        const consoleWidth = process.stdout.columns;
-        // const maxWidth = 58;
-        const maxWidth = consoleWidth - 2;
-
-        const padLine = (text: string, amount: number = 0): string => {
-            return `${" ".repeat(amount)}${text}${" ".repeat(amount)}`;
-        };
-
-        const drawTextThroughLine = (
-            text: string,
-            maxWidth: number,
-            align: "left" | "center" | "right" = "left",
-            padding = 0
-        ): string => {
-            const visible = stripAnsi(text).length;
-            const total = Math.max(0, maxWidth - visible) - padding * 2;
-            let result = "";
-
-            const drawLine = (len: number): string => {
-                return ansis.hex(colors.muted)("─".repeat(len));
-            };
-
-            switch (align) {
-                case "left":
-                    result = `${drawLine(2)}${text}${drawLine(total - 2)}`;
-                    break;
-                case "center":
-                    const left = Math.floor(total / 2);
-                    const right = total - left;
-                    result = `${drawLine(left)}${text}${drawLine(right)}`;
-                    break;
-                case "right":
-                    result = `${drawLine(total - 2)}${text}${drawLine(2)}`;
-                    break;
-            }
-
-            return padLine(result, padding);
-        };
-
-        const _lines1 = [
-            "",
-            ansis.hex(colors.muted)("Powered by"),
-            ansis.hex(colors.primary)("██╗   ██╗██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗"),
-            ansis.hex(colors.primary)("██║   ██║██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗"),
-            ansis.hex(colors.primary)("██║   ██║██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║"),
-            ansis.hex(colors.primary)("╚██╗ ██╔╝██║██║╚██╔╝██║██║     ██║   ██║██╔══██╗██║  ██║"),
-            ansis.hex(colors.primary)(" ╚████╔╝ ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██║  ██║██████╔╝"),
-            ansis.hex(colors.primary)(
-                `  ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ${ansis.hex(colors.muted)("v2.0.0")}`
-            ),
-            ""
-        ];
-        this.write("log", _lines1.map(l => padLine(l, pX)).join("\n"));
-
-        const stop1 = this.loader("Loading modules, please wait...");
-
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        const _lines2 = [
-            (() => {
-                const str1 = `DJS v14.26.0  |  Node ${process.version}  `;
-                const str2 = ansis.bold.bgHex(colors.caution)("  ⚠ DEV_MODE  ");
-                const padding = maxWidth - str1.length - stripAnsi(str2).length - pX;
-                return ansis.bgHex(colors.primary).black(`${" ".repeat(padding)}${str1}${str2}`);
-            })(),
-            ansis.hex(colors.primary)(`${"│".padEnd(maxWidth - 3)}│`),
-            ...meta.map(([k, v]) => {
-                const keyStyled = ansis.dim.hex(colors.muted)(k);
-                const valStyled = ansis.hex(colors.muted)(v);
-                const remainingLength = maxWidth - pX - stripAnsi(keyStyled).length - stripAnsi(valStyled).length - 6;
-                return `${ansis.hex(colors.primary)("│")}  ${keyStyled}${" ".repeat(remainingLength)}${valStyled}  ${ansis.hex(colors.primary)("│")}`;
-            }),
-            ansis.hex(colors.primary)(`${"│".padEnd(maxWidth - 3)}│`),
-            (() => {
-                const str = `${ansis.hex(colors.primary)("╰──")}${ansis.hex(colors.primary)("i0(")} ${ansis.bold(name)} ${ansis.hex(colors.muted)(`v${version}`)} ${ansis.hex(colors.primary)(")")}`;
-                const remainingLength = maxWidth - pX - stripAnsi(str).length - 1;
-                return `${str}${ansis.hex(colors.primary)(`─`.repeat(remainingLength))}${ansis.hex(colors.primary)("╯")}`;
-            })(),
-            ""
-        ];
-
-        const clearPrevLine = "\x1b[1A\x1b[2K";
-        stop1(`${clearPrevLine}${_lines2.map(l => padLine(l, pX)).join("\n")}`, true);
-        // this.write("log", `${_lines2.map(l => padLine(l, pX)).join("\n")}\n`);
-
-        this.write(
-            "log",
-            drawTextThroughLine(
-                ` 🚀 ${ansis.bold.hex(colors.primary)("CLI")} ${ansis.bold("~ Type /help to view available commands")} `,
-                consoleWidth,
-                "right"
-            )
-        );
     }
 
     // --- Configuration ---

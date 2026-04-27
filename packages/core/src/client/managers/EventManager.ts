@@ -8,7 +8,7 @@ type EventModuleIndexType = "event" | "name" | "category" | "tag";
 
 export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
     constructor(fileSuffix: string | string[] | undefined, client: Vimcord) {
-        super(fileSuffix, client);
+        super(client, fileSuffix);
 
         this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
         this.indexes.set("name", { key: m => m.name, map: new Map() });

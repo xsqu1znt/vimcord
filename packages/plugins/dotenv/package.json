@@ -1,5 +1,5 @@
 {
-    "name": "@vimcord/plugin-multi-instance",
+    "name": "@vimcord/plugin-dotenv",
     "version": "0.1.0",
     "description": "",
     "author": "xsqu1znt",
@@ -14,9 +14,7 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "@vimcord/core": "workspace:*"
-    },
-    "devDependencies": {
-        "@types/node": "^25.6.0"
+        "@vimcord/core": "workspace:*",
+        "dotenv": "^17.4.2"
     }
 }

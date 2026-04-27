@@ -1,6 +1,22 @@
+import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
+
 import { getDevMode, getPackageJson } from "@vimcord/internal/dist/index.js";
 
-export interface AppOptions {
+export interface VimcordGlobals {
+    /** App globals. */
+    app: AppGlobals;
+    /** Staff globals. */
+    staff: StaffGlobals;
+
+    /** Command hook globals. */
+    hooks?: {
+        prefix?: CommandModuleHooks<CommandModuleType.Prefix>;
+        slash?: CommandModuleHooks<CommandModuleType.Slash>;
+        context?: CommandModuleHooks<CommandModuleType.Context>;
+    };
+}
+
+export interface AppGlobals {
     /** The name of the bot displayed in logs and startup banner.
      * @accessible via `client.$name` for use in embeds, error messages, etc.
      */
@@ -55,7 +71,7 @@ export interface AppOptions {
     disableBanner: boolean;
 }
 
-export const defaultAppOptions = (): AppOptions => {
+export const defaultAppGlobals = (): AppGlobals => {
     const packageJson = getPackageJson();
     const version = typeof packageJson.version === "string" ? packageJson.version : "1.0.0";
     return {
@@ -68,7 +84,7 @@ export const defaultAppOptions = (): AppOptions => {
     };
 };
 
-export interface StaffOptions {
+export interface StaffGlobals {
     /** The Discord user ID of the bot owner. */
     ownerId: string | null;
     /** Discord user IDs granted superuser privileges. */
@@ -99,7 +115,7 @@ export interface StaffOptions {
     };
 }
 
-export const defaultStaffOptions = (): StaffOptions => {
+export const defaultStaffGlobals = (): StaffGlobals => {
     return {
         ownerId: null,
         superUsers: [],

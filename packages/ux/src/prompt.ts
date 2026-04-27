@@ -1,7 +1,6 @@
-import type { ButtonInteraction, CommandInteraction, Message, MessageComponentInteraction } from "discord.js";
+import type { CommandInteraction, Message, MessageComponentInteraction } from "discord.js";
 import type { BetterModalSubmitResult } from "./betterModal.js";
-import type { DynaSendOptions, RequiredDynaSendOptions } from "./dynaSend.js";
-import type { EmbedResolvable, SendHandler, UserResolvable } from "./dynaSend.types.js";
+import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler, UserResolvable } from "./dynaSend.js";
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, TextInputStyle } from "discord.js";
 import { BetterCollector, CollectorMode } from "./betterCollector.js";

@@ -1,83 +1,50 @@
-# AGENTS.md - Project Guidelines
+## Agent Guidelines
+> The following are strict guidelines for working inside of this repo.
 
-> Opinionated guidelines for working in Vimcord's repo. Follow these strictly.
+### Command Line
+This project uses the PNPM package manager, avoid using NPM.
 
----
+| Command       | Description                                 |
+| ------------- | ------------------------------------------- |
+| `pnpm format` | Formats all `.ts` and `.json` with Prettier |
+| `pnpm check`  | Type-checks without emitting                |
+| `pnpm build`  | Compiles the project using tsup             |
+|               |                                             |
 
-**Vimcord** (pronounced _vhem-cord_) is a lightweight, opinionated framework for **Discord.js**, designed to minimize the distance between an idea and a working command. It abstracts the library's complexity without sacrificing control.
+### Workflow
+Always run `pnpm format` then `pnpm check` after a task before declaring it complete. There should be zero type errors from anything relevant you touched unless instructed by the user to ignore it.
 
-## Build & Dev Commands
+**This is the format you should follow when instructed to build something:**
+1. Identify what actually exists vs. what needs to be built
+2. If there’s missing context or something you’re unsure about, ask the user and/or search the web — never assume based on your training data
+3. Gather the coding style used in a few surrounding and related files, do not introduce slop code
+4. Write the code — optimize for maintainability and readability with high senior engineer standards
+5. Provide the user a brief summary of what was changed and any important-to-know implementation choices that were made, but keep it straight-forward
 
-| Command                  | Description                                                                 |
-| ------------------------ | --------------------------------------------------------------------------- |
-| `pnpm run dev`           | Dev server with hot reload (nodemon + tsx)                                  |
-| `pnpm run dev:verbose`   | Dev server with hot reload (nodemon + tsx) with verbose output from Vimcord |
-| `pnpm run build`         | Compile TypeScript (tsc + tsc-alias)                                        |
-| `pnpm run check`         | Type-check without emitting — **run after every file**                      |
-| `pnpm run start`         | Run compiled output from `dist/`                                            |
-| `pnpm run start:verbose` | Run compiled output from `dist/` with verbose output from Vimcord           |
-| `pnpm run format`        | Format all `.ts` and `.json` with Prettier                                  |
+**Code Style:**
+- Prefer inlining code instead of creating a top-level utility function where possible
+- Prefer `!variable` for empty/falsy checks over explicit comparisons like `.length === 0`
+- Use an existing `.prettierrc` in the working directory as the source of truth for formatting style
+- Use ternary operators for simple pluralization: `word${count === 1 ? "" : "s"}`. Ensure grammar is correct — check verb agreement too (e.g., `${count === 1 ? "has" : "have"}`)
+- Use section header style comments (// --- Section Name ---) for code blocks within functions, and inline comments (// Ensure the string contains a prefix) to improve code skim-ability and readability. Skip section headers for top-level declarations like imports, constants, and command definitions
+- Never use `any`, only proper generics
+- Always barrel export any new files
+- Always use `const` over `let`, never use `var`
 
-**Always run `pnpm run check` before declaring a task complete. Zero type errors is the bar.**
-
-## Your Workflow
-
-> **VERY IMPORTANT:** When relevant, check for skills. If you are confused at any point about how to properly build something, do not be afraid to look up online references, documentation, or ask the user.
-
-**Before Writing Code**
-
-1. Read this AGENTS.md fully
-2. Check for relevant skills
-3. Run: find src -type f | sort
-4. Read any existing files relevant to your task
-5. Identify what exists vs. what needs to be built
-6. Plan every file you'll create or modify before starting
-
-**While Writing Code**
-
-- Write all files for a feature together, not one at a time
-- If a schema is needed, write it first - commands depend on schemas, not the reverse
-- If a utility is shared across files, write it first
-- Run `pnpm run check` after each file to catch type errors early
-- Barrel-export any new files immediately for new utilities/features/schemas/etc
-
-**After Writing Code**
-
-- Run `pnpm run check` - fix ALL type errors before finishing
-- Run `pnpm run format` - formatting is not optional
-
-## Coding Style
-
-**Prettier rules:** 4-space tabs · 125 char line width · double quotes · semicolons · no trailing commas · LF endings · arrow parens avoided (x => x not (x) => x)
-
-**Import order:**
-
-1. Node built-ins (`import { randomUUID } from "node:crypto"`)
-2. Third-party packages (`import { PermissionFlagsBits } from "discord.js"`)
-3. Local modules (`import { UserSchema } from "@db/index"`)
-
-**Naming:**
-
-- Files: `kebab-case` with type suffix - `ping.slash.ts`, `user.schema.ts`, `autocomplete.inventory.event.ts`
-- Commands: `ping.slash.ts`, `userInfo.ctx.ts`
+**Name Conventions:**
+- Files: `PascalCase` if exporting a main class, otherwise `camelCase`
 - Classes/Types: `PascalCase`
 - Variables/Functions: `camelCase`
 - Constants: `SCREAMING_SNAKE_CASE`
 
-## Non-Negotiable Code Rules
+**Import Order:**
+1. Node built-ins (`import { randomUUID } from "node:crypto"`)
+2. Third-party packages (`import { $ } from "qznt"`)
+3. Local modules (`import { UserSchema } from "@db/index"`)
 
-- **No `any`, use `unknown`** with type guards, or proper generics
-- **Explicit return types** for every function: `async function foo(): Promise<void>`
-- **Path aliases only** never use relative imports (`../../`), see alias table in tsconfig.json if it exists
-- **`export default`** all command and event files
-- **`deferReply: true`** any command that hits DB or takes > 1s
-- **`editReply` after defer** never `reply` on a deferred interaction
-- **`async/await` everywhere** never `.then()` chains
-- **Semicolons** after every statement
-- **Never hardcode secrets** tokens, IDs, URIs always from env or constants
-- **One command per file** no exceptions
-- **`const` over `let`** never `var`
-- **Comments for readability** use section headers (// --- Section Name ---) for code blocks within functions and inline comments to improve code skim-ability and readability. Skip section headers for top-level declarations like imports, constants, and command definitions
-- **Barrel exports** for example, new schemas go in `src/db/index.ts` immediately
-- **Truthy checks** prefer `!variable` for empty/falsy checks over explicit comparisons like `.length === 0`
-- **Inline pluralization** use ternary operators for simple pluralization: `word${count === 1 ? "" : "s"}`. Ensure grammar is correct — check verb agreement too (e.g., `${count === 1 ? "has" : "have"}`)
+### Important
+- Never hard-code secrets.
+- Never assume how something works based on your training data.
+- Be smart and check `package.json` for the versions you’re working with.
+- Don’t be afraid to check `node_modules` for the relevant package’s type-declarations - when needed.
+- Keep the code you write tight and never overbloat a file.

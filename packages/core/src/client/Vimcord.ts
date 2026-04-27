@@ -1,17 +1,17 @@
 import type { ClientOptions } from "discord.js";
 import type { PartialDeep } from "@vimcord/internal";
 import type { LogLevel } from "@vimcord/logger";
-import type { CommandHooks } from "@/commands/hooks.js";
+import type { CommandModuleHooks } from "@/abstracts/AbstractCommandModule.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
-import type { AppOptions, StaffOptions } from "./options.js";
+import type { VimcordGlobals } from "./globals.js";
 
 import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { PluginManager } from "@/plugins/PluginManager.js";
+import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { VimcordLogger, vimcordLogger } from "./logger.js";
-import { defaultAppOptions, defaultStaffOptions } from "./options.js";
 
 export type VimcordEvents = {
     /** Returns the new Vimcord instance. */
@@ -22,21 +22,16 @@ export type VimcordEvents = {
     ready: [Vimcord];
 };
 
-interface VimcordOptions {
-    /** App options. */
-    app?: PartialDeep<AppOptions>;
-    /** Staff options. */
-    staff?: PartialDeep<StaffOptions>;
-    /** Command hooks. */
-    hooks?: CommandHooks;
-}
-
-export interface VimcordClientOptions extends ClientOptions, VimcordOptions {
+export interface VimcordClientOptions {
     /** Custom client id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
     customId?: string;
 
-    /** Vimcord features. */
+    /** Discord.js client options. */
+    client: ClientOptions;
+    /** Client features. */
     features?: VimcordFeatures;
+    /** Global bot configs. */
+    globals?: PartialDeep<VimcordGlobals>;
 
     // --- Debugging ---
     /** Minimum console logging level. */
@@ -65,84 +60,82 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly id: string;
     readonly logger: VimcordLogger = vimcordLogger;
 
-    private plugins = new PluginManager();
-
-    private appOptions: AppOptions;
-    private staffOptions: StaffOptions;
-    private djsOptions: ClientOptions;
+    private client: ClientOptions;
     private features: VimcordFeatures;
-    readonly hooks: CommandHooks;
+    readonly globals: VimcordGlobals;
+    readonly plugins = new PluginManager();
 
     private awaitReadyPromise: Promise<boolean> | null | undefined;
+    private resolveStartupBanner: (() => void) | undefined;
 
     constructor(options: VimcordClientOptions) {
         const {
             customId,
 
-            app,
-            staff,
-            features,
-            hooks,
+            client,
+            features = {},
+            globals,
 
             // --- Debugging ---
             logLevel = "debug",
-            verbose = false,
-
-            ...djsOptions
+            verbose = false
         } = options;
 
-        super(djsOptions);
+        super(client);
 
         this.logger.setLevel(logLevel);
         this.logger.setVerbose(verbose);
 
         this.id = customId ?? createHumanId();
 
-        this.appOptions = mergeDeep(defaultAppOptions(), app);
-        this.staffOptions = mergeDeep(defaultStaffOptions(), staff);
-        this.djsOptions = djsOptions;
-        this.features = features ?? {};
-        this.hooks = hooks ?? {};
+        this.client = client;
+        this.features = features;
+        this.globals = {
+            app: mergeDeep(defaultAppGlobals(), globals?.app),
+            staff: mergeDeep(defaultStaffGlobals(), globals?.staff)
+        };
 
         Vimcord.$instances.set(this.id, this);
         Vimcord.$events.emit("create", this);
 
-        this.once("clientReady", client => {
+        this.once("clientReady", () => {
             Vimcord.$events.emit("ready", this);
+            this.resolveStartupBanner?.();
+            this.logger.clientReady(this as Vimcord<true>);
         });
     }
 
     // --- Shorthand Access ---
     /** Current app name. */
     get $name() {
-        return this.appOptions.name;
+        return this.globals.app.name;
     }
     set $name(name: string) {
-        this.appOptions.name = name;
+        this.globals.app.name = name;
     }
 
     /** Current app version. */
     get $version() {
-        return this.appOptions.version;
+        return this.globals.app.version;
     }
     set $version(version: string) {
-        this.appOptions.version = version;
+        this.globals.app.version = version;
     }
 
     /** Current dev mode state. */
     get $devMode() {
-        return this.appOptions.devMode;
+        return this.globals.app.devMode;
     }
     set $devMode(mode: boolean) {
-        this.appOptions.devMode = mode;
+        this.globals.app.devMode = mode;
     }
 
     /** Current verbose mode state. */
     get $verboseMode() {
-        return this.appOptions.verbose;
+        return this.globals.app.verbose;
     }
     set $verboseMode(mode: boolean) {
-        this.appOptions.verbose = mode;
+        this.globals.app.verbose = mode;
     }
 
     // --- Plugins ---
@@ -186,33 +179,59 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     /**
-     * Modifies special client options.
-     * @param options The options to set
+     * Configures global client configs.
+     * @param globals The options to set
      */
-    configure(options: VimcordOptions): this {
-        this.appOptions = mergeDeep(this.appOptions, options.app);
-        this.staffOptions = mergeDeep(this.staffOptions, options.staff);
-        (this as { hooks: CommandHooks }).hooks = mergeDeep(this.hooks, options.hooks);
+    configure(globals: VimcordGlobals): this {
+        this.globals.app = mergeDeep(this.globals.app, globals.app);
+        this.globals.staff = mergeDeep(this.globals.staff, globals.staff);
+        this.globals.hooks = mergeDeep(this.globals.hooks ?? {}, globals.hooks);
         return this;
     }
 
     /** Serializes the Vimcord client options. */
     toOptions(): VimcordClientOptions {
         return {
-            ...this.djsOptions,
+            client: this.client,
+
             customId: this.id,
-            logLevel: this.logger.options.minLevel,
-            verbose: this.logger.options.verbose,
-            app: this.appOptions,
-            staff: this.staffOptions,
             features: this.features,
-            hooks: this.hooks
+            globals: this.globals,
+
+            logLevel: this.logger.options.minLevel,
+            verbose: this.logger.options.verbose
         };
     }
 
     /** Makes a clone of this client. */
-    clone(): Vimcord {
-        return new Vimcord(this.toOptions());
+    clone(options?: VimcordClientOptions): Vimcord {
+        return new Vimcord(mergeDeep(this.toOptions(), options));
+    }
+
+    override async login(token?: string): Promise<string> {
+        token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
+        if (!token) {
+            throw new VimcordError(
+                `TOKEN Missing: ${this.$devMode ? "devMode is enabled, but TOKEN_DEV is not set" : "TOKEN not set"}`,
+                "CLIENT_ERROR"
+            );
+        }
+
+        try {
+            const { setLoader, resolveBanner } = this.logger.startupBanner(this);
+            this.resolveStartupBanner = resolveBanner;
+            // TODO: Make this wait for modules and plugins to be loaded
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            setLoader("Logging in to Discord, please wait...");
+            const result = await super.login(token);
+            setLoader("Waiting for the client to be ready...");
+
+            // this.logger.info("Waiting for the client to be ready...");
+            return result;
+        } catch (err) {
+            throw new VimcordError(`Failed to login: ${err}`, "CLIENT_ERROR");
+        }
     }
 
     override async destroy(): Promise<void> {

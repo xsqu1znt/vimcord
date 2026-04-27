@@ -36,6 +36,10 @@ export class PluginManager {
         return this.plugins.get(name);
     }
 
+    getAll(installed?: boolean): VimcordPlugin[] {
+        return Array.from(this.plugins.values()).filter(p => (installed ? p.installed : true));
+    }
+
     has(name: string): boolean {
         return this.plugins.has(name);
     }
