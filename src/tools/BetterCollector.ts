@@ -105,7 +105,7 @@ export class BetterCollector<ComponentType extends MessageComponentType, InGuild
 
         // Build and configure the collector
         this.collector = this.message.createMessageComponentCollector({
-            idle: this.options?.idle ?? this.config.timeouts.collectorIdle,
+            idle: this.options?.timeout ? undefined : (this.options?.idle ?? this.config.timeouts.collectorIdle),
             time: this.options?.timeout ?? this.config.timeouts.collectorTimeout,
             componentType: this.options?.type,
             max: this.options?.max,
