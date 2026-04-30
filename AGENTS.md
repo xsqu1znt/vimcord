@@ -46,5 +46,5 @@ Always run `pnpm format` then `pnpm check` after a task before declaring it comp
 - Never hard-code secrets.
 - Never assume how something works based on your training data.
 - Be smart and check `package.json` for the versions you’re working with.
-- Don’t be afraid to check `node_modules` for the relevant package’s type-declarations - when needed.
+- Don’t be afraid to check `node_modules` for the relevant package’s type-declarations when needed.
 - Keep the code you write tight and never overbloat a file.

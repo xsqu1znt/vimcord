@@ -9,7 +9,8 @@ import type { VimcordGlobals } from "./globals.js";
 import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
-import { PluginManager } from "@/plugins/PluginManager.js";
+import { ModuleManager } from "@/modules/index.js";
+import { PluginManager } from "@/plugins/index.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { VimcordLogger, vimcordLogger } from "./logger.js";
 
@@ -61,9 +62,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly logger: VimcordLogger = vimcordLogger;
 
     private client: ClientOptions;
-    private features: VimcordFeatures;
+    readonly features: VimcordFeatures;
     readonly globals: VimcordGlobals;
-    readonly plugins = new PluginManager();
+    readonly plugins = new PluginManager(this);
+    readonly modules = new ModuleManager(this);
 
     private awaitReadyPromise: Promise<boolean> | null | undefined;
     private resolveStartupBanner: (() => void) | undefined;
@@ -105,7 +107,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         });
     }
 
-    // --- Shorthand Access ---
+    // --- Getter/Setter Aliases ---
     /** Current app name. */
     get $name() {
         return this.globals.app.name;
@@ -139,17 +141,12 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     // --- Plugins ---
-    async use(plugin: VimcordPlugin): Promise<this> {
-        await this.plugins.use(plugin, this);
-        return this;
-    }
-
-    getPlugin(name: string): VimcordPlugin | undefined {
-        return this.plugins.get(name);
-    }
-
-    async removePlugin(name: string): Promise<this> {
-        await this.plugins.remove(name, this);
+    /**
+     * Registers a plugin. Alias for `client.plugins.use`.
+     * @param plugin The plugin to register.
+     */
+    use(plugin: VimcordPlugin): this {
+        this.plugins.use(plugin);
         return this;
     }
 
@@ -180,7 +177,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     /**
      * Configures global client configs.
-     * @param globals The options to set
+     * @param globals The options to set.
      */
     configure(globals: VimcordGlobals): this {
         this.globals.app = mergeDeep(this.globals.app, globals.app);
@@ -208,6 +205,11 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return new Vimcord(mergeDeep(this.toOptions(), options));
     }
 
+    // --- Main ---
+    /**
+     * Loads plugins and modules then logs in to Discord.
+     * @param token The token to log in with.
+     */
     override async login(token?: string): Promise<string> {
         token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
         if (!token) {
@@ -220,21 +222,24 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         try {
             const { setLoader, resolveBanner } = this.logger.startupBanner(this);
             this.resolveStartupBanner = resolveBanner;
-            // TODO: Make this wait for modules and plugins to be loaded
-            await new Promise(resolve => setTimeout(resolve, 3000));
 
-            setLoader("Logging in to Discord, please wait...");
+            setLoader("Loading plugins and modules...");
+            await this.plugins.load();
+            await this.modules.load();
+
+            setLoader("Logging in to Discord...");
             const result = await super.login(token);
             setLoader("Waiting for the client to be ready...");
 
-            // this.logger.info("Waiting for the client to be ready...");
             return result;
         } catch (err) {
             throw new VimcordError(`Failed to login: ${err}`, "CLIENT_ERROR");
         }
     }
 
+    /** Unloads plugins then destroys the client. */
     override async destroy(): Promise<void> {
+        await this.plugins.unload();
         await this.destroy();
         Vimcord.$instances.delete(this.id);
         Vimcord.$events.emit("destroy", this.id);

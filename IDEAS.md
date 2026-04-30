@@ -21,3 +21,7 @@ Prompt engineering. When working with a vimcord skill, directly point to line nu
 Make sure packages only export public facing.
 
 `useEnv` can be a built in plugin that comes with Vimcord.
+
+`MongoSchemaBuilder` should introduce collision tests, so you pass in a function you want to generate an ID for example, and it'll retry (with configurable attempts) if it hits a collision.
+
+A way to pass context from execute to `afterExecute`.

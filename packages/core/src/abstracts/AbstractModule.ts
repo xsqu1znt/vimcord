@@ -129,7 +129,7 @@ export abstract class AbstractModule<
         return ready;
     }
 
-    inject(client: Vimcord<true>): void {
+    inject(client: Vimcord): void {
         if (!this.client) {
             (this as { client: Vimcord | null }).client = client;
         }

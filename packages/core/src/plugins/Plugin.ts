@@ -8,6 +8,6 @@ export abstract class VimcordPlugin {
     dependencies?: string[];
     installed: boolean = false;
 
-    abstract install(client: Vimcord): void;
-    abstract uninstall(client: Vimcord): void;
+    abstract install(client: Vimcord): Promise<void> | void;
+    abstract uninstall(client: Vimcord): Promise<void> | void;
 }

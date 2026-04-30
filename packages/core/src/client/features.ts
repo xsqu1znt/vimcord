@@ -42,25 +42,25 @@ export interface AppModuleImports {
      * // Example module filename
      * "ping.slash.ts"
      */
-    slashCommands?: string | string[] | ModuleImportOptions;
+    slashCommands?: string[] | ModuleImportOptions;
     /** Default suffix: ctx
      * @example
      * // Example module filename
      * "avatar.ctx.ts"
      */
-    contextCommands?: string | string[] | ModuleImportOptions;
+    contextCommands?: string[] | ModuleImportOptions;
     /** Default suffix: prefix
      * @example
      * // Example module filename
      * "help.prefix.ts"
      */
-    prefixCommands?: string | string[] | ModuleImportOptions;
+    prefixCommands?: string[] | ModuleImportOptions;
     /** Default suffix: event
      * @example
      * // Example module filename
      * "ready.event.ts"
      */
-    events?: string | string[] | ModuleImportOptions;
+    events?: string[] | ModuleImportOptions;
 }
 
 export interface CommandErrorMessageOptions {
@@ -84,13 +84,7 @@ export interface CommandErrorMessageOptions {
 export interface ModuleImportOptions {
     /** The directories to import from. */
     dir: string | string[];
-    /** Recursively imports modules from subdirectories.
-     * @defaultValue true
-     **/
-    recursive?: boolean;
     /** Only import modules that end with these suffixes.
-     *
-     * If set to `null` all files in the directory will be imported, which may lead to import errors if you have modules not related to commands in the same directory.
      *
      * Respectively, the default suffixes are `.slash`, `.ctx`, `.prefix`, and `.event`.
      *
@@ -101,5 +95,5 @@ export interface ModuleImportOptions {
      * "help.prefix.ts"
      * "ready.event.ts"
      */
-    suffix?: string | string[] | null;
+    suffix?: string;
 }

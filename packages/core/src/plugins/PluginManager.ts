@@ -6,7 +6,31 @@ import { PluginError } from "@/errors/PluginError.js";
 export class PluginManager {
     private plugins: Map<string, VimcordPlugin> = new Map();
 
-    async use(plugin: VimcordPlugin, client: Vimcord): Promise<void> {
+    constructor(readonly client: Vimcord) {}
+
+    async load(): Promise<void> {
+        for (const plugin of this.plugins.values()) {
+            if (plugin.installed) continue;
+            await plugin.install(this.client);
+        }
+    }
+
+    async unload(name?: string): Promise<void> {
+        if (name) {
+            const plugin = this.plugins.get(name);
+            if (!plugin) return;
+            await plugin.uninstall?.(this.client);
+            this.plugins.delete(plugin.name);
+            return;
+        }
+
+        for (const plugin of this.plugins.values()) {
+            await plugin.uninstall?.(this.client);
+            this.plugins.delete(plugin.name);
+        }
+    }
+
+    use(plugin: VimcordPlugin): void {
         if (this.plugins.has(plugin.name)) throw new PluginError(`Plugin '${plugin.name}' is already registered`);
 
         // Check deps
@@ -18,18 +42,7 @@ export class PluginManager {
             }
         }
 
-        // Install
-        await plugin.install(client);
         this.plugins.set(plugin.name, plugin);
-    }
-
-    async remove(name: string, client: Vimcord): Promise<void> {
-        const plugin = this.plugins.get(name);
-        if (!plugin) throw new PluginError(`Plugin '${name}' is not registered`);
-
-        // Uninstall
-        await plugin.uninstall?.(client);
-        this.plugins.delete(name);
     }
 
     get(name: string): VimcordPlugin | undefined {

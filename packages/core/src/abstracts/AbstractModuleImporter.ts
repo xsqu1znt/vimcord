@@ -1,5 +1,6 @@
 import type { IndexFn } from "@vimcord/internal";
 import type { Vimcord } from "@/client/Vimcord.js";
+import type { AbstractModule } from "./AbstractModule.js";
 
 import { importModulesFromDir } from "@vimcord/internal";
 
@@ -15,16 +16,14 @@ export type ModuleIndex<T> =
           isArray: true;
       };
 
-export abstract class AbstractModuleImporter<T, K extends string = string> {
+export abstract class AbstractModuleImporter<T extends AbstractModule<any, any>, K extends string = string> {
     readonly modules: Map<string, T> = new Map();
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
 
     constructor(
-        protected readonly client: Vimcord,
-        readonly fileSuffix: string | string[] | undefined
-    ) {
-        this.client = client;
-    }
+        readonly client: Vimcord,
+        readonly fileSuffix?: string
+    ) {}
 
     protected abstract createModuleKey(module: T): string;
 
@@ -78,15 +77,20 @@ export abstract class AbstractModuleImporter<T, K extends string = string> {
         if (set) this.modules.clear();
 
         const dirs = Array.isArray(dir) ? dir : [dir];
-        const modules: T[] = [];
 
         for (const _dir of dirs) {
             const results = await importModulesFromDir<{ default: T }>(_dir, this.fileSuffix);
-            modules.push(...results.map(({ module }) => module.default));
-        }
 
-        for (const module of modules) {
-            this.modules.set(this.createModuleKey(module), module);
+            for (const result of results) {
+                const module = result.module.default;
+                // module
+
+                const key = this.createModuleKey(module);
+                if (this.modules.has(key)) continue;
+
+                module.inject(this.client);
+                this.modules.set(key, module);
+            }
         }
 
         this.reindex();
