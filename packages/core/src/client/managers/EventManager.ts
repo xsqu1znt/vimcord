@@ -5,9 +5,12 @@ import type { Vimcord } from "../Vimcord.js";
 import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";
 
 type EventModuleIndexType = "event" | "name" | "category" | "tag";
+type EventListener<K extends keyof ClientEvents> = (...args: ClientEvents[K]) => void;
 
 export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
-    constructor(client: Vimcord, fileSuffix?: string) {
+    private readonly mountedListeners = new Map<keyof ClientEvents, EventListener<keyof ClientEvents>>();
+
+    constructor(client: Vimcord, fileSuffix?: string | string[]) {
         super(client, fileSuffix);
 
         this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
@@ -21,6 +24,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     override clear(): void {
+        this.unmount();
         this.modules.clear();
         this.reindex();
     }
@@ -30,24 +34,37 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     getByEvent<K extends keyof ClientEvents>(event: K): EventModule<K>[] {
-        return this.getIndexed("event", event, true) as unknown as EventModule<K>[];
+        return this.getIndex("event", event, true) as unknown as EventModule<K>[];
     }
 
-    getByName(name: string): EventModule[] {
-        return this.getIndexed("name", name, true);
+    getByName(name: string): EventModule | undefined {
+        return this.getIndex("name", name);
     }
 
     getByCategory(category: string): EventModule[] {
-        return this.getIndexed("category", category, true);
+        return this.getIndex("category", category, true);
     }
 
     getByTag(tag: string): EventModule[] {
-        return this.getIndexed("tag", tag, true);
+        return this.getIndex("tag", tag, true);
     }
 
     register(...events: EventModule[]): void {
-        events.forEach(e => this.modules.set(e.id, e));
+        const mountedEvents = new Set(this.mountedListeners.keys());
+
+        events.forEach(e => {
+            if (this.modules.has(e.id)) {
+                throw new Error(`Duplicate event module key '${e.id}'`);
+            }
+
+            e.inject(this.client);
+            this.modules.set(e.id, e);
+        });
         this.reindex();
+        new Set(events.map(e => e.event).filter(event => mountedEvents.has(event))).forEach(event => {
+            this.unmount(event);
+            this.mount(event);
+        });
         events.forEach(e =>
             this.client.logger.debugVerbose(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
@@ -56,19 +73,60 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     unregister(...ids: string[]): void {
         const events = ids.map(id => this.modules.get(id)).filter((e): e is EventModule => e !== undefined);
         if (!events.length) return;
+        const mountedEvents = new Set(events.map(e => e.event).filter(event => this.mountedListeners.has(event)));
 
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
+        mountedEvents.forEach(event => {
+            this.unmount(event);
+            this.mount(event);
+        });
         events.forEach(e =>
             this.client.logger.debugVerbose(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
+    }
+
+    mount(event?: keyof ClientEvents): void {
+        const clientEvents = event ? [event] : Array.from(new Set(this.modules.values().map(m => m.event)));
+        if (!clientEvents.length) return;
+
+        for (const event of clientEvents) {
+            if (this.mountedListeners.has(event)) continue;
+
+            const size = this.getByEvent(event).length;
+            if (!size) continue;
+
+            const listener: EventListener<typeof event> = (...args) => void this.executeEvents(event, ...args);
+            this.mountedListeners.set(event, listener);
+            this.client.on(event, listener);
+            this.client.logger.debugVerbose(
+                `[EventManager] Mounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
+            );
+        }
+    }
+
+    unmount(event?: keyof ClientEvents): void {
+        const clientEvents = event ? [event] : Array.from(this.mountedListeners.keys());
+        if (!clientEvents.length) return;
+
+        for (const event of clientEvents) {
+            const listener = this.mountedListeners.get(event);
+            if (!listener) continue;
+
+            const size = this.getByEvent(event).length;
+            this.client.off(event, listener);
+            this.mountedListeners.delete(event);
+            this.client.logger.debugVerbose(
+                `[EventManager] Unmounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
+            );
+        }
     }
 
     async executeEvents<K extends keyof ClientEvents>(event: K, ...args: ClientEvents[K]): Promise<void> {
         const events = this.getByEvent(event) as unknown as EventModule[];
         if (!events.length) return;
 
-        const sortedEvents = events.sort((a, b) => b.priority - a.priority);
+        const sortedEvents = [...events].sort((a, b) => b.priority - a.priority);
         await Promise.allSettled(
             sortedEvents.map(async e => {
                 try {

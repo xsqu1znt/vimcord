@@ -42,25 +42,25 @@ export interface AppModuleImports {
      * // Example module filename
      * "ping.slash.ts"
      */
-    slashCommands?: string[] | ModuleImportOptions;
+    slashCommands?: string | string[] | ModuleImportOptions;
     /** Default suffix: ctx
      * @example
      * // Example module filename
      * "avatar.ctx.ts"
      */
-    contextCommands?: string[] | ModuleImportOptions;
+    contextCommands?: string | string[] | ModuleImportOptions;
     /** Default suffix: prefix
      * @example
      * // Example module filename
      * "help.prefix.ts"
      */
-    prefixCommands?: string[] | ModuleImportOptions;
+    prefixCommands?: string | string[] | ModuleImportOptions;
     /** Default suffix: event
      * @example
      * // Example module filename
      * "ready.event.ts"
      */
-    events?: string[] | ModuleImportOptions;
+    events?: string | string[] | ModuleImportOptions;
 }
 
 export interface CommandErrorMessageOptions {

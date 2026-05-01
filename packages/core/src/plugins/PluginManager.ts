@@ -9,9 +9,10 @@ export class PluginManager {
     constructor(readonly client: Vimcord) {}
 
     async load(): Promise<void> {
-        for (const plugin of this.plugins.values()) {
+        for (const plugin of this.resolveLoadOrder()) {
             if (plugin.installed) continue;
             await plugin.install(this.client);
+            plugin.installed = true;
         }
     }
 
@@ -19,13 +20,24 @@ export class PluginManager {
         if (name) {
             const plugin = this.plugins.get(name);
             if (!plugin) return;
-            await plugin.uninstall?.(this.client);
+            const dependent = this.getAll(true).find(p => p.dependencies?.includes(name));
+            if (dependent) {
+                throw new PluginError(`Plugin '${name}' cannot be unloaded while '${dependent.name}' depends on it`);
+            }
+
+            if (plugin.installed) {
+                await plugin.uninstall(this.client);
+                plugin.installed = false;
+            }
             this.plugins.delete(plugin.name);
             return;
         }
 
-        for (const plugin of this.plugins.values()) {
-            await plugin.uninstall?.(this.client);
+        for (const plugin of this.resolveLoadOrder().reverse()) {
+            if (plugin.installed) {
+                await plugin.uninstall(this.client);
+                plugin.installed = false;
+            }
             this.plugins.delete(plugin.name);
         }
     }
@@ -50,10 +62,43 @@ export class PluginManager {
     }
 
     getAll(installed?: boolean): VimcordPlugin[] {
-        return Array.from(this.plugins.values()).filter(p => (installed ? p.installed : true));
+        return Array.from(this.plugins.values()).filter(p => (installed === undefined ? true : p.installed === installed));
     }
 
     has(name: string): boolean {
         return this.plugins.has(name);
+    }
+
+    private resolveLoadOrder(): VimcordPlugin[] {
+        const resolved: VimcordPlugin[] = [];
+        const resolving = new Set<string>();
+        const resolvedNames = new Set<string>();
+
+        const visit = (plugin: VimcordPlugin): void => {
+            if (resolvedNames.has(plugin.name)) return;
+            if (resolving.has(plugin.name)) {
+                throw new PluginError(`Circular plugin dependency detected at '${plugin.name}'`);
+            }
+
+            resolving.add(plugin.name);
+
+            for (const dep of plugin.dependencies ?? []) {
+                const dependency = this.plugins.get(dep);
+                if (!dependency) {
+                    throw new PluginError(`Plugin '${plugin.name}' depends on '${dep}', but it is not registered`);
+                }
+                visit(dependency);
+            }
+
+            resolving.delete(plugin.name);
+            resolvedNames.add(plugin.name);
+            resolved.push(plugin);
+        };
+
+        for (const plugin of this.plugins.values()) {
+            visit(plugin);
+        }
+
+        return resolved;
     }
 }

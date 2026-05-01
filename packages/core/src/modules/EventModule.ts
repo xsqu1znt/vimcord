@@ -7,8 +7,9 @@ import { AbstractModule } from "../abstracts/AbstractModule.js";
 export type VimcordClientEvents = Omit<ClientEvents, "clientReady"> & { clientReady: [] };
 
 export interface EventModuleOptions<
-    Event extends keyof VimcordClientEvents = keyof VimcordClientEvents
-> extends ModuleOptions<VimcordClientEvents[Event], void> {
+    Event extends keyof VimcordClientEvents = keyof VimcordClientEvents,
+    Args extends VimcordClientEvents[Event] = VimcordClientEvents[Event]
+> extends ModuleOptions<Args, void> {
     /** The client event to trigger on. */
     event: Event;
     /**
@@ -31,8 +32,8 @@ export class EventModule<
     readonly once: boolean;
     readonly priority: number;
 
-    constructor(options: EventModuleOptions<K>) {
-        super(options);
+    constructor(options: EventModuleOptions<K, Args>) {
+        super({ requiresReady: false, ...options });
 
         this.event = options.event;
         this.once = options.once ?? false;

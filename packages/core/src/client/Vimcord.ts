@@ -9,7 +9,7 @@ import type { VimcordGlobals } from "./globals.js";
 import { EventEmitter } from "node:stream";
 import { Client } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
-import { ModuleManager } from "@/modules/index.js";
+import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { PluginManager } from "@/plugins/index.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { VimcordLogger, vimcordLogger } from "./logger.js";
@@ -64,8 +64,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private client: ClientOptions;
     readonly features: VimcordFeatures;
     readonly globals: VimcordGlobals;
-    readonly plugins = new PluginManager(this);
-    readonly modules = new ModuleManager(this);
+
+    readonly plugins: PluginManager;
+    readonly modules: ModuleManager;
 
     private awaitReadyPromise: Promise<boolean> | null | undefined;
     private resolveStartupBanner: (() => void) | undefined;
@@ -85,9 +86,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
         super(client);
 
-        this.logger.setLevel(logLevel);
-        this.logger.setVerbose(verbose);
-
         this.id = customId ?? createHumanId();
 
         this.client = client;
@@ -96,6 +94,13 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             app: mergeDeep(defaultAppGlobals(), globals?.app),
             staff: mergeDeep(defaultStaffGlobals(), globals?.staff)
         };
+
+        this.$verboseMode = verbose;
+        this.logger.setLevel(logLevel);
+        this.logger.setVerbose(this.$verboseMode);
+
+        this.plugins = new PluginManager(this);
+        this.modules = new ModuleManager(this);
 
         Vimcord.$instances.set(this.id, this);
         Vimcord.$events.emit("create", this);
@@ -211,14 +216,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      * @param token The token to log in with.
      */
     override async login(token?: string): Promise<string> {
-        token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
-        if (!token) {
-            throw new VimcordError(
-                `TOKEN Missing: ${this.$devMode ? "devMode is enabled, but TOKEN_DEV is not set" : "TOKEN not set"}`,
-                "CLIENT_ERROR"
-            );
-        }
-
         try {
             const { setLoader, resolveBanner } = this.logger.startupBanner(this);
             this.resolveStartupBanner = resolveBanner;
@@ -227,20 +224,28 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             await this.plugins.load();
             await this.modules.load();
 
+            token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
+            if (!token) {
+                throw new Error(
+                    `TOKEN Missing; ${this.$devMode ? "devMode is enabled, but TOKEN_DEV is not set" : "TOKEN not set"}`
+                );
+            }
+
             setLoader("Logging in to Discord...");
             const result = await super.login(token);
             setLoader("Waiting for the client to be ready...");
 
             return result;
         } catch (err) {
-            throw new VimcordError(`Failed to login: ${err}`, "CLIENT_ERROR");
+            throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");
         }
     }
 
-    /** Unloads plugins then destroys the client. */
+    /** Unloads modules and plugins then destroys the client. */
     override async destroy(): Promise<void> {
+        this.modules.unload();
         await this.plugins.unload();
-        await this.destroy();
+        await super.destroy();
         Vimcord.$instances.delete(this.id);
         Vimcord.$events.emit("destroy", this.id);
     }

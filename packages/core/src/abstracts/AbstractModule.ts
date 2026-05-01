@@ -11,6 +11,7 @@ export type ModuleConditionFn<Args extends any[] = any[]> = (
 ) => Promise<ModuleTestResult> | ModuleTestResult;
 
 export interface ModuleContext<Args extends any[] = any[], ExecuteResult = unknown> {
+    module: AbstractModule<Args, ExecuteResult>;
     client: Vimcord<true>;
     args: Args;
     error?: Error;
@@ -38,6 +39,11 @@ export interface ModuleOptions<
      * @default true
      */
     enabled?: boolean;
+    /**
+     * Whether this module should wait for the client to be ready before running.
+     * @default true
+     */
+    requiresReady?: boolean;
     /** The deployment rules of the module. */
     deployment?: ModuleDeploymentRules;
     /** The condition rules of the module. Conditions are tested in the order they are defined. */
@@ -97,20 +103,21 @@ export abstract class AbstractModule<
     readonly metadata: ModuleMetadata;
 
     readonly enabled: boolean;
+    readonly requiresReady: boolean;
     readonly deployment: ModuleDeploymentRules;
-    protected readonly conditions: ModuleConditionFn<Args>[];
-
-    protected readonly hooks: Hooks;
+    readonly conditions: ModuleConditionFn<Args>[];
+    readonly hooks: Hooks;
 
     protected readonly execute: (client: Vimcord<true>, ...args: Args) => Promise<ExecuteResult>;
 
     constructor(options: ModuleOptions<Args, ExecuteResult, Hooks>) {
-        const { customId, name, metadata, enabled, deployment, conditions, hooks, execute } = options;
+        const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
         this.metadata = metadata ?? {};
 
         this.enabled = enabled ?? true;
+        this.requiresReady = requiresReady ?? true;
         this.deployment = { environment: "both", ...deployment };
         this.conditions = conditions ?? [];
 
@@ -123,6 +130,8 @@ export abstract class AbstractModule<
             console.warn(`[Module] '${this.name}' (${this.id}) is not injected`);
             return false;
         }
+
+        if (!this.requiresReady) return true;
 
         const ready = await this.client.awaitReady();
         if (!ready) console.warn(`[Module] '${this.name}' (${this.id}) client is not ready`);
@@ -256,7 +265,7 @@ export abstract class AbstractModule<
      */
     async run(...args: Args): Promise<ExecuteResult | undefined> {
         if (!(await this.checkInjection())) return;
-        const ctx: ModuleContext<Args, ExecuteResult> = { client: this.client as Vimcord<true>, args };
+        const ctx: ModuleContext<Args, ExecuteResult> = { module: this, client: this.client as Vimcord<true>, args };
 
         try {
             const valid = this.validate();

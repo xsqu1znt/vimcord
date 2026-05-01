@@ -25,6 +25,8 @@
     "dependencies": {
         "@vimcord/core": "workspace:*",
         "@vimcord/plugin-dotenv": "workspace:*",
-        "discord.js": "^14.26.0"
+        "@vimcord/ux": "workspace:*",
+        "discord.js": "^14.26.3",
+        "vimcord": "workspace:*"
     }
 }

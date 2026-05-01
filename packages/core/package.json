@@ -19,6 +19,7 @@
     "dependencies": {
         "@vimcord/internal": "workspace:*",
         "@vimcord/logger": "workspace:*",
+        "@vimcord/ux": "workspace:*",
         "ansis": "^4.2.0",
         "discord.js": "^14.26.3"
     }

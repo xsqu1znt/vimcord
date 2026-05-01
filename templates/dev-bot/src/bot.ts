@@ -9,10 +9,10 @@ export function createBot(): Vimcord {
 
         features: {
             importModules: {
-                events: "./events",
                 slashCommands: "./commands/slash",
                 prefixCommands: "./commands/prefix",
-                contextCommands: "./commands/context"
+                contextCommands: "./commands/context",
+                events: "./events"
             }
         },
 

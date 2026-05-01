@@ -1,6 +1,5 @@
 import type { IndexFn } from "@vimcord/internal";
 import type { Vimcord } from "@/client/Vimcord.js";
-import type { AbstractModule } from "./AbstractModule.js";
 
 import { importModulesFromDir } from "@vimcord/internal";
 
@@ -16,13 +15,17 @@ export type ModuleIndex<T> =
           isArray: true;
       };
 
-export abstract class AbstractModuleImporter<T extends AbstractModule<any, any>, K extends string = string> {
+export interface ImportableModule {
+    inject(client: Vimcord): void;
+}
+
+export abstract class AbstractModuleImporter<T extends ImportableModule, K extends string = string> {
     readonly modules: Map<string, T> = new Map();
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
 
     constructor(
         readonly client: Vimcord,
-        readonly fileSuffix?: string
+        readonly fileSuffix?: string | string[]
     ) {}
 
     protected abstract createModuleKey(module: T): string;
@@ -31,9 +34,9 @@ export abstract class AbstractModuleImporter<T extends AbstractModule<any, any>,
 
     abstract get(id: string): T | undefined;
 
-    protected getIndexed(index: K, key: string, isArray?: false): T;
-    protected getIndexed(index: K, key: string, isArray: true): T[];
-    protected getIndexed(index: K, key: string, isArray?: boolean): T | T[] {
+    protected getIndex(index: K, key: string, isArray?: false): T;
+    protected getIndex(index: K, key: string, isArray: true): T[];
+    protected getIndex(index: K, key: string, isArray?: boolean): T | T[] {
         const idx = this.indexes.get(index);
         if (!idx) {
             throw new Error(`Module index '${index}' does not exist; make sure it's implemented`);
@@ -83,14 +86,18 @@ export abstract class AbstractModuleImporter<T extends AbstractModule<any, any>,
 
             for (const result of results) {
                 const module = result.module.default;
-                // module
-
                 const key = this.createModuleKey(module);
-                if (this.modules.has(key)) continue;
+                if (this.modules.has(key)) {
+                    throw new Error(`Duplicate module key '${key}' imported from '${result.path}'`);
+                }
 
                 module.inject(this.client);
                 this.modules.set(key, module);
             }
+
+            this.client.logger.debugVerbose(
+                `[ModuleImporter] Imported ${results.length} ${results.length === 1 ? "module" : "modules"} from '${_dir}'`
+            );
         }
 
         this.reindex();
