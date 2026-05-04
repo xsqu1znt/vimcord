@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCommandConfig<T> = BaseCommandConfig<T>> {
     readonly uuid: string = randomUUID();
     readonly commandType: T;
+    public name = "";
 
     /** Local command configuration and hooks */
     readonly options: O;
@@ -42,6 +43,10 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
     constructor(type: T, options: O = {} as O) {
         this.commandType = type;
         this.options = { enabled: true, ...options };
+    }
+
+    protected setCommandName(name: string): void {
+        this.name = name;
     }
 
     private validateBaseConfig() {
@@ -99,16 +104,14 @@ export abstract class BaseCommandBuilder<T extends CommandType, O extends BaseCo
 
             // 5. Execution Pipeline
             if (config.beforeExecute) {
-                await config.beforeExecute?.({ cancel }, ...args);
+                await config.beforeExecute?.({ cancel, name: this.name }, ...args);
                 if (canceled) return;
             }
 
             if (config.logExecution !== false) {
-                // Resolve name based on builder type
-                const cmdName = (this.options as any).name || (this as any).builder?.name || "Unknown";
                 const location = ctx.guild ? `${ctx.guild.name} (${ctx.guild.id})` : "Direct Messages";
 
-                client.logger.commandExecuted(cmdName, ctx.user.username, location);
+                client.logger.commandExecuted(this.name || "Unknown", ctx.user.username, location);
             }
 
             const result = await config.execute?.(...args);

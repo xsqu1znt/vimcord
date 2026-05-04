@@ -45,6 +45,7 @@ export class ContextCommandBuilder extends BaseCommandBuilder<CommandType.Contex
     setBuilder(builder: _ContextCommandConfig["builder"]): this {
         this.builder = typeof builder === "function" ? builder(new ContextMenuCommandBuilder()) : builder;
         this.validateBuilder();
+        this.setCommandName(this.builder.name);
         return this;
     }
 

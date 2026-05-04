@@ -56,7 +56,7 @@ export interface BaseCommandConfig<T extends CommandType> {
     logExecution?: boolean;
 
     /** Executed before the main command logic */
-    beforeExecute?: (ctx: { cancel: () => void }, ...args: BaseCommandParameters<T>) => any;
+    beforeExecute?: (ctx: CommandBeforeExecuteContext, ...args: BaseCommandParameters<T>) => unknown;
     /** The main command function that will be executed */
     execute?: (...args: BaseCommandParameters<T>) => any;
     /** Executed after successful execution */
@@ -71,6 +71,11 @@ export interface BaseCommandConfig<T extends CommandType> {
     onRateLimit?: (...args: BaseCommandParameters<T>) => any;
     /** Custom error handler */
     onError?: (error: Error, ...args: BaseCommandParameters<T>) => any;
+}
+
+export interface CommandBeforeExecuteContext {
+    readonly name: string;
+    cancel: () => void;
 }
 
 export interface BaseAppCommandConfig {

@@ -62,6 +62,7 @@ export class SlashCommandBuilder extends BaseCommandBuilder<CommandType.Slash, _
     setBuilder(builder: _SlashCommandConfig["builder"]): this {
         this.builder = typeof builder === "function" ? builder(new DJSSlashCommandBuilder()) : builder;
         this.validateBuilder();
+        this.setCommandName(this.builder.name);
         return this;
     }
 

@@ -18,6 +18,7 @@ interface _PrefixCommandConfig extends BaseCommandConfig<CommandType.Prefix> {
 export class PrefixCommandBuilder extends BaseCommandBuilder<CommandType.Prefix, _PrefixCommandConfig> {
     constructor(public options: _PrefixCommandConfig) {
         super(CommandType.Prefix, options);
+        this.setCommandName(options.name);
 
         // Standardize the wrapping pattern:
         // We capture the original execute and wrap it with prefix-specific logic
