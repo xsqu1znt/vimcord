@@ -33,16 +33,15 @@ export const prefixCommandHandler = new EventBuilder({
 
         if (!prefixUsed) return;
 
-        const contentWithoutPrefix = message.content.slice(prefixUsed.length).trim();
-        const args = contentWithoutPrefix.split(/\s+/);
-        const trigger = args.shift();
+        const contentWithoutPrefix = message.content.slice(prefixUsed.length).trimStart();
+        const trigger = contentWithoutPrefix.match(/^\S+/)?.[0];
 
         if (!trigger) return;
 
         const command = client.commands.prefix.get(trigger);
         if (!command) return;
 
-        message.content = args.join(" ");
+        message.content = contentWithoutPrefix.slice(trigger.length).trimStart();
 
         try {
             return await command.run(client, client, message);
