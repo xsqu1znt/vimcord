@@ -9,6 +9,7 @@ export interface PrefixCommandModuleOptions extends CommandModuleOptions<Command
 
 export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType.Prefix> {
     override type: CommandModuleType.Prefix = CommandModuleType.Prefix;
+    override moduleType: string = "Command:Prefix";
     readonly aliases: string[];
     readonly description?: string;
 

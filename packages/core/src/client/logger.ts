@@ -126,6 +126,11 @@ export class VimcordLogger extends Logger {
                     ansis.hex(colors.primary)(`${"│".padEnd(maxWidth - 3)}│`),
 
                     // Plugins
+                    formatKV("📦 Events", client.modules.events.getAll().length.toString()),
+                    formatKV("📦 Slash Commands", client.modules.commands.slash.getAll().length.toString()),
+                    formatKV("📦 Prefix Commands", client.modules.commands.prefix.getAll().length.toString()),
+                    formatKV("📦 Context Commands", client.modules.commands.context.getAll().length.toString()),
+                    client.plugins.getAll(true) && "",
                     ...client.plugins.getAll(true).map(p => formatKV("🔌 Plugin", p.name)),
 
                     /* ...meta.map(([k, v]) => {
@@ -137,12 +142,12 @@ export class VimcordLogger extends Logger {
 
                     ansis.hex(colors.primary)(`${"│".padEnd(maxWidth - 3)}│`),
                     (() => {
-                        const str = `${ansis.hex(colors.primary)("╰──")}${ansis.hex(colors.primary)("i0(")} ${ansis.bold(client.$name)} ${ansis.hex(colors.muted)(`v${client.$version}`)} ${ansis.hex(colors.primary)(")")}`;
+                        const str = `${ansis.hex(colors.primary)("╰──[")} ${ansis.bold(client.$name)} ${ansis.hex(colors.muted)(`v${client.$version}`)} ${ansis.hex(colors.primary)("]")}`;
                         const remainingLength = maxWidth - pX - stripAnsi(str).length - 1;
                         return `${str}${ansis.hex(colors.primary)(`─`.repeat(remainingLength))}${ansis.hex(colors.primary)("╯")}`;
                     })(),
                     ""
-                ];
+                ].filter((e): e is string => typeof e === "string");
 
                 const clearPrevLine = "\x1b[1A\x1b[2K";
                 stopLoader(`${clearPrevLine}${_lines2.map(l => padLine(l, pX)).join("\n")}`, true);

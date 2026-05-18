@@ -9,10 +9,18 @@ export class PluginManager {
     constructor(readonly client: Vimcord) {}
 
     async load(): Promise<void> {
+        let installedCount = 0;
         for (const plugin of this.resolveLoadOrder()) {
             if (plugin.installed) continue;
             await plugin.install(this.client);
             plugin.installed = true;
+            installedCount++;
+        }
+
+        if (installedCount) {
+            this.client.logger.debugVerbose(
+                `[PluginManager] Loaded ${installedCount} plugin${installedCount === 1 ? "" : "s"}`
+            );
         }
     }
 

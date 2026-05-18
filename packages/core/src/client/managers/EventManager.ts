@@ -33,6 +33,10 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         return this.modules.get(id);
     }
 
+    override getAll(): EventModule[] {
+        return Array.from(this.modules.values());
+    }
+
     getByEvent<K extends keyof ClientEvents>(event: K): EventModule<K>[] {
         return this.getIndex("event", event, true) as unknown as EventModule<K>[];
     }

@@ -11,6 +11,7 @@ export type ContextCommandModuleOptions = Omit<AppCommandModuleOptions<CommandMo
 
 export class ContextCommandModule extends AbstractCommandModule<CommandModuleType.Context> {
     override type: CommandModuleType.Context = CommandModuleType.Context;
+    override moduleType: string = "Command:Context";
     readonly builder: ContextMenuCommandBuilder;
     readonly registration: NonNullable<ContextCommandModuleOptions["registration"]>;
 

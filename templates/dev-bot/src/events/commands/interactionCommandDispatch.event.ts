@@ -2,7 +2,7 @@ import { EventModule } from "vimcord";
 
 export default new EventModule({
     event: "interactionCreate",
-    name: "Commands:InteractionDispatch",
+    name: "CommandDispatch:Interaction",
     metadata: {
         category: ["Commands"],
         tags: ["slash", "context"]

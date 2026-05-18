@@ -228,7 +228,7 @@ export class Logger {
 
     debugVerbose(message: string, ...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.debug(message, data);
+        this.debug(message, ...data);
     }
 
     info(message: string, ...data: unknown[]): void {
@@ -238,7 +238,7 @@ export class Logger {
 
     infoVerbose(message: string, ...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.info(message, data);
+        this.info(message, ...data);
     }
 
     success(message: string, ...data: unknown[]): void {
@@ -253,7 +253,7 @@ export class Logger {
 
     successVerbose(message: string, ...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.success(message, data);
+        this.success(message, ...data);
     }
 
     warn(message: string, ...data: unknown[]): void {

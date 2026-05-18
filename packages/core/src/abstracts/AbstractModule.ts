@@ -18,12 +18,18 @@ export interface ModuleContext<Args extends unknown[] = unknown[], ExecuteResult
     executeResult?: ExecuteResult;
 }
 
+export interface ModuleContext<Args extends unknown[] = unknown[]> {
+    client: Vimcord<true>;
+    args: Args;
+}
+
 // --- Module Options ---
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
-    CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
-    Hooks extends ModuleHooks<Args, ExecuteResult, CTX> = ModuleHooks<Args, ExecuteResult, CTX>
+    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
+    Hooks extends ModuleHooks<Args, ExecuteResult, HookCTX> = ModuleHooks<Args, ExecuteResult, HookCTX>,
+    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>
 > {
     /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
     customId?: string;
@@ -46,14 +52,14 @@ export interface ModuleOptions<
     /** The deployment rules of the module. */
     deployment?: ModuleDeploymentRules;
     /** The condition rules of the module. Conditions are tested in the order they are defined. */
-    conditions?: ModuleConditionFn<CTX>[];
+    conditions?: ModuleConditionFn<HookCTX>[];
 
     // --- Hooks ---
     /** The hooks of the module. */
     hooks?: Hooks;
 
     // --- Main ---
-    execute(ctx: CTX): Promise<ExecuteResult>;
+    execute(ctx: ModuleCTX): Promise<ExecuteResult>;
 }
 
 export interface ModuleMetadata {
@@ -75,29 +81,31 @@ export interface ModuleDeploymentRules {
 export interface ModuleHooks<
     Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
-    CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>
+    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>
 > {
     /** @defaultBehavior Alias for `onError`. */
-    onDeploymentTestFail?(ctx: CTX): Promise<void>;
+    onDeploymentTestFail?(ctx: HookCTX): Promise<void>;
     /** @defaultBehavior Alias for `onError`. */
-    onConditionTestFail?(ctx: CTX): Promise<void>;
+    onConditionTestFail?(ctx: HookCTX): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    onError?(ctx: CTX): Promise<void>;
+    onError?(ctx: HookCTX): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    preExecute?(ctx: CTX, next: () => void): Promise<void>;
+    preExecute?(ctx: HookCTX, next: () => void): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    postExecute?(ctx: CTX): Promise<void>;
+    postExecute?(ctx: HookCTX): Promise<void>;
 }
 
 // --- Abstract Module ---
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
-    CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
-    Hooks extends ModuleHooks<Args, ExecuteResult, CTX> = ModuleHooks<Args, ExecuteResult, CTX>
+    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
+    Hooks extends ModuleHooks<Args, ExecuteResult, HookCTX> = ModuleHooks<Args, ExecuteResult, HookCTX>,
+    ExecuteCTX extends ModuleContext<Args> = ModuleContext<Args>
 > {
     readonly client: Vimcord | null = null;
 
+    abstract readonly moduleType: string;
     readonly id: string;
     readonly name: string;
     readonly metadata: ModuleMetadata;
@@ -105,12 +113,12 @@ export abstract class AbstractModule<
     readonly enabled: boolean;
     readonly requiresReady: boolean;
     readonly deployment: ModuleDeploymentRules;
-    readonly conditions: ModuleConditionFn<CTX>[];
+    readonly conditions: ModuleConditionFn<HookCTX>[];
     readonly hooks: Hooks;
 
-    protected readonly execute: (ctx: CTX) => Promise<ExecuteResult>;
+    protected readonly execute: (ctx: ExecuteCTX) => Promise<ExecuteResult>;
 
-    constructor(options: ModuleOptions<Args, ExecuteResult, CTX, Hooks>) {
+    constructor(options: ModuleOptions<Args, ExecuteResult, HookCTX, Hooks, ExecuteCTX>) {
         const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
@@ -125,16 +133,20 @@ export abstract class AbstractModule<
         this.execute = execute;
     }
 
+    private buildName(): string {
+        return `${this.moduleType}:${this.name}`;
+    }
+
     private async checkInjection(): Promise<boolean> {
         if (!this.client) {
-            console.warn(`[Module] '${this.name}' (${this.id}) is not injected`);
+            console.warn(`[Module] '${this.buildName()}' is not injected`);
             return false;
         }
 
         if (!this.requiresReady) return true;
 
         const ready = await this.client.awaitReady();
-        if (!ready) console.warn(`[Module] '${this.name}' (${this.id}) client is not ready`);
+        if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
         return ready;
     }
 
@@ -145,7 +157,7 @@ export abstract class AbstractModule<
     }
 
     // --- Tests & Rules ---
-    protected async testDeployment(ctx: CTX): Promise<ModuleTestResult> {
+    protected async testDeployment(ctx: HookCTX): Promise<ModuleTestResult> {
         if (this.deployment.environment === "both") {
             return { passed: true };
         }
@@ -159,7 +171,7 @@ export abstract class AbstractModule<
         return { passed: true };
     }
 
-    protected async testConditions(ctx: CTX): Promise<ModuleTestResult> {
+    protected async testConditions(ctx: HookCTX): Promise<ModuleTestResult> {
         if (!this.conditions.length) {
             return { passed: true };
         }
@@ -189,7 +201,7 @@ export abstract class AbstractModule<
      *
      * `testConditions` -> `hook:onConditionTestFail`
      */
-    protected async performTests(ctx: CTX): Promise<boolean> {
+    protected async performTests(ctx: HookCTX): Promise<boolean> {
         if (!this.enabled) return false;
 
         const deploymentTestResult = await this.testDeployment(ctx);
@@ -223,16 +235,16 @@ export abstract class AbstractModule<
         return true;
     }
 
-    protected createContext(args: Args): CTX {
-        return { module: this, client: this.client as Vimcord<true>, args } as unknown as CTX;
+    protected createContext(args: Args): HookCTX {
+        return { module: this, client: this.client as Vimcord<true>, args } as unknown as HookCTX;
     }
 
-    protected executeWithContext(ctx: CTX): Promise<ExecuteResult> {
-        return this.execute(ctx);
+    protected createExecuteContext(args: Args): ExecuteCTX {
+        return { module: this, client: this.client as Vimcord<true>, args } as unknown as ExecuteCTX;
     }
 
     /** Runs a hook with relevant context and an optional fallback. */
-    protected async runHook<K extends keyof Hooks, HookContext extends CTX>(
+    protected async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
         hook: K,
         ctx: HookContext,
         fallback?: (ctx: HookContext) => Promise<void>
@@ -246,21 +258,18 @@ export abstract class AbstractModule<
                 await hookFn(ctx);
                 const debug_hook_end = Date.now();
                 this.client?.logger.debugVerbose(
-                    `[Module] Ran hook '${String(hook)}' for '${this.name}' (${this.id}) in ${debug_hook_end - debug_hook_start}ms`
+                    `[Module] Ran hook '${String(hook)}' for '${this.buildName()}' in ${debug_hook_end - debug_hook_start}ms`
                 );
             } else if (fallback) {
                 const debug_fallback_start = Date.now();
                 await fallback(ctx);
                 const debug_fallback_end = Date.now();
                 this.client?.logger.debugVerbose(
-                    `[Module] Ran fallback hook '${String(hook)}' for '${this.name}' (${this.id}) in ${debug_fallback_end - debug_fallback_start}ms`
+                    `[Module] Ran fallback hook '${String(hook)}' for '${this.buildName()}' in ${debug_fallback_end - debug_fallback_start}ms`
                 );
             }
         } catch (err) {
-            this.client!.logger.error(
-                `[Module] Hook '${String(hook)}' failed for '${this.name}' (${this.id})`,
-                err as Error
-            );
+            this.client!.logger.error(`[Module] Hook '${String(hook)}' failed for '${this.buildName()}'`, err as Error);
         }
     }
 
@@ -273,39 +282,40 @@ export abstract class AbstractModule<
      */
     async run(...args: Args): Promise<ExecuteResult | undefined> {
         if (!(await this.checkInjection())) return;
-        const ctx = this.createContext(args);
+        const hookCTX = this.createContext(args);
+        const executeCTX = this.createExecuteContext(args);
 
         try {
             const valid = this.validate();
             if (!valid) return;
 
-            const passed = await this.performTests(ctx);
+            const passed = await this.performTests(hookCTX);
             if (!passed) return;
 
             if (this.hooks.preExecute) {
                 let next = false;
-                await this.hooks.preExecute(ctx, () => (next = true));
+                await this.hooks.preExecute(hookCTX, () => (next = true));
                 if (!next) {
-                    this.client?.logger.debugVerbose(`[Module] preExecute halted execution for '${this.name}' (${this.id})`);
+                    this.client?.logger.debugVerbose(`[Module] preExecute halted execution for '${this.buildName()}'`);
                     return;
                 }
             }
 
             const debug_execute_start = Date.now();
-            const executeResult = await this.executeWithContext(ctx);
+            const executeResult = await this.execute(executeCTX);
             const debug_execute_end = Date.now();
             this.client?.logger.debugVerbose(
-                `[Module] Executed '${this.name}' (${this.id}) in ${debug_execute_end - debug_execute_start}ms`
+                `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
             );
 
-            ctx.executeResult = executeResult;
-            await this.runHook("postExecute", ctx);
+            hookCTX.executeResult = executeResult;
+            await this.runHook("postExecute", hookCTX);
 
             return executeResult;
         } catch (err) {
-            ctx.error = err as Error;
-            await this.runHook("onError", ctx, async () =>
-                this.client!.logger.error(`[Module] Failed to execute '${this.name}' (${this.id})`, err as Error)
+            hookCTX.error = err as Error;
+            await this.runHook("onError", hookCTX, async () =>
+                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
             );
         }
     }

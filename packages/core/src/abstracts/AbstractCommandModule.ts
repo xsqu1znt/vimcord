@@ -1,16 +1,16 @@
 import type { ChatInputCommandInteraction, ContextMenuCommandInteraction, GuildResolvable, Message } from "discord.js";
-import type { ModuleContext, ModuleHooks, ModuleMetadata, ModuleOptions } from "@/abstracts/AbstractModule.js";
+import type {
+    ModuleContext,
+    ModuleContext,
+    ModuleHooks,
+    ModuleMetadata,
+    ModuleOptions
+} from "@/abstracts/AbstractModule.js";
 import type { CommandModulePermissions, PermissionTestResult } from "@/commands/commandPermissions.js";
 
 import { AbstractModule } from "@/abstracts/AbstractModule.js";
 import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
-
-export enum CommandModuleType {
-    Prefix = "Prefix",
-    Slash = "Slash",
-    Context = "Context"
-}
 
 export type CommandModuleParameters<K extends CommandModuleType = CommandModuleType> = K extends CommandModuleType.Prefix
     ? { message: Message }
@@ -27,7 +27,7 @@ export type CommandModuleArguments<K extends CommandModuleType = CommandModuleTy
 export interface CommandModuleOptions<K extends CommandModuleType> extends ModuleOptions<
     CommandModuleArguments<K>,
     unknown,
-    CommandModuleContext<K>,
+    CommandModuleHookContext<K>,
     CommandModuleHooks<K>
 > {
     metadata?: CommandModuleMetadata;
@@ -69,7 +69,7 @@ export interface CommandModuleMetadata extends ModuleMetadata {
     hidden?: boolean;
 }
 
-export type CommandModuleContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
+export type CommandModuleHookContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
     CommandModuleArguments<K>,
     unknown
 > &
@@ -80,18 +80,23 @@ export type CommandModuleContext<K extends CommandModuleType = CommandModuleType
 export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleType> extends ModuleHooks<
     CommandModuleArguments<K>,
     unknown,
-    CommandModuleContext<K>
+    CommandModuleHookContext<K>
 > {
     /** @defaultBehavior Alias for `onError`. */
-    onUsedWhenDisabled?(ctx: CommandModuleContext<K>): Promise<void>;
+    onUsedWhenDisabled?(ctx: CommandModuleHookContext<K>): Promise<void>;
     /** @defaultBehavior Alias for `onError`. */
-    onPermissionTestFail?(ctx: CommandModuleContext<K>): Promise<void>;
+    onPermissionTestFail?(ctx: CommandModuleHookContext<K>): Promise<void>;
 }
+
+export type CommandModuleExecuteContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
+    CommandModuleArguments<K>
+> &
+    CommandModuleParameters<K>;
 
 export abstract class AbstractCommandModule<K extends CommandModuleType = CommandModuleType> extends AbstractModule<
     CommandModuleArguments<K>,
     unknown,
-    CommandModuleContext<K>,
+    CommandModuleHookContext<K>,
     CommandModuleHooks<K>
 > {
     abstract readonly type: K;
@@ -105,31 +110,32 @@ export abstract class AbstractCommandModule<K extends CommandModuleType = Comman
         this.hooks = options.hooks ?? {};
     }
 
-    protected override createContext(args: CommandModuleArguments<K>): CommandModuleContext<K> {
+    protected override createContext(args: CommandModuleArguments<K>): CommandModuleHookContext<K> {
         const ctx = super.createContext(args);
         const source = args[0];
 
         if (this.type === CommandModuleType.Prefix) {
-            return { ...ctx, message: source as Message } as unknown as CommandModuleContext<K>;
+            return { ...ctx, message: source as Message } as unknown as CommandModuleHookContext<K>;
         }
 
         return {
             ...ctx,
             interaction: source as ChatInputCommandInteraction | ContextMenuCommandInteraction
-        } as unknown as CommandModuleContext<K>;
+        } as unknown as CommandModuleHookContext<K>;
     }
 
     // --- Tests & Rules ---
-    protected async testPermissions(ctx: CommandModuleContext<K>): Promise<PermissionTestResult> {
+    protected async testPermissions(ctx: CommandModuleHookContext<K>): Promise<PermissionTestResult> {
         return testCommandPermissions(ctx, this.permissions);
     }
 
-    protected override async performTests(ctx: CommandModuleContext<K>): Promise<boolean> {
+    protected override async performTests(ctx: CommandModuleHookContext<K>): Promise<boolean> {
         if (!this.enabled) {
             await this.runHook("onUsedWhenDisabled", ctx, () => this.runHook("onError", ctx));
             return false;
         }
 
+        // testDeployment -> testConditions
         const superPassed = await super.performTests(ctx);
         if (!superPassed) return false;
 

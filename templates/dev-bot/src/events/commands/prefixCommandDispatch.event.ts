@@ -2,7 +2,7 @@ import { EventModule } from "vimcord";
 
 export default new EventModule({
     event: "messageCreate",
-    name: "Commands:PrefixDispatch",
+    name: "CommandDispatch:Prefix",
     metadata: {
         category: ["Commands"],
         tags: ["prefix"]

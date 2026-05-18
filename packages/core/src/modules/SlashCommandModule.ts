@@ -4,7 +4,7 @@ import type {
     SlashCommandOptionsOnlyBuilder,
     SlashCommandSubcommandsOnlyBuilder
 } from "discord.js";
-import type { AppCommandModuleOptions, CommandModuleContext } from "@/abstracts/AbstractCommandModule.js";
+import type { AppCommandModuleOptions, CommandModuleHookContext } from "@/abstracts/AbstractCommandModule.js";
 
 import { SlashCommandBuilder as DiscordSlashCommandBuilder } from "discord.js";
 import { dynaSend, SendMethod } from "@vimcord/ux";
@@ -18,7 +18,7 @@ export type SlashCommandBuilder =
 export interface SlashCommandRoute {
     /** Subcommand route path. Use `group:subcommand` for grouped subcommands. */
     path: string;
-    handler(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
+    handler(ctx: CommandModuleHookContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
 }
 
 export type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.Slash>, "name" | "execute"> & {
@@ -27,11 +27,12 @@ export type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModu
     deferReply?: boolean | { ephemeral?: boolean };
     execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
     routes?: SlashCommandRoute[];
-    onUnknownRoute?(ctx: CommandModuleContext<CommandModuleType.Slash>, path: string): Promise<unknown> | unknown;
+    onUnknownRoute?(ctx: CommandModuleHookContext<CommandModuleType.Slash>, path: string): Promise<unknown> | unknown;
 };
 
 export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Slash> {
     override type: CommandModuleType.Slash = CommandModuleType.Slash;
+    override moduleType: string = "Command:Slash";
     readonly builder: SlashCommandBuilder;
     readonly deferReply: boolean | { ephemeral?: boolean };
     readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
@@ -92,7 +93,7 @@ function resolveDeferReplyOptions(deferReply: SlashCommandModule["deferReply"]):
 }
 
 async function handleExecution(
-    ctx: CommandModuleContext<CommandModuleType.Slash>,
+    ctx: CommandModuleHookContext<CommandModuleType.Slash>,
     options: {
         deferReply: SlashCommandModule["deferReply"];
         routes: Map<string, SlashCommandRoute["handler"]>;

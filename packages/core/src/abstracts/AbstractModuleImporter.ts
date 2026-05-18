@@ -33,6 +33,7 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
     abstract clear(): void;
 
     abstract get(id: string): T | undefined;
+    abstract getAll(): T[];
 
     protected getIndex(index: K, key: string, isArray?: false): T;
     protected getIndex(index: K, key: string, isArray: true): T[];

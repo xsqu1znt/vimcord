@@ -36,7 +36,7 @@ export abstract class BaseCommandManager<
         return this.modules.get(id);
     }
 
-    getAll(options: CommandFilter = {}): T[] {
+    override getAll(options: CommandFilter = {}): T[] {
         return Array.from(this.modules.values()).filter(command => {
             if (options.names?.length && !options.names.includes(command.name)) return false;
             if (options.category && !command.metadata.category?.includes(options.category)) return false;

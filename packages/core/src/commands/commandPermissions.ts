@@ -7,7 +7,7 @@ import type {
     User,
     UserResolvable
 } from "discord.js";
-import type { CommandModuleContext, CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
+import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
 import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
 import type { StaffGlobals } from "@/client/globals.js";
 
@@ -76,7 +76,7 @@ export type PermissionTestResult =
       });
 
 export function testCommandPermissions<K extends CommandModuleType>(
-    ctx: CommandModuleContext<K>,
+    ctx: CommandModuleHookContext<K>,
     permissions: CommandModulePermissions
 ): PermissionTestResult {
     const source = "message" in ctx ? ctx.message : ctx.interaction;

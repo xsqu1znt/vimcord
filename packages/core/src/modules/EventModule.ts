@@ -28,6 +28,7 @@ export class EventModule<
     K extends keyof VimcordClientEvents = keyof VimcordClientEvents,
     Args extends VimcordClientEvents[K] = VimcordClientEvents[K]
 > extends AbstractModule<Args, void> {
+    override moduleType: string = "Event";
     readonly event: K;
     readonly once: boolean;
     readonly priority: number;
