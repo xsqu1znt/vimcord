@@ -1,5 +1,6 @@
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { $ } from "qznt";
+import { pathToFileURL } from "node:url";
 
 interface ImportedModule<T> {
     module: T;
@@ -27,7 +28,23 @@ export async function importModulesFromDir<T>(dir: string, suffix?: string | str
     const MODULE_LOG_PATH = dir;
 
     // Search the directory for event modules
-    const files = $.fs.readDir(MODULE_RELATIVE_PATH).filter(filename => isTSOrJS(filename, suffix));
+    const files = (() => {
+        if (!existsSync(MODULE_RELATIVE_PATH)) return [];
+
+        const walk = (targetDir: string, base = ""): string[] => {
+            return readdirSync(targetDir, { withFileTypes: true }).flatMap(entry => {
+                const relativePath = base ? path.join(base, entry.name) : entry.name;
+                const fullPath = path.join(targetDir, entry.name);
+
+                if (entry.isDirectory()) return walk(fullPath, relativePath);
+                if (entry.isFile()) return [relativePath];
+
+                return [];
+            });
+        };
+
+        return walk(MODULE_RELATIVE_PATH);
+    })().filter(filename => isTSOrJS(filename, suffix));
     if (!files.length) return [];
 
     // Import the modules found in the given directory
@@ -36,22 +53,22 @@ export async function importModulesFromDir<T>(dir: string, suffix?: string | str
             const modulePath = path.join(MODULE_RELATIVE_PATH, fn);
             const logPath = `./${path.join(MODULE_LOG_PATH, fn)}`;
 
-            let importedModule;
             try {
-                delete require.cache[require.resolve(modulePath)];
-                importedModule = require(modulePath);
+                const moduleUrl = pathToFileURL(modulePath);
+                moduleUrl.searchParams.set("updated", Date.now().toString());
+                const importedModule = (await import(moduleUrl.href)) as T;
+
+                return { module: importedModule, path: logPath };
             } catch (err) {
                 // Log the warning to the console
                 console.warn(`Failed to import module at '${logPath}'`, err);
-                importedModule = null;
+                return null;
             }
-
-            return { module: importedModule, path: logPath };
         })
     );
 
     // Filter out modules that failed to import and return
-    const filteredModules: ImportedModule<T>[] = modules.filter(m => m.module);
+    const filteredModules = modules.filter((m): m is ImportedModule<T> => Boolean(m));
     if (!filteredModules.length) {
         console.warn(`No valid modules were found in directory '${dir}'`);
     }

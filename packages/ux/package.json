@@ -14,9 +14,9 @@
     },
     "dependencies": {
         "@vimcord/internal": "workspace:*",
-        "discord.js": "^14.26.3"
+        "discord.js": "^14.26.4"
     },
     "devDependencies": {
-        "@types/node": "^25.5.0"
+        "@types/node": "^25.8.0"
     }
 }

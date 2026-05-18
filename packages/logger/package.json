@@ -13,10 +13,10 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "ansis": "^4.2.0",
+        "ansis": "^4.3.0",
         "unicode-animations": "^1.0.3"
     },
     "devDependencies": {
-        "@types/node": "^25.5.0"
+        "@types/node": "^25.8.0"
     }
 }
