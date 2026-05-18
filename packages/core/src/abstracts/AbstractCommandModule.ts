@@ -12,15 +12,23 @@ export enum CommandModuleType {
     Context = "Context"
 }
 
-export interface CommandModuleParameters {
-    Prefix: [message: Message];
-    Slash: [interaction: ChatInputCommandInteraction];
-    Context: [interaction: ContextMenuCommandInteraction];
-}
+export type CommandModuleParameters<K extends CommandModuleType = CommandModuleType> = K extends CommandModuleType.Prefix
+    ? { message: Message }
+    : K extends CommandModuleType.Slash
+      ? { interaction: ChatInputCommandInteraction }
+      : { interaction: ContextMenuCommandInteraction };
+
+export type CommandModuleArguments<K extends CommandModuleType = CommandModuleType> = K extends CommandModuleType.Prefix
+    ? [message: Message]
+    : K extends CommandModuleType.Slash
+      ? [interaction: ChatInputCommandInteraction]
+      : [interaction: ContextMenuCommandInteraction];
 
 export interface CommandModuleOptions<K extends CommandModuleType> extends ModuleOptions<
-    CommandModuleParameters[K],
-    unknown
+    CommandModuleArguments<K>,
+    unknown,
+    CommandModuleContext<K>,
+    CommandModuleHooks<K>
 > {
     metadata?: CommandModuleMetadata;
     /** The permissions of the module. */
@@ -61,15 +69,16 @@ export interface CommandModuleMetadata extends ModuleMetadata {
     hidden?: boolean;
 }
 
-export interface CommandModuleContext<K extends CommandModuleType = CommandModuleType> extends ModuleContext<
-    CommandModuleParameters[K],
+export type CommandModuleContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
+    CommandModuleArguments<K>,
     unknown
-> {
-    permissionTestResult?: PermissionTestResult;
-}
+> &
+    CommandModuleParameters<K> & {
+        permissionTestResult?: PermissionTestResult;
+    };
 
 export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleType> extends ModuleHooks<
-    CommandModuleParameters[K],
+    CommandModuleArguments<K>,
     unknown,
     CommandModuleContext<K>
 > {
@@ -80,8 +89,9 @@ export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleT
 }
 
 export abstract class AbstractCommandModule<K extends CommandModuleType = CommandModuleType> extends AbstractModule<
-    CommandModuleParameters[K],
+    CommandModuleArguments<K>,
     unknown,
+    CommandModuleContext<K>,
     CommandModuleHooks<K>
 > {
     abstract readonly type: K;
@@ -93,6 +103,20 @@ export abstract class AbstractCommandModule<K extends CommandModuleType = Comman
 
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
+    }
+
+    protected override createContext(args: CommandModuleArguments<K>): CommandModuleContext<K> {
+        const ctx = super.createContext(args);
+        const source = args[0];
+
+        if (this.type === CommandModuleType.Prefix) {
+            return { ...ctx, message: source as Message } as unknown as CommandModuleContext<K>;
+        }
+
+        return {
+            ...ctx,
+            interaction: source as ChatInputCommandInteraction | ContextMenuCommandInteraction
+        } as unknown as CommandModuleContext<K>;
     }
 
     // --- Tests & Rules ---

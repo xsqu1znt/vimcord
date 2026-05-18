@@ -1,4 +1,4 @@
-import { EventModule } from "@vimcord/core";
+import { EventModule } from "vimcord";
 
 export default new EventModule({
     event: "interactionCreate",
@@ -8,7 +8,7 @@ export default new EventModule({
         tags: ["slash", "context"]
     },
 
-    async execute(client, interaction) {
+    async execute({ client, args: [interaction] }) {
         await client.modules.commands.dispatchInteraction(interaction);
     }
 });

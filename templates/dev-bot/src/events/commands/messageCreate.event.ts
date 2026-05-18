@@ -1,6 +1,4 @@
-import { EventModule } from "@vimcord/core";
-
-const PREFIX = "!";
+import { EventModule } from "vimcord";
 
 export default new EventModule({
     event: "messageCreate",
@@ -10,7 +8,8 @@ export default new EventModule({
         tags: ["prefix"]
     },
 
-    async execute(client, message) {
+    async execute({ client, args: [message] }) {
+        const PREFIX = ";";
         await client.modules.commands.dispatchMessage(message, PREFIX);
     }
 });

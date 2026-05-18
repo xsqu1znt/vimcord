@@ -1,5 +1,4 @@
-import { PrefixCommandModule } from "@vimcord/core";
-import { dynaSend } from "@vimcord/ux";
+import { PrefixCommandModule } from "vimcord/dist/index.js";
 
 export default new PrefixCommandModule({
     name: "ping",
@@ -9,6 +8,7 @@ export default new PrefixCommandModule({
         category: ["Testing"],
         tags: ["prefix", "hooks"]
     },
+
     hooks: {
         postExecute(ctx) {
             ctx.client.logger.debugVerbose(`[DevBot] Prefix command '${ctx.module.name}' completed`);
@@ -16,11 +16,9 @@ export default new PrefixCommandModule({
         }
     },
 
-    async execute(client, message) {
+    async execute({ client, message }) {
         const latency = client.ws.ping;
 
-        await dynaSend(message, {
-            content: `Pong. WebSocket latency: ${latency}ms.`
-        });
+        await message.reply({ content: `Pong. WebSocket latency: ${latency}ms.` });
     }
 });

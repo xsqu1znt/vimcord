@@ -13,6 +13,7 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "@vimcord/core": "workspace:*"
+        "@vimcord/core": "workspace:*",
+        "@vimcord/ux": "workspace:*"
     }
 }

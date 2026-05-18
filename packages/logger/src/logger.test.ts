@@ -135,7 +135,7 @@ async function runLogTest(): Promise<void> {
 }
 
 async function runBannerTest(): Promise<void> {
-    await logger.banner({
+    /* await logger.banner({
         name: "My Amazing Bot",
         version: "1.0.0",
         poweredBy: "Powered by Vimcord v2.0.0",
@@ -151,7 +151,7 @@ async function runBannerTest(): Promise<void> {
         ]
     });
 
-    await runLogTest().catch(console.error);
+    await runLogTest().catch(console.error); */
 }
 
 runBannerTest().catch(console.error);

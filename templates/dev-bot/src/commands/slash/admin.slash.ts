@@ -1,5 +1,4 @@
-import { SlashCommandModule } from "@vimcord/core";
-import { dynaSend } from "@vimcord/ux";
+import { SlashCommandModule } from "vimcord/dist/index.js";
 
 export default new SlashCommandModule({
     builder: builder =>
@@ -27,31 +26,32 @@ export default new SlashCommandModule({
                             )
                     )
             ),
+
     deferReply: { ephemeral: true },
     metadata: {
         category: ["Testing"],
         tags: ["slash", "routes", "deferReply"]
     },
+
     routes: [
         {
             path: "user:ban",
-            async handler(_client, interaction) {
+            async handler({ interaction }) {
                 const target = interaction.options.getUser("target");
 
-                await dynaSend(interaction, {
-                    content: `Route \`user:ban\` resolved.${target ? ` Target: ${target.tag}.` : ""}`,
-                    flags: "Ephemeral"
+                await interaction.editReply({
+                    content: `Route \`user:ban\` resolved.${target ? ` Target: ${target.tag}.` : ""}`
                 });
             }
         },
+
         {
             path: "user:info",
-            async handler(_client, interaction) {
+            async handler({ interaction }) {
                 const target = interaction.options.getUser("target", true);
 
-                await dynaSend(interaction, {
-                    content: `Route \`user:info\` resolved for ${target.tag} (${target.id}).`,
-                    flags: "Ephemeral"
+                await interaction.editReply({
+                    content: `Route \`user:info\` resolved for ${target.tag} (${target.id}).`
                 });
             }
         }

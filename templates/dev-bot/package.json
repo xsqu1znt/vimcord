@@ -23,9 +23,7 @@
         "typescript": "^6.0.2"
     },
     "dependencies": {
-        "@vimcord/core": "workspace:*",
         "@vimcord/plugin-dotenv": "workspace:*",
-        "@vimcord/ux": "workspace:*",
         "discord.js": "^14.26.3",
         "vimcord": "workspace:*"
     }

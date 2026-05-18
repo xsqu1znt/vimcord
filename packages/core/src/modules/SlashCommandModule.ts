@@ -4,8 +4,7 @@ import type {
     SlashCommandOptionsOnlyBuilder,
     SlashCommandSubcommandsOnlyBuilder
 } from "discord.js";
-import type { AppCommandModuleOptions } from "@/abstracts/AbstractCommandModule.js";
-import type { Vimcord } from "@/client/Vimcord.js";
+import type { AppCommandModuleOptions, CommandModuleContext } from "@/abstracts/AbstractCommandModule.js";
 
 import { SlashCommandBuilder as DiscordSlashCommandBuilder } from "discord.js";
 import { dynaSend, SendMethod } from "@vimcord/ux";
@@ -19,7 +18,7 @@ export type SlashCommandBuilder =
 export interface SlashCommandRoute {
     /** Subcommand route path. Use `group:subcommand` for grouped subcommands. */
     path: string;
-    handler(client: Vimcord<true>, interaction: ChatInputCommandInteraction): Promise<unknown> | unknown;
+    handler(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
 }
 
 export type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.Slash>, "name" | "execute"> & {
@@ -28,11 +27,7 @@ export type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModu
     deferReply?: boolean | { ephemeral?: boolean };
     execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
     routes?: SlashCommandRoute[];
-    onUnknownRoute?(
-        client: Vimcord<true>,
-        interaction: ChatInputCommandInteraction,
-        path: string
-    ): Promise<unknown> | unknown;
+    onUnknownRoute?(ctx: CommandModuleContext<CommandModuleType.Slash>, path: string): Promise<unknown> | unknown;
 };
 
 export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Slash> {
@@ -55,8 +50,8 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         super({
             ...options,
             name: options.name ?? commandData.name,
-            execute: async (client, interaction) =>
-                handleExecution(client, interaction, {
+            execute: async ctx =>
+                handleExecution(ctx, {
                     deferReply: options.deferReply ?? false,
                     routes,
                     onUnknownRoute: options.onUnknownRoute,
@@ -97,8 +92,7 @@ function resolveDeferReplyOptions(deferReply: SlashCommandModule["deferReply"]):
 }
 
 async function handleExecution(
-    client: Vimcord<true>,
-    interaction: ChatInputCommandInteraction,
+    ctx: CommandModuleContext<CommandModuleType.Slash>,
     options: {
         deferReply: SlashCommandModule["deferReply"];
         routes: Map<string, SlashCommandRoute["handler"]>;
@@ -106,6 +100,8 @@ async function handleExecution(
         execute: SlashCommandModuleOptions["execute"];
     }
 ): Promise<unknown> {
+    const { interaction } = ctx;
+
     if (options.deferReply && !interaction.replied && !interaction.deferred) {
         await interaction.deferReply(resolveDeferReplyOptions(options.deferReply));
     }
@@ -113,12 +109,12 @@ async function handleExecution(
     const routePath = createInteractionRoutePath(interaction);
     if (routePath) {
         const handler = options.routes.get(routePath);
-        if (handler) return handler(client, interaction);
-        if (options.onUnknownRoute) return options.onUnknownRoute(client, interaction, routePath);
+        if (handler) return handler(ctx);
+        if (options.onUnknownRoute) return options.onUnknownRoute(ctx, routePath);
         return replyUnknownRoute(interaction, routePath);
     }
 
-    return options.execute?.(client, interaction);
+    return options.execute?.(ctx);
 }
 
 async function replyUnknownRoute(interaction: ChatInputCommandInteraction, path: string): Promise<void> {

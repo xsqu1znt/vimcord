@@ -6,11 +6,9 @@ import { ModuleError } from "@/errors/ModuleError.js";
 export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends true
     ? { passed: true }
     : { passed: false; reason: string; error?: Error };
-export type ModuleConditionFn<Args extends any[] = any[]> = (
-    ctx: ModuleContext<Args>
-) => Promise<ModuleTestResult> | ModuleTestResult;
+export type ModuleConditionFn<CTX = ModuleContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
 
-export interface ModuleContext<Args extends any[] = any[], ExecuteResult = unknown> {
+export interface ModuleContext<Args extends unknown[] = unknown[], ExecuteResult = unknown> {
     module: AbstractModule<Args, ExecuteResult>;
     client: Vimcord<true>;
     args: Args;
@@ -22,9 +20,10 @@ export interface ModuleContext<Args extends any[] = any[], ExecuteResult = unkno
 
 // --- Module Options ---
 export interface ModuleOptions<
-    Args extends any[] = any[],
+    Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
-    Hooks extends ModuleHooks<Args, ExecuteResult> = ModuleHooks<Args, ExecuteResult>
+    CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
+    Hooks extends ModuleHooks<Args, ExecuteResult, CTX> = ModuleHooks<Args, ExecuteResult, CTX>
 > {
     /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
     customId?: string;
@@ -47,14 +46,14 @@ export interface ModuleOptions<
     /** The deployment rules of the module. */
     deployment?: ModuleDeploymentRules;
     /** The condition rules of the module. Conditions are tested in the order they are defined. */
-    conditions?: ModuleConditionFn<Args>[];
+    conditions?: ModuleConditionFn<CTX>[];
 
     // --- Hooks ---
     /** The hooks of the module. */
     hooks?: Hooks;
 
     // --- Main ---
-    execute(client: Vimcord<true>, ...args: Args): Promise<ExecuteResult>;
+    execute(ctx: CTX): Promise<ExecuteResult>;
 }
 
 export interface ModuleMetadata {
@@ -74,7 +73,7 @@ export interface ModuleDeploymentRules {
 }
 
 export interface ModuleHooks<
-    Args extends any[] = any[],
+    Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
     CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>
 > {
@@ -92,9 +91,10 @@ export interface ModuleHooks<
 
 // --- Abstract Module ---
 export abstract class AbstractModule<
-    Args extends any[] = any[],
+    Args extends unknown[] = unknown[],
     ExecuteResult = unknown,
-    Hooks extends ModuleHooks<Args, ExecuteResult> = ModuleHooks<Args, ExecuteResult>
+    CTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
+    Hooks extends ModuleHooks<Args, ExecuteResult, CTX> = ModuleHooks<Args, ExecuteResult, CTX>
 > {
     readonly client: Vimcord | null = null;
 
@@ -105,12 +105,12 @@ export abstract class AbstractModule<
     readonly enabled: boolean;
     readonly requiresReady: boolean;
     readonly deployment: ModuleDeploymentRules;
-    readonly conditions: ModuleConditionFn<Args>[];
+    readonly conditions: ModuleConditionFn<CTX>[];
     readonly hooks: Hooks;
 
-    protected readonly execute: (client: Vimcord<true>, ...args: Args) => Promise<ExecuteResult>;
+    protected readonly execute: (ctx: CTX) => Promise<ExecuteResult>;
 
-    constructor(options: ModuleOptions<Args, ExecuteResult, Hooks>) {
+    constructor(options: ModuleOptions<Args, ExecuteResult, CTX, Hooks>) {
         const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
@@ -145,7 +145,7 @@ export abstract class AbstractModule<
     }
 
     // --- Tests & Rules ---
-    protected async testDeployment(ctx: ModuleContext<Args, ExecuteResult>): Promise<ModuleTestResult> {
+    protected async testDeployment(ctx: CTX): Promise<ModuleTestResult> {
         if (this.deployment.environment === "both") {
             return { passed: true };
         }
@@ -159,7 +159,7 @@ export abstract class AbstractModule<
         return { passed: true };
     }
 
-    protected async testConditions(ctx: ModuleContext<Args, ExecuteResult>): Promise<ModuleTestResult> {
+    protected async testConditions(ctx: CTX): Promise<ModuleTestResult> {
         if (!this.conditions.length) {
             return { passed: true };
         }
@@ -189,7 +189,7 @@ export abstract class AbstractModule<
      *
      * `testConditions` -> `hook:onConditionTestFail`
      */
-    protected async performTests(ctx: ModuleContext<Args, ExecuteResult>): Promise<boolean> {
+    protected async performTests(ctx: CTX): Promise<boolean> {
         if (!this.enabled) return false;
 
         const deploymentTestResult = await this.testDeployment(ctx);
@@ -223,14 +223,22 @@ export abstract class AbstractModule<
         return true;
     }
 
+    protected createContext(args: Args): CTX {
+        return { module: this, client: this.client as Vimcord<true>, args } as unknown as CTX;
+    }
+
+    protected executeWithContext(ctx: CTX): Promise<ExecuteResult> {
+        return this.execute(ctx);
+    }
+
     /** Runs a hook with relevant context and an optional fallback. */
-    protected async runHook<K extends keyof Hooks, CTX extends ModuleContext<Args, ExecuteResult>>(
+    protected async runHook<K extends keyof Hooks, HookContext extends CTX>(
         hook: K,
-        ctx: CTX,
-        fallback?: (ctx: CTX) => Promise<void>
+        ctx: HookContext,
+        fallback?: (ctx: HookContext) => Promise<void>
     ): Promise<void> {
         if (!(await this.checkInjection())) return;
-        const hookFn = this.hooks[hook] as ((ctx: CTX) => Promise<void>) | undefined;
+        const hookFn = this.hooks[hook] as ((ctx: HookContext) => Promise<void>) | undefined;
 
         try {
             if (hookFn) {
@@ -265,7 +273,7 @@ export abstract class AbstractModule<
      */
     async run(...args: Args): Promise<ExecuteResult | undefined> {
         if (!(await this.checkInjection())) return;
-        const ctx: ModuleContext<Args, ExecuteResult> = { module: this, client: this.client as Vimcord<true>, args };
+        const ctx = this.createContext(args);
 
         try {
             const valid = this.validate();
@@ -284,7 +292,7 @@ export abstract class AbstractModule<
             }
 
             const debug_execute_start = Date.now();
-            const executeResult = await this.execute(this.client as Vimcord<true>, ...args);
+            const executeResult = await this.executeWithContext(ctx);
             const debug_execute_end = Date.now();
             this.client?.logger.debugVerbose(
                 `[Module] Executed '${this.name}' (${this.id}) in ${debug_execute_end - debug_execute_start}ms`

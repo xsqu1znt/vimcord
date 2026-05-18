@@ -1,10 +1,10 @@
-import { EventModule } from "@vimcord/core";
+import { EventModule } from "vimcord";
 
 export default new EventModule({
     event: "clientReady",
     name: "Ready:LoadedModules",
 
-    async execute(client) {
+    async execute({ client }) {
         const slashCommands = client.modules.commands.slash.getAll().length;
         const prefixCommands = client.modules.commands.prefix.getAll().length;
         const contextCommands = client.modules.commands.context.getAll().length;

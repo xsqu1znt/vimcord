@@ -79,7 +79,7 @@ export function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleContext<K>,
     permissions: CommandModulePermissions
 ): PermissionTestResult {
-    const source = ctx.args[0];
+    const source = "message" in ctx ? ctx.message : ctx.interaction;
     const guild = source.guild;
     const member = source.member as GuildMember | null;
     const user = "author" in source ? source.author : source.user;

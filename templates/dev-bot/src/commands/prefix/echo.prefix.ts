@@ -1,5 +1,4 @@
-import { PrefixCommandModule } from "@vimcord/core";
-import { dynaSend } from "@vimcord/ux";
+import { PrefixCommandModule } from "vimcord/dist/index.js";
 
 export default new PrefixCommandModule({
     name: "echo",
@@ -10,11 +9,9 @@ export default new PrefixCommandModule({
         tags: ["prefix", "dynaSend"]
     },
 
-    async execute(_client, message) {
+    async execute({ message }) {
         const content = message.content.split(/\s+/).slice(1).join(" ").trim();
 
-        await dynaSend(message, {
-            content: content || "Nothing to echo."
-        });
+        message.reply({ content: content || "Nothing to echo." });
     }
 });

@@ -1,5 +1,4 @@
-import { SlashCommandModule } from "@vimcord/core";
-import { dynaSend } from "@vimcord/ux";
+import { dynaSend, SlashCommandModule } from "vimcord";
 
 export default new SlashCommandModule({
     builder: builder => builder.setName("ping").setDescription("Checks slash command dispatch and deferred replies."),
@@ -9,7 +8,7 @@ export default new SlashCommandModule({
         tags: ["slash", "dynaSend", "deferReply"]
     },
 
-    async execute(client, interaction) {
+    async execute({ client, interaction }) {
         await dynaSend(interaction, {
             content: `Pong. WebSocket latency: ${client.ws.ping}ms.`,
             flags: "Ephemeral"
