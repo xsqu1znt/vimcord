@@ -11,8 +11,8 @@ export enum CommandModuleType {
 interface CommandTypeMap {
     [CommandModuleType.Prefix]: {
         args: [message: Message];
-        params: { message: Message };
         contextExtras: {
+            message: Message;
             messageContent: string;
             splitContent: (options?: { separator?: string; lowercase?: boolean; uppercase?: boolean }) => string[];
             prefixUsed: string;
@@ -22,28 +22,25 @@ interface CommandTypeMap {
     };
     [CommandModuleType.Slash]: {
         args: [interaction: ChatInputCommandInteraction];
-        params: { interaction: ChatInputCommandInteraction };
-        contextExtras: Record<never, never>;
+        contextExtras: { interaction: ChatInputCommandInteraction };
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
     [CommandModuleType.Context]: {
         args: [interaction: ContextMenuCommandInteraction];
-        params: { interaction: ContextMenuCommandInteraction };
-        contextExtras: Record<never, never>;
+        contextExtras: { interaction: ContextMenuCommandInteraction };
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
 }
 
-export type CommandModuleParams<T extends CommandModuleType> = CommandTypeMap[T]["params"];
 export type CommandModuleArgs<T extends CommandModuleType> = CommandTypeMap[T]["args"];
 
-export type CommandModuleContext<T extends CommandModuleType> = ModuleContext<CommandModuleArgs<T>> &
-    CommandTypeMap[T]["contextExtras"];
-export type CommandModuleHookContext<T extends CommandModuleType> = ModuleHookContext<CommandModuleArgs<T>> & {
-    permissionTestResult?: PermissionTestResult;
-} & CommandTypeMap[T]["hookContextExtras"];
+export type CommandModuleContext<T extends CommandModuleType> = ModuleContext & CommandTypeMap[T]["contextExtras"];
+export type CommandModuleHookContext<T extends CommandModuleType> = CommandModuleContext<T> &
+    ModuleHookContext<CommandModuleArgs<T>> & {
+        permissionTestResult?: PermissionTestResult;
+    } & CommandTypeMap[T]["hookContextExtras"];
 
 export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<CommandModuleArgs<T>> & {
     /** @defaultBehavior Alias for `onError`. */

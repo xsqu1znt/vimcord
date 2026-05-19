@@ -10,9 +10,8 @@ export type ModuleConditionFn<CTX = ModuleHookContext> = (ctx: CTX) => Promise<M
 
 // - - - - - - - - - - - - - - -
 
-export interface ModuleContext<Args extends unknown[] = unknown[]> {
+export interface ModuleContext {
     client: Vimcord<true>;
-    args: Args;
 }
 
 export interface ModuleHookContext<Args extends unknown[] = unknown[]> {
@@ -27,7 +26,7 @@ export interface ModuleHookContext<Args extends unknown[] = unknown[]> {
 // --- Module Options ---
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
-    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>,
+    ModuleCTX extends ModuleContext = ModuleContext,
     HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
     Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
@@ -102,7 +101,7 @@ export interface ModuleHooks<
 // --- Abstract Module ---
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
-    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>,
+    ModuleCTX extends ModuleContext = ModuleContext,
     HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
     Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
@@ -239,10 +238,6 @@ export abstract class AbstractModule<
         return `${this.moduleType}:${this.name}`;
     }
 
-    protected createCTX<T>(args: Args): T {
-        return { module: this, client: this.client as Vimcord<true>, args } as T;
-    }
-
     /** Runs a hook with relevant context and an optional fallback. */
     async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
         hook: K,
@@ -282,8 +277,8 @@ export abstract class AbstractModule<
      */
     async run<T>(...args: Args): Promise<T | undefined> {
         if (!(await this.checkInjection())) return;
-        const hookCTX = this.createCTX<HookCTX>(args);
-        const executeCTX = this.createCTX<ModuleCTX>(args);
+        const moduleCTX = this.createModuleCTX(args);
+        const hookCTX = this.createHookCTX(args);
 
         try {
             const valid = this.validate();
@@ -308,7 +303,7 @@ export abstract class AbstractModule<
             }
 
             const debug_execute_start = Date.now();
-            const executeResponse = await this.execute<T>(executeCTX);
+            const executeResponse = await this.execute<T>(moduleCTX);
             const debug_execute_end = Date.now();
             this.client?.logger.debugVerbose(
                 `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
@@ -334,4 +329,7 @@ export abstract class AbstractModule<
 
     /** Custom pre-check before tests are ran. */
     protected abstract validate(): boolean;
+
+    protected abstract createModuleCTX(args: Args): ModuleCTX;
+    protected abstract createHookCTX(args: Args): HookCTX;
 }
