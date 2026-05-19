@@ -1,7 +1,7 @@
 import type { ChatInputCommandInteraction, ContextMenuCommandInteraction, GuildResolvable, Message } from "discord.js";
 import type {
-    ModuleContext,
-    ModuleContext,
+    ModuleHookContext,
+    ModuleHookContext,
     ModuleHooks,
     ModuleMetadata,
     ModuleOptions
@@ -69,7 +69,7 @@ export interface CommandModuleMetadata extends ModuleMetadata {
     hidden?: boolean;
 }
 
-export type CommandModuleHookContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
+export type CommandModuleHookContext<K extends CommandModuleType = CommandModuleType> = ModuleHookContext<
     CommandModuleArguments<K>,
     unknown
 > &
@@ -88,7 +88,7 @@ export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleT
     onPermissionTestFail?(ctx: CommandModuleHookContext<K>): Promise<void>;
 }
 
-export type CommandModuleExecuteContext<K extends CommandModuleType = CommandModuleType> = ModuleContext<
+export type CommandModuleExecuteContext<K extends CommandModuleType = CommandModuleType> = ModuleHookContext<
     CommandModuleArguments<K>
 > &
     CommandModuleParameters<K>;
@@ -110,8 +110,8 @@ export abstract class AbstractCommandModule<K extends CommandModuleType = Comman
         this.hooks = options.hooks ?? {};
     }
 
-    protected override createContext(args: CommandModuleArguments<K>): CommandModuleHookContext<K> {
-        const ctx = super.createContext(args);
+    protected override createCTX(args: CommandModuleArguments<K>): CommandModuleHookContext<K> {
+        const ctx = super.createCTX(args);
         const source = args[0];
 
         if (this.type === CommandModuleType.Prefix) {

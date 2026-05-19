@@ -1,27 +1,17 @@
-import type { ModuleHooks, ModuleOptions } from "../AbstractModule.js";
-import type { CommandHookContext, CommandModuleArgs, CommandModuleType } from "./CommandModuleTypeKit.js";
+import type { ModuleMetadata } from "../AbstractModule.js";
+import type {
+    CommandModuleArgs,
+    CommandModuleContext,
+    CommandModuleHookContext,
+    CommandModuleHooks,
+    CommandModuleType
+} from "./CommandModuleTypeKit.js";
 
-export interface CommandModuleOptions<T extends CommandModuleType> extends ModuleOptions<
+import { AbstractModule } from "../AbstractModule.js";
+
+export abstract class AbstractCommandModuleV2<T extends CommandModuleType> extends AbstractModule<
     CommandModuleArgs<T>,
-    unknown,
-    CommandHookContext<T>,
+    CommandModuleContext<T>,
+    CommandModuleHookContext<T>,
     CommandModuleHooks<T>
-> {
-    metadata?: CommandModuleMetadata;
-    /** The permissions of the module. */
-    permissions?: CommandModulePermissions;
-    hooks?: CommandModuleHooks<T>;
-}
-
-export interface CommandModuleHooks<K extends CommandModuleType = CommandModuleType> extends ModuleHooks<
-    CommandModuleArgs<K>,
-    unknown,
-    CommandHookContext<K>
-> {
-    /** @defaultBehavior Alias for `onError`. */
-    onUsedWhenDisabled?(ctx: CommandModuleHookContext<K>): Promise<void>;
-    /** @defaultBehavior Alias for `onError`. */
-    onPermissionTestFail?(ctx: CommandModuleHookContext<K>): Promise<void>;
-}
-
-export abstract class AbstractCommandModuleV2<T extends CommandModuleType = CommandModuleType> {}
+> {}

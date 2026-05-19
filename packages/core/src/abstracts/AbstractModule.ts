@@ -6,30 +6,30 @@ import { ModuleError } from "@/errors/ModuleError.js";
 export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends true
     ? { passed: true }
     : { passed: false; reason: string; error?: Error };
-export type ModuleConditionFn<CTX = ModuleContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
+export type ModuleConditionFn<CTX = ModuleHookContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
 
-export interface ModuleContext<Args extends unknown[] = unknown[], ExecuteResult = unknown> {
-    module: AbstractModule<Args, ExecuteResult>;
-    client: Vimcord<true>;
-    args: Args;
-    error?: Error;
-    deploymentTestResult?: ModuleTestResult;
-    conditionTestResult?: ModuleTestResult;
-    executeResult?: ExecuteResult;
-}
+// - - - - - - - - - - - - - - -
 
 export interface ModuleContext<Args extends unknown[] = unknown[]> {
     client: Vimcord<true>;
     args: Args;
 }
 
+export interface ModuleHookContext<Args extends unknown[] = unknown[]> {
+    module: AbstractModule<Args>;
+    client: Vimcord<true>;
+    args: Args;
+    error?: Error;
+    deploymentTestResult?: ModuleTestResult;
+    conditionTestResult?: ModuleTestResult;
+}
+
 // --- Module Options ---
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
-    ExecuteResult = unknown,
-    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
-    Hooks extends ModuleHooks<Args, ExecuteResult, HookCTX> = ModuleHooks<Args, ExecuteResult, HookCTX>,
-    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>
+    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>,
+    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
+    Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
     /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
     customId?: string;
@@ -45,7 +45,7 @@ export interface ModuleOptions<
      */
     enabled?: boolean;
     /**
-     * Whether this module should wait for the client to be ready before running.
+     * Whether this module should wait for the client to be ready before being runnable.
      * @default true
      */
     requiresReady?: boolean;
@@ -59,7 +59,8 @@ export interface ModuleOptions<
     hooks?: Hooks;
 
     // --- Main ---
-    execute(ctx: ModuleCTX): Promise<ExecuteResult>;
+    /** The main function of the module. */
+    execute<T>(ctx: ModuleCTX): Promise<T>;
 }
 
 export interface ModuleMetadata {
@@ -80,8 +81,7 @@ export interface ModuleDeploymentRules {
 
 export interface ModuleHooks<
     Args extends unknown[] = unknown[],
-    ExecuteResult = unknown,
-    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>
+    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>
 > {
     /** @defaultBehavior Alias for `onError`. */
     onDeploymentTestFail?(ctx: HookCTX): Promise<void>;
@@ -90,18 +90,21 @@ export interface ModuleHooks<
     /** @defaultBehavior Does nothing. */
     onError?(ctx: HookCTX): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    preExecute?(ctx: HookCTX, next: () => void): Promise<void>;
+    preExecute?(
+        ctx: HookCTX,
+        /** Continues execution. If not called, execution halts. */
+        next: () => void
+    ): Promise<void>;
     /** @defaultBehavior Does nothing. */
-    postExecute?(ctx: HookCTX): Promise<void>;
+    postExecute?(ctx: HookCTX, executeResponse: unknown): Promise<void>;
 }
 
 // --- Abstract Module ---
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
-    ExecuteResult = unknown,
-    HookCTX extends ModuleContext<Args, ExecuteResult> = ModuleContext<Args, ExecuteResult>,
-    Hooks extends ModuleHooks<Args, ExecuteResult, HookCTX> = ModuleHooks<Args, ExecuteResult, HookCTX>,
-    ExecuteCTX extends ModuleContext<Args> = ModuleContext<Args>
+    ModuleCTX extends ModuleContext<Args> = ModuleContext<Args>,
+    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
+    Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
     readonly client: Vimcord | null = null;
 
@@ -116,9 +119,9 @@ export abstract class AbstractModule<
     readonly conditions: ModuleConditionFn<HookCTX>[];
     readonly hooks: Hooks;
 
-    protected readonly execute: (ctx: ExecuteCTX) => Promise<ExecuteResult>;
+    protected readonly execute: <T>(ctx: ModuleCTX) => Promise<T>;
 
-    constructor(options: ModuleOptions<Args, ExecuteResult, HookCTX, Hooks, ExecuteCTX>) {
+    constructor(options: ModuleOptions<Args, ModuleCTX, HookCTX, Hooks>) {
         const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
@@ -131,23 +134,6 @@ export abstract class AbstractModule<
 
         this.hooks = (hooks ?? {}) as Hooks;
         this.execute = execute;
-    }
-
-    private buildName(): string {
-        return `${this.moduleType}:${this.name}`;
-    }
-
-    private async checkInjection(): Promise<boolean> {
-        if (!this.client) {
-            console.warn(`[Module] '${this.buildName()}' is not injected`);
-            return false;
-        }
-
-        if (!this.requiresReady) return true;
-
-        const ready = await this.client.awaitReady();
-        if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
-        return ready;
     }
 
     inject(client: Vimcord): void {
@@ -235,16 +221,30 @@ export abstract class AbstractModule<
         return true;
     }
 
-    protected createContext(args: Args): HookCTX {
-        return { module: this, client: this.client as Vimcord<true>, args } as unknown as HookCTX;
+    // --- Internal Utilities ---
+    protected async checkInjection(): Promise<boolean> {
+        if (!this.client) {
+            console.warn(`[Module] '${this.buildName()}' is not injected`);
+            return false;
+        }
+
+        if (!this.requiresReady) return true;
+
+        const ready = await this.client.awaitReady();
+        if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
+        return ready;
     }
 
-    protected createExecuteContext(args: Args): ExecuteCTX {
-        return { module: this, client: this.client as Vimcord<true>, args } as unknown as ExecuteCTX;
+    protected buildName(): string {
+        return `${this.moduleType}:${this.name}`;
+    }
+
+    protected createCTX<T>(args: Args): T {
+        return { module: this, client: this.client as Vimcord<true>, args } as T;
     }
 
     /** Runs a hook with relevant context and an optional fallback. */
-    protected async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
+    async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
         hook: K,
         ctx: HookContext,
         fallback?: (ctx: HookContext) => Promise<void>
@@ -278,12 +278,12 @@ export abstract class AbstractModule<
      *
      * try:`performTests` -> `hook:preExecute` -> `execute` -> `hook:postExecute`
      *
-     * catch:`onError`
+     * catch:`hook:onError`
      */
-    async run(...args: Args): Promise<ExecuteResult | undefined> {
+    async run<T>(...args: Args): Promise<T | undefined> {
         if (!(await this.checkInjection())) return;
-        const hookCTX = this.createContext(args);
-        const executeCTX = this.createExecuteContext(args);
+        const hookCTX = this.createCTX<HookCTX>(args);
+        const executeCTX = this.createCTX<ModuleCTX>(args);
 
         try {
             const valid = this.validate();
@@ -294,7 +294,13 @@ export abstract class AbstractModule<
 
             if (this.hooks.preExecute) {
                 let next = false;
+                const debug_preExecute_start = Date.now();
                 await this.hooks.preExecute(hookCTX, () => (next = true));
+                const debug_preExecute_end = Date.now();
+                this.client?.logger.debugVerbose(
+                    `[Module] Ran hook 'preExecute' for '${this.buildName()}' in ${debug_preExecute_end - debug_preExecute_start}ms`
+                );
+
                 if (!next) {
                     this.client?.logger.debugVerbose(`[Module] preExecute halted execution for '${this.buildName()}'`);
                     return;
@@ -302,16 +308,22 @@ export abstract class AbstractModule<
             }
 
             const debug_execute_start = Date.now();
-            const executeResult = await this.execute(executeCTX);
+            const executeResponse = await this.execute<T>(executeCTX);
             const debug_execute_end = Date.now();
             this.client?.logger.debugVerbose(
                 `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
             );
 
-            hookCTX.executeResult = executeResult;
-            await this.runHook("postExecute", hookCTX);
+            if (this.hooks.postExecute) {
+                const debug_postExecute_start = Date.now();
+                await this.hooks.postExecute(hookCTX, executeResponse);
+                const debug_postExecute_end = Date.now();
+                this.client?.logger.debugVerbose(
+                    `[Module] Ran hook 'postExecute' for '${this.buildName()}' in ${debug_postExecute_end - debug_postExecute_start}ms`
+                );
+            }
 
-            return executeResult;
+            return executeResponse;
         } catch (err) {
             hookCTX.error = err as Error;
             await this.runHook("onError", hookCTX, async () =>
