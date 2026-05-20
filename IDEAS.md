@@ -25,3 +25,5 @@ Make sure packages only export public facing.
 `MongoSchemaBuilder` should introduce collision tests, so you pass in a function you want to generate an ID for example, and it'll retry (with configurable attempts) if it hits a collision.
 
 A way to pass context from execute to `afterExecute`.
+
+A helper for prefix command subcommands and subgroups.

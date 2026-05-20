@@ -21,6 +21,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     abstract readonly type: T;
     protected readonly permissions: CommandModulePermissions;
     override readonly hooks: CommandModuleHooks<T>;
+    readonly description?: string;
 
     constructor(options: CommandModuleOptions<T>) {
         super(options);

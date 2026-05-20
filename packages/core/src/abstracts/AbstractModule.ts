@@ -34,7 +34,9 @@ export interface ModuleOptions<
     customId?: string;
     /** The name of the module. */
     name: string;
-    /** The metadata of the module. */
+    /** Optional description of the module. */
+    description?: string;
+    /** Optional metadata of the module. */
     metadata?: ModuleMetadata;
 
     // --- Tests & Rules ---
@@ -48,13 +50,13 @@ export interface ModuleOptions<
      * @default true
      */
     requiresReady?: boolean;
-    /** The deployment rules of the module. */
+    /** Optional deployment rules of the module. */
     deployment?: ModuleDeploymentRules;
-    /** The condition rules of the module. Conditions are tested in the order they are defined. */
+    /** Optional condition rules of the module. Conditions are tested in the order they are defined. */
     conditions?: ModuleConditionFn<HookCTX>[];
 
     // --- Hooks ---
-    /** The hooks of the module. */
+    /** Optional hooks of the module. */
     hooks?: Hooks;
 
     // --- Main ---

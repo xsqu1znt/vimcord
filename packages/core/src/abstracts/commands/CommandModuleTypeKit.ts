@@ -1,4 +1,13 @@
-import type { ChatInputCommandInteraction, ContextMenuCommandInteraction, GuildResolvable, Message } from "discord.js";
+import type {
+    ChatInputCommandInteraction,
+    ContextMenuCommandBuilder,
+    ContextMenuCommandInteraction,
+    GuildResolvable,
+    Message,
+    SlashCommandBuilder,
+    SlashCommandOptionsOnlyBuilder,
+    SlashCommandSubcommandsOnlyBuilder
+} from "discord.js";
 import type { CommandModulePermissions, PermissionTestResult } from "@/commands/commandPermissions.js";
 import type { ModuleContext, ModuleHookContext, ModuleHooks, ModuleMetadata, ModuleOptions } from "../AbstractModule.js";
 
@@ -9,8 +18,13 @@ export enum CommandModuleType {
 }
 
 interface CommandTypeMap {
+    // Prefix Command
     [CommandModuleType.Prefix]: {
         args: [message: Message];
+        optionExtras: {
+            aliases?: string[];
+            description?: string;
+        };
         contextExtras: {
             message: Message;
             messageContent: string;
@@ -20,14 +34,34 @@ interface CommandTypeMap {
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
+
+    // Slash Command
     [CommandModuleType.Slash]: {
         args: [interaction: ChatInputCommandInteraction];
+        optionExtras: AppCommandModuleOptionExtras & {
+            builder:
+                | SlashCommandBuilder
+                | ((
+                      builder: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder
+                  ) => SlashCommandBuilder);
+            routes?: SlashCommandModuleRoute[];
+        };
         contextExtras: { interaction: ChatInputCommandInteraction };
         hookContextExtras: Record<never, never>;
-        hookExtras: Record<never, never>;
+        hookExtras: {
+            onUnknownRoute?(
+                ctx: CommandModuleHookContext<CommandModuleType.Slash>,
+                path: string
+            ): Promise<unknown> | unknown;
+        };
     };
+
+    // Context Command
     [CommandModuleType.Context]: {
         args: [interaction: ContextMenuCommandInteraction];
+        optionExtras: AppCommandModuleOptionExtras & {
+            builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
+        };
         contextExtras: { interaction: ContextMenuCommandInteraction };
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
@@ -60,7 +94,7 @@ export type CommandModuleOptions<T extends CommandModuleType> = ModuleOptions<
     /** The permissions of the module. */
     permissions?: CommandModulePermissions;
     hooks?: CommandModuleHooks<T>;
-};
+} & CommandTypeMap[T]["optionExtras"];
 
 export interface CommandModuleMetadata extends ModuleMetadata {
     /**
@@ -80,11 +114,16 @@ export interface CommandModuleMetadata extends ModuleMetadata {
 }
 
 // --- App Command Module Types ---
-export interface AppCommandModuleOptions<K extends CommandModuleType> extends CommandModuleOptions<K> {
+export type AppCommandModuleOptions<T extends CommandModuleType> = Omit<CommandModuleOptions<T>, "name" | "description">;
+
+interface AppCommandModuleOptionExtras {
+    /** Defer the reply. */
+    deferReply?: boolean | { flags?: "Ephemeral" };
+    /** Client command registration rules. */
     registration?: AppCommandRegistrationRules;
 }
 
-export interface AppCommandRegistrationRules {
+interface AppCommandRegistrationRules {
     /** Only register this command to these guilds.
      * @remarks This only applies when registering locally.
      */
@@ -94,4 +133,13 @@ export interface AppCommandRegistrationRules {
      * @default true
      */
     global?: boolean;
+}
+
+// --- Slash Command Module Types ---
+export interface SlashCommandModuleRoute {
+    /** Subcommand route path. Use `group:subcommand` for grouped subcommands. */
+    path: string;
+    deferReply?: AppCommandModuleOptionExtras["deferReply"];
+    /** Slash command route handler. This is what gets executed. */
+    handler(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
 }
