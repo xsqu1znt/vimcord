@@ -119,7 +119,7 @@ export type AppCommandModuleOptions<T extends CommandModuleType> = Omit<CommandM
 interface AppCommandModuleOptionExtras {
     /** Defer the reply. */
     deferReply?: boolean | { flags?: "Ephemeral" };
-    /** Client command registration rules. */
+    /** Client command registration rules. Global is `true` by default. */
     registration?: AppCommandRegistrationRules;
 }
 

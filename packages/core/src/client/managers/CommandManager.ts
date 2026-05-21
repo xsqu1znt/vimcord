@@ -5,7 +5,7 @@ import type {
     Message,
     RESTPostAPIApplicationCommandsJSONBody
 } from "discord.js";
-import type { CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
+import type { CommandModuleType } from "@/abstracts/index.js";
 import type { ModuleImportOptions } from "@/client/index.js";
 import type { ContextCommandModule, PrefixCommandModule, SlashCommandModule } from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
@@ -87,7 +87,7 @@ export class CommandManager {
 
         const commands = this.getAllAppCommands(options)
             .filter(command => command.registration.global !== false)
-            .map(command => command.toApplicationCommandData());
+            .map(command => command.builder.toJSON());
         if (!commands.length) {
             client.logger.info("[CommandManager] No app commands to register globally");
             return;
@@ -115,7 +115,7 @@ export class CommandManager {
         const client = await this.getReadyClient("register app commands by guild");
         if (!client) return;
 
-        const commands = this.getAllAppCommands(options).map(command => command.toApplicationCommandData());
+        const commands = this.getAllAppCommands(options).map(command => command.builder.toJSON());
         if (!commands.length) {
             client.logger.info("[CommandManager] No app commands to register by guild");
             return;

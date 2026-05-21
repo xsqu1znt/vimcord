@@ -1,15 +1,15 @@
-import type { AppCommandModuleOptions } from "@/abstracts/index.js";
+import type { AppCommandModuleOptions, CommandModuleContext } from "@/abstracts/index.js";
 
 import { ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 
 type ContextCommandModuleOptions = AppCommandModuleOptions<CommandModuleType.Context>;
 
-export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Context> {
+export class ContextCommandModule extends AbstractCommandModule<CommandModuleType.Context> {
     override type: CommandModuleType.Context = CommandModuleType.Context;
     override moduleType: string = "Command:Context";
 
-    readonly builder: ContextCommandModuleOptions["builder"];
+    readonly builder: ContextMenuCommandBuilder;
     readonly deferReply: ContextCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<ContextCommandModuleOptions["registration"]>;
 
@@ -22,17 +22,20 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         this.deferReply = options.deferReply;
         this.registration = { global: true, ...options.registration };
 
-        /* super({
-            ...options,
-            name: options.name ?? commandData.name,
-            execute: async ctx =>
-                handleExecution(ctx, {
-                    deferReply: options.deferReply ?? false,
-                    routes,
-                    onUnknownRoute: options.onUnknownRoute,
-                    execute: originalExecute
-                })
-        }); */
+        // Intercept execute to implement deferReply handling
+        // NOTE: We're casting `this` to any because `execute` is readonly
+        // NOTE: readonly is just a type guard, there's no JavaScript runtime check
+        (this as any).execute = async (ctx: CommandModuleContext<CommandModuleType.Context>) => {
+            const { interaction } = ctx;
+
+            // Defer the interaction if needed
+            if (options.deferReply && !interaction.replied && !interaction.deferred) {
+                await interaction.deferReply(typeof options.deferReply === "boolean" ? undefined : options.deferReply);
+            }
+
+            // Run the original execute
+            return await options.execute?.(ctx);
+        };
     }
 
     protected override validate(): boolean {

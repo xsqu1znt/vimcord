@@ -1,6 +1,6 @@
-import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
+import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
 
-import { getDevMode, getPackageJson } from "@vimcord/internal/dist/index.js";
+import { getDevMode, getPackageJson } from "@vimcord/internal";
 
 export interface VimcordGlobals {
     /** App globals. */

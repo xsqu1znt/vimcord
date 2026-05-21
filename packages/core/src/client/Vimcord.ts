@@ -1,7 +1,6 @@
 import type { ClientOptions } from "discord.js";
 import type { PartialDeep } from "@vimcord/internal";
 import type { LogLevel } from "@vimcord/logger";
-import type { CommandModuleHooks } from "@/abstracts/AbstractCommandModule.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
 import type { VimcordGlobals } from "./globals.js";
