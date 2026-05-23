@@ -30,8 +30,7 @@ export class ModuleManager {
         if (this.loaded) return;
 
         const imports = this.client.features.importModules;
-
-        if (this.client.features.importModules) {
+        if (imports) {
             await this.commands.load(imports);
             if (imports?.events) await this.events.importFrom(resolveDir(imports.events));
         }

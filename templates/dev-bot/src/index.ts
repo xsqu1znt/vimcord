@@ -11,7 +11,7 @@ async function main() {
 
         features: {
             importModules: {
-                // slashCommands: "./commands/slash",
+                slashCommands: "./commands/slash",
                 prefixCommands: "./commands/prefix",
                 // contextCommands: "./commands/context",
                 events: "./events"
@@ -26,6 +26,7 @@ async function main() {
 
     // --- Start the Instance ---
     await client.login();
+    await client.modules.commands.registerGuild();
 }
 
 main();

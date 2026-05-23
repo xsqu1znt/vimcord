@@ -12,7 +12,6 @@ import type { Vimcord } from "../Vimcord.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
 
 import { Routes } from "discord.js";
-import { dynaSend, SendMethod } from "@vimcord/ux";
 import { BaseCommandManager } from "./BaseCommandManager.js";
 
 interface RemoteApplicationCommand {
@@ -69,16 +68,16 @@ export class CommandManager {
         this.context = new ContextCommandManager(client, resolveSuffix(imports?.contextCommands, ".ctx"));
     }
 
+    getAllAppCommands(options: CommandFilter = {}): (SlashCommandModule | ContextCommandModule)[] {
+        return [...this.slash.getAll(options), ...this.context.getAll(options)];
+    }
+
     async load(imports = this.client.features.importModules): Promise<void> {
         if (!imports) return;
 
         if (imports.prefixCommands) await this.prefix.importFrom(resolveDir(imports.prefixCommands));
         if (imports.slashCommands) await this.slash.importFrom(resolveDir(imports.slashCommands));
         if (imports.contextCommands) await this.context.importFrom(resolveDir(imports.contextCommands));
-    }
-
-    getAllAppCommands(options: CommandFilter = {}): Array<SlashCommandModule | ContextCommandModule> {
-        return [...this.slash.getAll(options), ...this.context.getAll(options)];
     }
 
     async registerGlobal(options: CommandFilter = {}): Promise<void> {
@@ -164,8 +163,8 @@ export class CommandManager {
         }
     }
 
-    async dispatchMessage(message: Message, prefixes: string[]): Promise<void> {
-        const prefix = prefixes.find(p => message.content.startsWith(p));
+    async dispatchMessage(message: Message, allowedPrefixes: string[]): Promise<void> {
+        const prefix = allowedPrefixes.find(p => message.content.startsWith(p));
         if (!prefix) return;
 
         const trigger = message.content.slice(prefix.length).trim().split(/\s+/, 1).shift();
@@ -179,34 +178,16 @@ export class CommandManager {
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<void> {
         const command = this.slash.getByName(interaction.commandName);
-        if (!command) {
-            await this.replyUnknownInteractionCommand(interaction);
-            return;
-        }
+        if (!command) return;
 
         await command.run(interaction);
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<void> {
         const command = this.context.getByName(interaction.commandName);
-        if (!command) {
-            await this.replyUnknownInteractionCommand(interaction);
-            return;
-        }
+        if (!command) return;
 
         await command.run(interaction);
-    }
-
-    private async replyUnknownInteractionCommand(
-        interaction: ChatInputCommandInteraction | ContextMenuCommandInteraction
-    ): Promise<void> {
-        const content = `**/\`${interaction.commandName}\`** is not a registered command.`;
-
-        await dynaSend(interaction, {
-            content,
-            flags: "Ephemeral",
-            sendMethod: interaction.replied || interaction.deferred ? SendMethod.FollowUp : SendMethod.Reply
-        });
     }
 
     private async getReadyClient(action: string): Promise<Vimcord<true> | null> {

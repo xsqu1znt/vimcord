@@ -6,11 +6,7 @@ export default new PrefixCommandModule({
     description: "Replies with the provided text.",
     metadata: { category: ["Testing"], tags: ["prefix", "dynaSend"] },
 
-    async execute(ctx) {
-        console.log(ctx.content);
-        console.log(ctx.prefix);
-        console.log(ctx.trigger);
-        const content = ctx.splitContent();
-        console.log(content);
+    async execute({ client, message }) {
+        // client.
     }
 });
