@@ -61,7 +61,7 @@ export interface ModuleOptions<
 
     // --- Main ---
     /** The main function of the module. */
-    execute<T>(ctx: ModuleCTX): Promise<T>;
+    execute(ctx: ModuleCTX): unknown;
 }
 
 export interface ModuleMetadata {
@@ -120,7 +120,7 @@ export abstract class AbstractModule<
     readonly conditions: ModuleConditionFn<HookCTX>[];
     readonly hooks: Hooks;
 
-    protected readonly execute: <T>(ctx: ModuleCTX) => Promise<T>;
+    protected readonly execute: (ctx: ModuleCTX) => unknown;
 
     constructor(options: ModuleOptions<Args, ModuleCTX, HookCTX, Hooks>) {
         const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
@@ -277,7 +277,7 @@ export abstract class AbstractModule<
      *
      * catch:`hook:onError`
      */
-    async run<T>(...args: Args): Promise<T | undefined> {
+    async run(...args: Args) {
         if (!(await this.checkInjection())) return;
         const moduleCTX = this.createModuleCTX(args);
         const hookCTX = this.createHookCTX(args);
@@ -305,7 +305,7 @@ export abstract class AbstractModule<
             }
 
             const debug_execute_start = Date.now();
-            const executeResponse = await this.execute<T>(moduleCTX);
+            const executeResponse = await this.execute(moduleCTX);
             const debug_execute_end = Date.now();
             this.client?.logger.debugVerbose(
                 `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`

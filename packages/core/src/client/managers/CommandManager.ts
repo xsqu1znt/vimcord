@@ -164,16 +164,17 @@ export class CommandManager {
         }
     }
 
-    async dispatchMessage(message: Message, prefix: string): Promise<void> {
-        if (message.author.bot || !message.content.startsWith(prefix)) return;
+    async dispatchMessage(message: Message, prefixes: string[]): Promise<void> {
+        const prefix = prefixes.find(p => message.content.startsWith(p));
+        if (!prefix) return;
 
-        const [trigger] = message.content.slice(prefix.length).trim().split(/\s+/);
+        const trigger = message.content.slice(prefix.length).trim().split(/\s+/, 1).shift();
         if (!trigger) return;
 
         const command = this.prefix.getByTrigger(trigger);
         if (!command) return;
 
-        await command.run(message);
+        await command.run(message, prefix, trigger);
     }
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<void> {

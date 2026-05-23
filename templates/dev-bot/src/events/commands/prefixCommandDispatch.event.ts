@@ -1,3 +1,4 @@
+import { userMention } from "discord.js";
 import { EventModule } from "vimcord";
 
 export default new EventModule({
@@ -9,7 +10,12 @@ export default new EventModule({
     },
 
     async execute({ client, args: [message] }) {
-        const PREFIX = ";";
-        await client.modules.commands.dispatchMessage(message, PREFIX);
+        if (message.author.bot) return;
+
+        const allowedPrefixes = [
+            ";",
+            `${userMention(client.user.id)} ` // Mentioning the bot
+        ];
+        await client.modules.commands.dispatchMessage(message, allowedPrefixes);
     }
 });

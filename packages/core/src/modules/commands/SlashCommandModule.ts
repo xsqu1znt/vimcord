@@ -1,5 +1,12 @@
-import type { ChatInputCommandInteraction } from "discord.js";
-import type { AppCommandModuleOptions, CommandModuleContext, SlashCommandModuleRoute } from "@/abstracts/index.js";
+import type { CacheType, ChatInputCommandInteraction } from "discord.js";
+import type {
+    AppCommandModuleOptions,
+    CommandModuleArgs,
+    CommandModuleContext,
+    CommandModuleHookContext,
+    SlashCommandModuleRoute
+} from "@/abstracts/index.js";
+import type { Vimcord } from "@/client/index.js";
 
 import { SlashCommandBuilder } from "discord.js";
 import { dynaSend, SendMethod } from "@vimcord/ux";
@@ -76,6 +83,22 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
 
     protected override validate(): boolean {
         return true;
+    }
+
+    protected override createModuleCTX(
+        args: CommandModuleArgs<CommandModuleType.Slash>
+    ): CommandModuleContext<CommandModuleType.Slash> {
+        return { client: this.client as Vimcord<true>, interaction: args[0] };
+    }
+
+    protected override createHookCTX(
+        args: CommandModuleArgs<CommandModuleType.Slash>
+    ): CommandModuleHookContext<CommandModuleType.Slash> {
+        return {
+            ...this.createModuleCTX(args),
+            module: this as any,
+            args
+        };
     }
 }
 

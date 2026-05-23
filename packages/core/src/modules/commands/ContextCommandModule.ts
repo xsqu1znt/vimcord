@@ -1,4 +1,10 @@
-import type { AppCommandModuleOptions, CommandModuleContext } from "@/abstracts/index.js";
+import type {
+    AppCommandModuleOptions,
+    CommandModuleArgs,
+    CommandModuleContext,
+    CommandModuleHookContext
+} from "@/abstracts/index.js";
+import type { Vimcord } from "@/client/index.js";
 
 import { ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
@@ -40,5 +46,21 @@ export class ContextCommandModule extends AbstractCommandModule<CommandModuleTyp
 
     protected override validate(): boolean {
         return true;
+    }
+
+    protected override createModuleCTX(
+        args: CommandModuleArgs<CommandModuleType.Context>
+    ): CommandModuleContext<CommandModuleType.Context> {
+        return { client: this.client as Vimcord<true>, interaction: args[0] };
+    }
+
+    protected override createHookCTX(
+        args: CommandModuleArgs<CommandModuleType.Context>
+    ): CommandModuleHookContext<CommandModuleType.Context> {
+        return {
+            ...this.createModuleCTX(args),
+            module: this as any,
+            args
+        };
     }
 }

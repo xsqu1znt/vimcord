@@ -20,16 +20,17 @@ export enum CommandModuleType {
 interface CommandTypeMap {
     // Prefix Command
     [CommandModuleType.Prefix]: {
-        args: [message: Message];
+        args: [message: Message, prefix: string, trigger: string];
         optionExtras: {
             aliases?: string[];
             description?: string;
         };
         contextExtras: {
             message: Message;
-            messageContent: string;
+            content: string;
+            prefix: string;
+            trigger: string;
             splitContent: (options?: { separator?: string; lowercase?: boolean; uppercase?: boolean }) => string[];
-            prefixUsed: string;
         };
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;

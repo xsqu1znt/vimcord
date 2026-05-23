@@ -7,8 +7,8 @@ import type {
     User,
     UserResolvable
 } from "discord.js";
-import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/AbstractCommandModule.js";
 import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
+import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
 import type { StaffGlobals } from "@/client/globals.js";
 
 export enum MissingPermissionReason {

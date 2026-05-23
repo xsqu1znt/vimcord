@@ -1,15 +1,22 @@
 import type { ClientEvents } from "discord.js";
-import type { ModuleOptions } from "../abstracts/AbstractModule.js";
+import type { Vimcord } from "@/client/index.js";
+import type { ModuleContext, ModuleHookContext, ModuleOptions } from "../abstracts/AbstractModule.js";
 
 import { AbstractModule } from "../abstracts/AbstractModule.js";
 
 /** Overrides the `clientReady` event so there's no double client args. */
 export type VimcordClientEvents = Omit<ClientEvents, "clientReady"> & { clientReady: [] };
 
+type EventModuleContext<Args extends unknown[]> = ModuleContext & {
+    args: Args;
+};
+
+type EventModuleHookContext<Args extends unknown[]> = ModuleHookContext<Args> & EventModuleContext<Args>;
+
 export interface EventModuleOptions<
     Event extends keyof VimcordClientEvents = keyof VimcordClientEvents,
     Args extends VimcordClientEvents[Event] = VimcordClientEvents[Event]
-> extends ModuleOptions<Args, void> {
+> extends ModuleOptions<Args, EventModuleContext<Args>, EventModuleHookContext<Args>> {
     /** The client event to trigger on. */
     event: Event;
     /**
@@ -25,15 +32,15 @@ export interface EventModuleOptions<
 }
 
 export class EventModule<
-    K extends keyof VimcordClientEvents = keyof VimcordClientEvents,
-    Args extends VimcordClientEvents[K] = VimcordClientEvents[K]
-> extends AbstractModule<Args, void> {
+    Event extends keyof VimcordClientEvents = keyof VimcordClientEvents,
+    Args extends VimcordClientEvents[Event] = VimcordClientEvents[Event]
+> extends AbstractModule<Args, EventModuleContext<Args>, EventModuleHookContext<Args>> {
     override moduleType: string = "Event";
-    readonly event: K;
+    readonly event: Event;
     readonly once: boolean;
     readonly priority: number;
 
-    constructor(options: EventModuleOptions<K, Args>) {
+    constructor(options: EventModuleOptions<Event, Args>) {
         super({ requiresReady: false, ...options });
 
         this.event = options.event;
@@ -43,5 +50,13 @@ export class EventModule<
 
     protected override validate(): boolean {
         return true;
+    }
+
+    protected override createModuleCTX(args: Args): EventModuleContext<Args> {
+        return { client: this.client as Vimcord<true>, args };
+    }
+
+    protected override createHookCTX(args: Args): EventModuleHookContext<Args> {
+        return { module: this as unknown as ModuleHookContext<Args>["module"], client: this.client as Vimcord<true>, args };
     }
 }

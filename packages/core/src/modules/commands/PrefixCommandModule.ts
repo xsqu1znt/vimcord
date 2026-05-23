@@ -1,4 +1,11 @@
-import type { CommandModuleOptions } from "@/abstracts/index.js";
+import type { Message } from "discord.js";
+import type {
+    CommandModuleArgs,
+    CommandModuleContext,
+    CommandModuleHookContext,
+    CommandModuleOptions
+} from "@/abstracts/index.js";
+import type { Vimcord } from "@/client/index.js";
 
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 
@@ -16,5 +23,53 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
 
     protected override validate(): boolean {
         return Boolean(this.name);
+    }
+
+    protected override createModuleCTX(
+        args: CommandModuleArgs<CommandModuleType.Prefix>
+    ): CommandModuleContext<CommandModuleType.Prefix> {
+        return this.createCommandCTX(args);
+    }
+
+    protected override createHookCTX(
+        args: CommandModuleArgs<CommandModuleType.Prefix>
+    ): CommandModuleHookContext<CommandModuleType.Prefix> {
+        return {
+            ...this.createCommandCTX(args),
+            module: this as any,
+            args
+        };
+    }
+
+    private createCommandCTX(
+        args: CommandModuleArgs<CommandModuleType.Prefix>
+    ): CommandModuleContext<CommandModuleType.Prefix> {
+        const client = this.client as Vimcord<true>;
+        const source = args[0];
+
+        const message = source as Message;
+        const messageContent = message.content.trim();
+
+        // Strips the prefix and trigger out of the message content
+        const contentStart = args[1].length + args[2].length;
+        const strippedContent = messageContent.slice(contentStart).trim();
+
+        return {
+            client,
+            message,
+            content: strippedContent,
+            prefix: args[1],
+            trigger: args[2],
+            splitContent: (options = {}) => {
+                const { separator = /\s+/, lowercase = false, uppercase = false } = options;
+
+                let normalizedContent = strippedContent;
+                if (lowercase) normalizedContent.toLowerCase();
+                if (uppercase) normalizedContent.toUpperCase();
+
+                const rawParts = strippedContent ? strippedContent.split(separator).filter(Boolean) : [];
+                return rawParts;
+            }
+        };
     }
 }

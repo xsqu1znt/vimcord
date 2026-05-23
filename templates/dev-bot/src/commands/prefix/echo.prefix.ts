@@ -1,17 +1,16 @@
-import { PrefixCommandModule } from "vimcord/dist/index.js";
+import { PrefixCommandModule } from "vimcord";
 
 export default new PrefixCommandModule({
     name: "echo",
     aliases: ["say"],
     description: "Replies with the provided text.",
-    metadata: {
-        category: ["Testing"],
-        tags: ["prefix", "dynaSend"]
-    },
+    metadata: { category: ["Testing"], tags: ["prefix", "dynaSend"] },
 
-    async execute({ message }) {
-        const content = message.content.split(/\s+/).slice(1).join(" ").trim();
-
-        message.reply({ content: content || "Nothing to echo." });
+    async execute(ctx) {
+        console.log(ctx.content);
+        console.log(ctx.prefix);
+        console.log(ctx.trigger);
+        const content = ctx.splitContent();
+        console.log(content);
     }
 });
