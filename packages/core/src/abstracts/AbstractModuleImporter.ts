@@ -20,8 +20,6 @@ export interface ImportableModule {
 }
 
 export abstract class AbstractModuleImporter<T extends ImportableModule, K extends string = string> {
-    abstract readonly DEFAULT_SUFFIX: string | undefined;
-
     readonly modules: Map<string, T> = new Map();
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
 
@@ -76,7 +74,7 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
         }
     }
 
-    async importFrom(dir: string | string[], suffix: string | string[], set = false): Promise<Map<string, T>> {
+    async importFrom(dir: string | string[], suffix: string | string[] | undefined, set = false): Promise<Map<string, T>> {
         if (set) this.modules.clear();
 
         const dirs = Array.isArray(dir) ? dir : [dir];

@@ -1,20 +1,22 @@
 import type {
     ChatInputCommandInteraction,
     ContextMenuCommandBuilder,
-    ContextMenuCommandInteraction,
     GuildResolvable,
     Message,
+    MessageContextMenuCommandInteraction,
     SlashCommandBuilder,
     SlashCommandOptionsOnlyBuilder,
-    SlashCommandSubcommandsOnlyBuilder
+    SlashCommandSubcommandsOnlyBuilder,
+    UserContextMenuCommandInteraction
 } from "discord.js";
 import type { CommandModulePermissions, PermissionTestResult } from "@/commands/commandPermissions.js";
 import type { ModuleContext, ModuleHookContext, ModuleHooks, ModuleMetadata, ModuleOptions } from "../AbstractModule.js";
 
 export enum CommandModuleType {
-    Prefix = "Prefix",
     Slash = "Slash",
-    Context = "Context"
+    Prefix = "Prefix",
+    MessageContext = "MessageContext",
+    UserContext = "UserContext"
 }
 
 export type SlashCommandBuilderResolvable =
@@ -23,6 +25,23 @@ export type SlashCommandBuilderResolvable =
     | SlashCommandSubcommandsOnlyBuilder;
 
 interface CommandTypeMap {
+    // Slash Command
+    [CommandModuleType.Slash]: {
+        args: [interaction: ChatInputCommandInteraction];
+        optionExtras: AppCommandModuleOptionExtras & {
+            builder: SlashCommandBuilderResolvable | ((builder: SlashCommandBuilder) => SlashCommandBuilderResolvable);
+            routes?: SlashCommandModuleRoute[];
+        };
+        contextExtras: { interaction: ChatInputCommandInteraction };
+        hookContextExtras: Record<never, never>;
+        hookExtras: {
+            onUnknownRoute?(
+                ctx: CommandModuleHookContext<CommandModuleType.Slash>,
+                path: string
+            ): Promise<unknown> | unknown;
+        };
+    };
+
     // Prefix Command
     [CommandModuleType.Prefix]: {
         args: [message: Message, prefix: string, trigger: string];
@@ -41,30 +60,26 @@ interface CommandTypeMap {
         hookExtras: Record<never, never>;
     };
 
-    // Slash Command
-    [CommandModuleType.Slash]: {
-        args: [interaction: ChatInputCommandInteraction];
-        optionExtras: AppCommandModuleOptionExtras & {
-            builder: SlashCommandBuilderResolvable | ((builder: SlashCommandBuilder) => SlashCommandBuilderResolvable);
-            routes?: SlashCommandModuleRoute[];
-        };
-        contextExtras: { interaction: ChatInputCommandInteraction };
-        hookContextExtras: Record<never, never>;
-        hookExtras: {
-            onUnknownRoute?(
-                ctx: CommandModuleHookContext<CommandModuleType.Slash>,
-                path: string
-            ): Promise<unknown> | unknown;
-        };
-    };
+    // TODO: Verify internally if the correct context type is set on the builder
 
-    // Context Command
-    [CommandModuleType.Context]: {
-        args: [interaction: ContextMenuCommandInteraction];
+    // Message Context Menu Command
+    [CommandModuleType.MessageContext]: {
+        args: [interaction: MessageContextMenuCommandInteraction];
         optionExtras: AppCommandModuleOptionExtras & {
             builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
         };
-        contextExtras: { interaction: ContextMenuCommandInteraction };
+        contextExtras: { interaction: MessageContextMenuCommandInteraction };
+        hookContextExtras: Record<never, never>;
+        hookExtras: Record<never, never>;
+    };
+
+    // User Context Menu Command
+    [CommandModuleType.UserContext]: {
+        args: [interaction: UserContextMenuCommandInteraction];
+        optionExtras: AppCommandModuleOptionExtras & {
+            builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
+        };
+        contextExtras: { interaction: UserContextMenuCommandInteraction };
         hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };

@@ -8,7 +8,6 @@ async function main() {
         client: {
             intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
         },
-
         verbose: process.argv.includes("--verbose")
     });
 
@@ -17,10 +16,11 @@ async function main() {
 
     // --- Modules ---
     client.modules.load({
-        slashCommands: "./commands/slash",
-        prefixCommands: "./commands/prefix",
-        contextCommands: "./commands/context",
-        events: "./events"
+        slashCommands: { dir: "./commands/slash", suffix: ".slash" },
+        prefixCommands: { dir: "./commands/prefix", suffix: ".prefix" },
+        messageContextCommands: { dir: "./commands/context", suffix: ".mctx" },
+        userContextCommands: { dir: "./commands/context", suffix: ".uctx" },
+        events: { dir: "./events", suffix: ".event" }
     });
 
     // --- Start the Instance ---

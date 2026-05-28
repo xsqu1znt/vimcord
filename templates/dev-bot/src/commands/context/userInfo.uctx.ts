@@ -1,16 +1,12 @@
 import { ApplicationCommandType } from "discord.js";
-import { ContextCommandModule, dynaSend } from "vimcord";
+import { UserContextCommandModule } from "vimcord/dist/index.js";
 
-export default new ContextCommandModule({
+export default new UserContextCommandModule({
     builder: builder => builder.setName("User Info").setType(ApplicationCommandType.User),
-    metadata: {
-        category: ["Testing"],
-        tags: ["context", "inferred-name"]
-    },
+
+    metadata: { category: ["Fun"] },
 
     async execute({ interaction }) {
-        if (!interaction.isUserContextMenuCommand()) return;
-
         await interaction.reply({
             content: `${interaction.targetUser.tag} (${interaction.targetUser.id})`,
             flags: "Ephemeral"

@@ -57,7 +57,7 @@ export interface PromptModalResult {
     replied: boolean;
     confirmed: boolean | null;
     denied: boolean | null;
-    submitResult?: BetterModalSubmitResult<string>;
+    submitResult?: BetterModalSubmitResult;
 }
 
 // Builds a button from an optional override or creates a default with the given customId, label, and style
@@ -307,11 +307,11 @@ export async function promptModal(
     });
 
     // Show and await modal submission
-    const submitResult = await modal.showAndAwait<string>(interaction, { timeout });
+    const submitResult = await modal.showAndAwait(interaction, { timeout });
     if (!submitResult) return { valid: false, replied: false, confirmed: false, denied: false };
 
     // Get and normalize the input value
-    const value = (submitResult.getField("prompt_input") ?? "").trim().toLowerCase();
+    const value = (submitResult.getField<string>("prompt_input") ?? "").trim().toLowerCase();
 
     // Validate yes/no input
     const validYes = ["yes", "y"].includes(value);

@@ -290,7 +290,11 @@ export class VimcordLogger extends Logger {
             this.formatBannerRow("📦 Events", client.modules.events.getAll().length.toString(), maxWidth),
             this.formatBannerRow("📦 Slash Commands", client.modules.commands.slash.getAll().length.toString(), maxWidth),
             this.formatBannerRow("📦 Prefix Commands", client.modules.commands.prefix.getAll().length.toString(), maxWidth),
-            this.formatBannerRow("📦 Context Commands", client.modules.commands.context.getAll().length.toString(), maxWidth)
+            this.formatBannerRow(
+                "📦 Context Commands",
+                client.modules.commands.getAllContextCommands().length.toString(),
+                maxWidth
+            )
         ];
         const pluginRows = plugins.map(plugin => this.formatBannerRow("🔌 Plugin", plugin.name, maxWidth));
         const rows = pluginRows.length ? [...moduleRows, this.formatBannerSpacer(maxWidth), ...pluginRows] : moduleRows;

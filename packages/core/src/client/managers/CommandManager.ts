@@ -7,7 +7,12 @@ import type {
 } from "discord.js";
 import type { CommandModuleType } from "@/abstracts/index.js";
 import type { VimcordModuleLogger } from "@/client/logger.js";
-import type { ContextCommandModule, PrefixCommandModule, SlashCommandModule } from "@/modules/index.js";
+import type {
+    MessageContextCommandModule,
+    PrefixCommandModule,
+    SlashCommandModule,
+    UserContextCommandModule
+} from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
 
@@ -38,8 +43,6 @@ const DEFAULT_APPLICATION_COMMAND_GUILD_CONTEXTS = [0];
 const DEFAULT_APPLICATION_COMMAND_INTEGRATION_TYPES = [0];
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
-    override DEFAULT_SUFFIX = ".prefix";
-
     constructor(client: Vimcord) {
         super(client);
         this.indexes.set("alias", { key: m => m.aliases, map: new Map(), isArray: true });
@@ -56,16 +59,21 @@ export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.P
 }
 
 export class SlashCommandManager extends BaseCommandManager<CommandModuleType.Slash, SlashCommandModule> {
-    override DEFAULT_SUFFIX = ".slash";
-
     constructor(client: Vimcord) {
         super(client);
     }
 }
 
-export class ContextCommandManager extends BaseCommandManager<CommandModuleType.Context, ContextCommandModule> {
-    override DEFAULT_SUFFIX = ".ctx";
+export class MessageContextCommandManager extends BaseCommandManager<
+    CommandModuleType.MessageContext,
+    MessageContextCommandModule
+> {
+    constructor(client: Vimcord) {
+        super(client);
+    }
+}
 
+export class UserContextCommandManager extends BaseCommandManager<CommandModuleType.UserContext, UserContextCommandModule> {
     constructor(client: Vimcord) {
         super(client);
     }
@@ -74,7 +82,7 @@ export class ContextCommandManager extends BaseCommandManager<CommandModuleType.
 export class CommandManager {
     readonly prefix: PrefixCommandManager;
     readonly slash: SlashCommandManager;
-    readonly context: ContextCommandManager;
+    readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
 
     private readonly logger: VimcordModuleLogger;
 
@@ -83,15 +91,29 @@ export class CommandManager {
 
         this.prefix = new PrefixCommandManager(client);
         this.slash = new SlashCommandManager(client);
-        this.context = new ContextCommandManager(client);
+        this.context = { message: new MessageContextCommandManager(client), user: new UserContextCommandManager(client) };
     }
 
     /**
      * Returns slash and context commands that match the provided filter.
      * @param options Filter options.
      */
-    getAllAppCommands(options: CommandFilter = {}): (SlashCommandModule | ContextCommandModule)[] {
-        return [...this.slash.getAll(options), ...this.context.getAll(options)];
+    getAllAppCommands(
+        options: CommandFilter = {}
+    ): (SlashCommandModule | MessageContextCommandModule | UserContextCommandModule)[] {
+        return [
+            ...this.slash.getAll(options),
+            ...this.context.message.getAll(options),
+            ...this.context.user.getAll(options)
+        ];
+    }
+
+    /**
+     * Returns context commands that match the provided filter.
+     * @param options Filter options.
+     */
+    getAllContextCommands(options: CommandFilter = {}): (MessageContextCommandModule | UserContextCommandModule)[] {
+        return [...this.context.message.getAll(options), ...this.context.user.getAll(options)];
     }
 
     /**
@@ -236,10 +258,19 @@ export class CommandManager {
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<void> {
-        const command = this.context.getByName(interaction.commandName);
-        if (!command) return;
+        const messageContextCommand = this.context.message.getByName(interaction.commandName);
+        const userContextCommand = this.context.user.getByName(interaction.commandName);
+        if (!messageContextCommand && !userContextCommand) return;
 
-        await command.run(interaction);
+        if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
+            await messageContextCommand.run(interaction);
+            return;
+        }
+
+        if (userContextCommand && interaction.isUserContextMenuCommand()) {
+            await userContextCommand.run(interaction);
+            return;
+        }
     }
 
     private async getReadyClient(action: string): Promise<Vimcord<true> | null> {

@@ -6,6 +6,8 @@ import type {
     APIRadioGroupComponent,
     ChannelSelectMenuComponentData,
     CommandInteraction,
+    InteractionDeferReplyOptions,
+    InteractionDeferUpdateOptions,
     MentionableSelectMenuComponentData,
     MessageComponentInteraction,
     RoleSelectMenuComponentData,
@@ -96,18 +98,19 @@ export interface BetterModalOptions {
 }
 
 export interface AwaitModalSubmitOptions {
-    timeout?: number;
+    timeout: number;
     deferUpdate?: boolean;
 }
 
-export interface BetterModalSubmitResult<T = unknown> {
-    values: T[];
+export interface BetterModalSubmitResult {
+    values: unknown[];
     interaction: ModalSubmitInteraction;
-    getField(customId: string, required: true): T;
-    getField(customId: string, required?: boolean): T | undefined;
+    getField<T = unknown>(customId: string, required: true): T;
+    getField<T = unknown>(customId: string, required?: boolean): T | undefined;
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
-    deferUpdate: () => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
+    deferUpdate: (options?: InteractionDeferUpdateOptions) => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
+    deferReply: (options?: InteractionDeferReplyOptions) => ReturnType<ModalSubmitInteraction["deferReply"]>;
 }
 
 // TODO: Will eventually come from global config
@@ -369,12 +372,12 @@ export class BetterModal {
      * @param interaction The interaction to show the modal with.
      * @param options Modal submission options.
      */
-    async showAndAwait<T = unknown>(
+    async showAndAwait(
         interaction: ModalShowableInteraction | null | undefined,
-        options?: AwaitModalSubmitOptions
-    ): Promise<BetterModalSubmitResult<T> | null> {
+        options: AwaitModalSubmitOptions
+    ): Promise<BetterModalSubmitResult | null> {
         await this.show(interaction);
-        return this.awaitSubmit<T>(interaction, options);
+        return this.awaitSubmit(interaction, options);
     }
 
     /**
@@ -382,17 +385,16 @@ export class BetterModal {
      * @param interaction The interaction to show the modal with.
      * @param options Modal submission options.
      */
-    async awaitSubmit<T = unknown>(
+    async awaitSubmit(
         interaction: ModalShowableInteraction | null | undefined,
-        options?: AwaitModalSubmitOptions
-    ): Promise<BetterModalSubmitResult<T> | null> {
+        options: AwaitModalSubmitOptions
+    ): Promise<BetterModalSubmitResult | null> {
         if (!interaction) throw new Error("[BetterModal] Interaction is null or undefined");
-        const timeout = options?.timeout ?? DEFAULT_CONFIG.timeout;
 
         try {
             const modalSubmit = await interaction.awaitModalSubmit({
                 filter: i => i.customId === this.customId,
-                time: timeout
+                time: options.timeout
             });
 
             if (options?.deferUpdate) {
@@ -423,12 +425,13 @@ export class BetterModal {
             }
 
             return {
-                values: values as T[],
+                values: values,
                 interaction: modalSubmit,
-                getField: customId => fields.get(customId) as T,
-                reply: options => dynaSend(modalSubmit, options),
+                getField: customId => fields.get(customId),
+                reply: async options => dynaSend(modalSubmit, options),
                 followUp: async options => dynaSend(modalSubmit, options),
-                deferUpdate: () => modalSubmit.deferUpdate()
+                deferUpdate: async options => modalSubmit.deferUpdate(options),
+                deferReply: async options => modalSubmit.deferReply(options)
             };
         } catch {
             return null;

@@ -12,7 +12,7 @@ export interface VimcordGlobals {
     hooks?: {
         prefix?: CommandModuleHooks<CommandModuleType.Prefix>;
         slash?: CommandModuleHooks<CommandModuleType.Slash>;
-        context?: CommandModuleHooks<CommandModuleType.Context>;
+        context?: CommandModuleHooks<CommandModuleType.MessageContext | CommandModuleType.UserContext>;
     };
 }
 
