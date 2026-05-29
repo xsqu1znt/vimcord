@@ -41,7 +41,9 @@ export type LoggerOptions = {
 };
 
 type LoaderEntry = {
+    getMessage?: () => string;
     message: string;
+    messageUpdatedAt: number;
     frame: string;
 };
 
@@ -68,6 +70,7 @@ export const DEFAULT_COLORS: ColorScheme = {
 
 let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
 SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
+const LOADER_MESSAGE_UPDATE_INTERVAL_MS = 1_000;
 
 // --- Helpers ---
 
@@ -119,6 +122,8 @@ export class Logger {
             process.stdout.write(`\x1b[${count}A`);
 
             for (const [, loader] of this.activeLoaders) {
+                this.updateLoaderMessage(loader);
+
                 const frame = SPINNER_FRAMES[this.frameIndex]!;
                 const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
                 process.stdout.write(`\r\x1b[K${prefix} ${frame} ${loader.message}\n`);
@@ -142,10 +147,22 @@ export class Logger {
 
     private redrawLoaders(): void {
         for (const [, loader] of this.activeLoaders) {
+            this.updateLoaderMessage(loader);
+
             const frame = ansis.hex(this.options.colors.warn)(loader.frame);
             const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
             process.stdout.write(`${prefix} ${frame} ${loader.message}\n`);
         }
+    }
+
+    private updateLoaderMessage(loader: LoaderEntry): void {
+        if (!loader.getMessage) return;
+
+        const now = Date.now();
+        if (now - loader.messageUpdatedAt < LOADER_MESSAGE_UPDATE_INTERVAL_MS) return;
+
+        loader.message = loader.getMessage();
+        loader.messageUpdatedAt = now;
     }
 
     // --- Formatting ---
@@ -193,7 +210,7 @@ export class Logger {
     // --- Core ---
 
     /** Checks if the given log level should be logged. */
-    private shouldLog(level: LogLevel): boolean {
+    protected shouldLog(level: LogLevel): boolean {
         return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[this.options.minLevel];
     }
 
@@ -330,14 +347,14 @@ export class Logger {
      * }
      * ```
      */
-    loader(message: string): (finalMessage?: string, clear?: boolean) => void {
+    loader(message: string, getMessage?: () => string): (finalMessage?: string, clear?: boolean) => void {
         const { colors } = this.options;
 
         let stopped = false;
         const id = this.nextLoaderId++;
 
         // Register and initial render
-        this.activeLoaders.set(id, { message, frame: SPINNER_FRAMES[0]! });
+        this.activeLoaders.set(id, { getMessage, message, messageUpdatedAt: Date.now(), frame: SPINNER_FRAMES[0]! });
         const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
         process.stdout.write(`${prefix} ${SPINNER_FRAMES[0]!} ${message}\n`);
 
@@ -361,7 +378,7 @@ export class Logger {
 
             // Print final message for this loader
             if (clear) {
-                process.stdout.write(`${finalMessage ?? message}\n`);
+                if (finalMessage) process.stdout.write(`${finalMessage}\n`);
             } else {
                 const check = ansis.hex(colors.success)("✓");
                 const p = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());

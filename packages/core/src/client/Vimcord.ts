@@ -215,11 +215,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      * @param token The token to log in with.
      */
     override async login(token?: string): Promise<string> {
-        try {
-            const { setLoader, resolveBanner } = this.logger.startupBanner(this);
-            this.resolveStartupBanner = resolveBanner;
+        let clearStartupBanner: (() => void) | undefined;
 
-            setLoader("Loading plugins and modules...");
+        try {
+            const { addStartupLog, clearBanner, resolveBanner } = this.logger.startupBanner(this);
+            this.resolveStartupBanner = resolveBanner;
+            clearStartupBanner = clearBanner;
+
+            addStartupLog("Loading plugins and modules...");
             await this.plugins.load();
             await this.modules.load();
 
@@ -230,12 +233,13 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 );
             }
 
-            setLoader("Logging in to Discord...");
+            addStartupLog("Logging in to Discord...");
             const result = await super.login(token);
-            setLoader("Waiting for the client to be ready...");
+            addStartupLog("Waiting for the client to be ready...");
 
             return result;
         } catch (err) {
+            clearStartupBanner?.();
             throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");
         }
     }

@@ -4,6 +4,7 @@ import type {
     CommandModuleArgs,
     CommandModuleContext,
     CommandModuleHookContext,
+    SlashCommandBuilderResolvable,
     SlashCommandModuleRoute
 } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
@@ -12,20 +13,27 @@ import { SlashCommandBuilder } from "discord.js";
 import { dynaSend, SendMethod } from "@vimcord/ux";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 
-type SlashCommandModuleOptions = AppCommandModuleOptions<CommandModuleType.Slash>;
+type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.Slash>, "execute"> & {
+    execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
+};
 
 export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Slash> {
     override type: CommandModuleType.Slash = CommandModuleType.Slash;
     override moduleType: string = "Command:Slash";
 
-    readonly builder: SlashCommandBuilder;
+    readonly builder: SlashCommandBuilderResolvable;
     readonly deferReply: SlashCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
     readonly routes: Map<string, SlashCommandModuleRoute>;
 
     constructor(options: SlashCommandModuleOptions) {
         const builder = typeof options.builder === "function" ? options.builder(new SlashCommandBuilder()) : options.builder;
-        super({ name: builder.name, description: builder.description, ...options });
+        super({
+            ...options,
+            name: builder.name,
+            description: builder.description,
+            execute: options.execute ?? (() => undefined)
+        });
 
         this.builder = builder;
         this.deferReply = options.deferReply;

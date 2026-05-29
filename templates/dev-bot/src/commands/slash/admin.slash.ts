@@ -27,7 +27,7 @@ export default new SlashCommandModule({
                     )
             ),
 
-    deferReply: { ephemeral: true },
+    deferReply: { flags: "Ephemeral" },
     metadata: {
         category: ["Testing"],
         tags: ["slash", "routes", "deferReply"]

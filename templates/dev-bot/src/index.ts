@@ -13,7 +13,7 @@ async function main() {
             importModules: {
                 slashCommands: "./commands/slash",
                 prefixCommands: "./commands/prefix",
-                // contextCommands: "./commands/context",
+                contextCommands: "./commands/context",
                 events: "./events"
             }
         },

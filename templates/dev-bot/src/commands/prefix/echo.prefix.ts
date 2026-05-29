@@ -6,7 +6,7 @@ export default new PrefixCommandModule({
     description: "Replies with the provided text.",
     metadata: { category: ["Testing"], tags: ["prefix", "dynaSend"] },
 
-    async execute({ client, message }) {
+    async execute({}) {
         // client.
     }
 });

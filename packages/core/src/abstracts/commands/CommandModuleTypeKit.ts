@@ -17,6 +17,11 @@ export enum CommandModuleType {
     Context = "Context"
 }
 
+export type SlashCommandBuilderResolvable =
+    | SlashCommandBuilder
+    | SlashCommandOptionsOnlyBuilder
+    | SlashCommandSubcommandsOnlyBuilder;
+
 interface CommandTypeMap {
     // Prefix Command
     [CommandModuleType.Prefix]: {
@@ -40,11 +45,7 @@ interface CommandTypeMap {
     [CommandModuleType.Slash]: {
         args: [interaction: ChatInputCommandInteraction];
         optionExtras: AppCommandModuleOptionExtras & {
-            builder:
-                | SlashCommandBuilder
-                | ((
-                      builder: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder
-                  ) => SlashCommandBuilder);
+            builder: SlashCommandBuilderResolvable | ((builder: SlashCommandBuilder) => SlashCommandBuilderResolvable);
             routes?: SlashCommandModuleRoute[];
         };
         contextExtras: { interaction: ChatInputCommandInteraction };

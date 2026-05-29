@@ -1,9 +1,13 @@
 import type { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import type { VimcordModuleLogger } from "@/client/logger.js";
 import type { Vimcord } from "../Vimcord.js";
 
 import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";
 
 type CommandModuleIndexType = "name" | "category" | "tag" | "alias";
+
+const COMMAND_MANAGER_LOGGER = "CommandManager";
+const COMMAND_MANAGER_LOGGER_EMOJI = "📦";
 
 export interface CommandFilter {
     names?: string[];
@@ -15,8 +19,12 @@ export abstract class BaseCommandManager<
     K extends CommandModuleType = CommandModuleType,
     T extends AbstractCommandModule<K> = AbstractCommandModule<K>
 > extends AbstractModuleImporter<T, CommandModuleIndexType> {
+    private readonly logger: VimcordModuleLogger;
+
     constructor(client: Vimcord, fileSuffix?: string | string[]) {
         super(client, fileSuffix);
+
+        this.logger = client.logger.module(COMMAND_MANAGER_LOGGER, { emoji: COMMAND_MANAGER_LOGGER_EMOJI });
 
         this.indexes.set("name", { key: m => m.name.toLowerCase(), map: new Map() });
         this.indexes.set("category", { key: m => m.metadata.category, map: new Map(), isArray: true });
@@ -68,9 +76,7 @@ export abstract class BaseCommandManager<
         });
 
         this.reindex();
-        commands.forEach(command =>
-            this.client.logger.debugVerbose(`[CommandManager] Registered '${command.name}' (${command.id})`)
-        );
+        commands.forEach(command => this.logger.debugVerbose(`Registered '${command.name}' (${command.id})`));
     }
 
     unregister(...ids: string[]): void {
@@ -79,8 +85,6 @@ export abstract class BaseCommandManager<
 
         commands.forEach(command => this.modules.delete(command.id));
         this.reindex();
-        commands.forEach(command =>
-            this.client.logger.debugVerbose(`[CommandManager] Unregistered '${command.name}' (${command.id})`)
-        );
+        commands.forEach(command => this.logger.debugVerbose(`Unregistered '${command.name}' (${command.id})`));
     }
 }
