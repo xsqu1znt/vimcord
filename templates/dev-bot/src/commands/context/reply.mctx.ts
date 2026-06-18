@@ -3,7 +3,7 @@ import { BetterModal, UserContextCommandModule } from "vimcord";
 
 export default new UserContextCommandModule({
     builder: builder =>
-        builder.setName("Reply").setContexts(InteractionContextType.Guild).setType(ApplicationCommandType.User),
+        builder.setName("Reply").setContexts(InteractionContextType.Guild).setType(ApplicationCommandType.Message),
 
     metadata: { category: ["Fun"] },
     permissions: { botStaffOnly: true },

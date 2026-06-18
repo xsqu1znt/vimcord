@@ -117,10 +117,11 @@ export class CommandManager {
     }
 
     /**
-     * Registers matching slash and context commands in the global Discord application command registry.
+     * Pushes app commands to the bot application.
+     * @param options Filter options.
      */
-    async registerGlobal(options: CommandFilter = {}): Promise<void> {
-        const client = await this.getReadyClient("register app commands globally");
+    async push(options: CommandFilter = {}): Promise<void> {
+        const client = await this.getReadyClient("push app commands");
         if (!client) return;
 
         // --- Command Payloads ---
@@ -128,11 +129,11 @@ export class CommandManager {
             .filter(command => command.registration.global !== false)
             .map(command => command.builder.toJSON());
         if (!commands.length) {
-            this.logger.info("No app commands to register globally");
+            this.logger.info("✖ There are no app commands to push");
             return;
         }
 
-        this.logger.info(`Registering ${commands.length} app command${commands.length === 1 ? "" : "s"} globally...`);
+        this.logger.info(`↑ Pushing ${commands.length} app command${commands.length === 1 ? "" : "s"}...`);
 
         // --- Remote Sync ---
         const existing = (await client.rest.get(Routes.applicationCommands(client.user.id))) as RemoteApplicationCommand[];
@@ -140,39 +141,37 @@ export class CommandManager {
             createRoute: Routes.applicationCommands(client.user.id),
             editRoute: commandId => Routes.applicationCommand(client.user.id, commandId)
         });
-        this.logger.info(
-            `Global app commands checked: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
-        );
+        this.logger.info("🗸 Pushed app commands");
+        this.logger.info(`╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`);
     }
 
-    /**
-     * Removes every global Discord application command for this bot application.
-     */
-    async unregisterGlobal(): Promise<void> {
-        const client = await this.getReadyClient("remove app commands globally");
+    /** Pulls app commands from the bot application. */
+    async pull(): Promise<void> {
+        const client = await this.getReadyClient("pull app commands");
         if (!client) return;
 
-        this.logger.info("Removing all app command globally...");
+        this.logger.info("↓ Pulling app commands...");
         await client.rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-        this.logger.info("Removed app commands globally");
+        this.logger.info("🗸 Pulled app commands");
     }
 
     /**
-     * Registers matching slash and context commands in each selected guild command registry.
+     * Pushes app commands to each guild the bot application is in.
+     * @param options Filter options.
      */
-    async registerGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<void> {
-        const client = await this.getReadyClient("register app commands by guild");
+    async pushByGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<void> {
+        const client = await this.getReadyClient("push app commands by guild");
         if (!client) return;
 
         const commands = this.getAllAppCommands(options).map(command => command.builder.toJSON());
         if (!commands.length) {
-            this.logger.info("No app commands to register by guild");
+            this.logger.info("✖ There are no app commands to register");
             return;
         }
 
         // Default to every cached guild when the caller does not provide a narrower target list
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
-        this.logger.info(`Registering app commands for ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
+        this.logger.info(`↑ Pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
 
         // Sync guilds in parallel because Discord keeps each guild command registry separate
         await Promise.all(
@@ -185,37 +184,35 @@ export class CommandManager {
                     editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
                 });
                 const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.logger.info(
-                    `Guild app commands checked for ${guildName} (${guildId}): ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
-                );
+                this.logger.info(`Pushed app commands to ${guildName} (${guildId})`);
+                this.logger.info(`╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`);
             })
         );
 
-        this.logger.info(
-            `Finished registering app commands for ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
-        );
+        this.logger.info(`🗸 Finished pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`);
     }
 
     /**
-     * Removes every Discord application command from each selected guild command registry.
+     * Pulls app commands from each guild the bot application is in.
+     * @param options Filter options.
      */
-    async unregisterGuild(options: { guilds?: string[] } = {}): Promise<void> {
-        const client = await this.getReadyClient("remove app commands by guild");
+    async pullByGuild(options: { guilds?: string[] } = {}): Promise<void> {
+        const client = await this.getReadyClient("pull app commands by guild");
         if (!client) return;
 
         // Empty each guild command registry instead of deleting commands one at a time
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
-        this.logger.info(`Removing app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
+        this.logger.info(`↓ Pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
 
         await Promise.all(
             guildIds.map(async guildId => {
                 await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
                 const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.logger.info(`Removed app commands in guild: ${guildName} (${guildId})`);
+                this.logger.info(`Pulled app commands from ${guildName} (${guildId})`);
             })
         );
 
-        this.logger.info(`Finished removing app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`);
+        this.logger.info(`🗸 Finished pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`);
     }
 
     /**

@@ -71,6 +71,7 @@ export class ModuleManager {
         if (imports.events) {
             const { dir, suffix } = imports.events;
             await this.events.importFrom(dir, suffix);
+            this.events.register(...this.events.getAll());
         }
     }
 

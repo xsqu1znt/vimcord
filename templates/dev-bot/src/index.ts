@@ -25,7 +25,8 @@ async function main() {
 
     // --- Start the Instance ---
     await client.login();
-    // await client.modules.commands.registerGuild();
+    // await client.modules.commands.pushByGuild();
+    // await client.modules.commands.pullByGuild();
 }
 
 main();

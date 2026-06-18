@@ -4,10 +4,8 @@ import { EventModule } from "vimcord";
 export default new EventModule({
     event: "messageCreate",
     name: "CommandDispatch:Prefix",
-    metadata: {
-        category: ["Commands"],
-        tags: ["prefix"]
-    },
+    metadata: { category: ["Commands"], tags: ["prefix"] },
+    requiresReady: true,
 
     async execute({ client, args: [message] }) {
         if (message.author.bot) return;

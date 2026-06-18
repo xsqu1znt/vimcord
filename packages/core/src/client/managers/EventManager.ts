@@ -1,4 +1,59 @@
-import type { ClientEvents } from "discord.js";
+import type {
+    AnyThreadChannel,
+    ApplicationCommandPermissionsUpdateData,
+    AuditLogEvent,
+    AutoModerationActionExecution,
+    AutoModerationRule,
+    CacheType,
+    Client,
+    ClientEvents,
+    CloseEvent,
+    DMChannel,
+    Entitlement,
+    ForumChannel,
+    Guild,
+    GuildAuditLogsEntry,
+    GuildBan,
+    GuildEmoji,
+    GuildMember,
+    GuildMembersChunk,
+    GuildScheduledEvent,
+    GuildScheduledEventStatus,
+    GuildSoundboardSound,
+    GuildTextBasedChannel,
+    Interaction,
+    Invite,
+    MediaChannel,
+    Message,
+    MessageReaction,
+    MessageReactionEventDetails,
+    NewsChannel,
+    NonThreadGuildBasedChannel,
+    OmitPartialGroupDMChannel,
+    PartialGuildMember,
+    PartialGuildScheduledEvent,
+    PartialMessage,
+    PartialMessageReaction,
+    PartialPollAnswer,
+    PartialSoundboardSound,
+    PartialThreadMember,
+    PartialUser,
+    PollAnswer,
+    Presence,
+    ReadonlyCollection,
+    Role,
+    StageInstance,
+    Sticker,
+    Subscription,
+    TextBasedChannel,
+    TextChannel,
+    ThreadMember,
+    Typing,
+    User,
+    VoiceChannel,
+    VoiceChannelEffect,
+    VoiceState
+} from "discord.js";
 import type { EventModule } from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
 
@@ -54,24 +109,20 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     register(...events: EventModule[]): void {
-        const mountedEvents = new Set(this.mountedListeners.keys());
-
         events.forEach(e => {
-            if (this.modules.has(e.id)) {
-                throw new Error(`Duplicate event module key '${e.id}'`);
-            }
+            if (this.modules.has(e.id)) return;
 
             e.inject(this.client);
             this.modules.set(e.id, e);
         });
         this.reindex();
-        new Set(events.map(e => e.event).filter(event => mountedEvents.has(event))).forEach(event => {
-            this.unmount(event);
-            this.mount(event);
-        });
         events.forEach(e =>
             this.client.logger.debugVerbose(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
+        new Set(events.map(e => e.event)).forEach(event => {
+            this.unmount(event);
+            this.mount(event);
+        });
     }
 
     unregister(...ids: string[]): void {
@@ -81,13 +132,13 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
 
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
+        events.forEach(e =>
+            this.client.logger.debugVerbose(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+        );
         mountedEvents.forEach(event => {
             this.unmount(event);
             this.mount(event);
         });
-        events.forEach(e =>
-            this.client.logger.debugVerbose(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
-        );
     }
 
     mount(event?: keyof ClientEvents): void {

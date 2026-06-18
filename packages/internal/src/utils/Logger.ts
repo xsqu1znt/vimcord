@@ -70,7 +70,7 @@ export const DEFAULT_COLORS: ColorScheme = {
 
 let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
 SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
-const LOADER_MESSAGE_UPDATE_INTERVAL_MS = 1_000;
+const LOADER_MESSAGE_UPDATE_INTERVAL_MS = 3_000;
 
 // --- Helpers ---
 

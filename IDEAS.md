@@ -31,3 +31,7 @@ A helper for prefix command subcommands and subgroups.
 Automatically reset Discord/DB connections when issues are detected.
 
 Make all UX timeouts required.
+
+Be able to set the log color per client.
+
+Vimcord-CLI: get info about a guild by id or name
