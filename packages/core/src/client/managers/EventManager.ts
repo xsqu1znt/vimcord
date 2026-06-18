@@ -8,10 +8,11 @@ type EventModuleIndexType = "event" | "name" | "category" | "tag";
 type EventListener<K extends keyof ClientEvents> = (...args: ClientEvents[K]) => void;
 
 export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
+    override DEFAULT_SUFFIX = ".event";
     private readonly mountedListeners = new Map<keyof ClientEvents, EventListener<keyof ClientEvents>>();
 
-    constructor(client: Vimcord, fileSuffix?: string | string[]) {
-        super(client, fileSuffix);
+    constructor(client: Vimcord) {
+        super(client);
 
         this.indexes.set("event", { key: m => m.event, map: new Map(), isArray: true });
         this.indexes.set("name", { key: m => m.name, map: new Map() });

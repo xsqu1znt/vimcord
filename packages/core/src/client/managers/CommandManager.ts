@@ -6,7 +6,6 @@ import type {
     RESTPostAPIApplicationCommandsJSONBody
 } from "discord.js";
 import type { CommandModuleType } from "@/abstracts/index.js";
-import type { ModuleImportOptions } from "@/client/index.js";
 import type { VimcordModuleLogger } from "@/client/logger.js";
 import type { ContextCommandModule, PrefixCommandModule, SlashCommandModule } from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
@@ -39,8 +38,10 @@ const DEFAULT_APPLICATION_COMMAND_GUILD_CONTEXTS = [0];
 const DEFAULT_APPLICATION_COMMAND_INTEGRATION_TYPES = [0];
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
-    constructor(client: Vimcord, fileSuffix?: string | string[]) {
-        super(client, fileSuffix);
+    override DEFAULT_SUFFIX = ".prefix";
+
+    constructor(client: Vimcord) {
+        super(client);
         this.indexes.set("alias", { key: m => m.aliases, map: new Map(), isArray: true });
     }
 
@@ -55,14 +56,18 @@ export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.P
 }
 
 export class SlashCommandManager extends BaseCommandManager<CommandModuleType.Slash, SlashCommandModule> {
-    constructor(client: Vimcord, fileSuffix?: string | string[]) {
-        super(client, fileSuffix);
+    override DEFAULT_SUFFIX = ".slash";
+
+    constructor(client: Vimcord) {
+        super(client);
     }
 }
 
 export class ContextCommandManager extends BaseCommandManager<CommandModuleType.Context, ContextCommandModule> {
-    constructor(client: Vimcord, fileSuffix?: string | string[]) {
-        super(client, fileSuffix);
+    override DEFAULT_SUFFIX = ".ctx";
+
+    constructor(client: Vimcord) {
+        super(client);
     }
 }
 
@@ -70,36 +75,23 @@ export class CommandManager {
     readonly prefix: PrefixCommandManager;
     readonly slash: SlashCommandManager;
     readonly context: ContextCommandManager;
+
     private readonly logger: VimcordModuleLogger;
 
     constructor(readonly client: Vimcord) {
-        const imports = client.features.importModules;
-
         this.logger = client.logger.module(COMMAND_MANAGER_LOGGER, { emoji: COMMAND_MANAGER_LOGGER_EMOJI });
 
-        // Use per-command defaults unless the importer config overrides the suffix
-        this.prefix = new PrefixCommandManager(client, resolveSuffix(imports?.prefixCommands, ".prefix"));
-        this.slash = new SlashCommandManager(client, resolveSuffix(imports?.slashCommands, ".slash"));
-        this.context = new ContextCommandManager(client, resolveSuffix(imports?.contextCommands, ".ctx"));
+        this.prefix = new PrefixCommandManager(client);
+        this.slash = new SlashCommandManager(client);
+        this.context = new ContextCommandManager(client);
     }
 
     /**
      * Returns slash and context commands that match the provided filter.
+     * @param options Filter options.
      */
     getAllAppCommands(options: CommandFilter = {}): (SlashCommandModule | ContextCommandModule)[] {
         return [...this.slash.getAll(options), ...this.context.getAll(options)];
-    }
-
-    /**
-     * Imports enabled command modules from the configured module directories.
-     */
-    async load(imports = this.client.features.importModules): Promise<void> {
-        if (!imports) return;
-
-        // Import each command type independently so consumers can enable only what they need
-        if (imports.prefixCommands) await this.prefix.importFrom(resolveDir(imports.prefixCommands));
-        if (imports.slashCommands) await this.slash.importFrom(resolveDir(imports.slashCommands));
-        if (imports.contextCommands) await this.context.importFrom(resolveDir(imports.contextCommands));
     }
 
     /**
@@ -297,14 +289,6 @@ export class CommandManager {
 
         return { created, updated, unchanged };
     }
-}
-
-function resolveSuffix(opt: string | string[] | ModuleImportOptions | undefined, def: string): string | string[] {
-    return Array.isArray(opt) || typeof opt === "string" ? def : (opt?.suffix ?? def);
-}
-
-function resolveDir(opt: string | string[] | ModuleImportOptions): string | string[] {
-    return Array.isArray(opt) || typeof opt === "string" ? opt : opt.dir;
 }
 
 function createApplicationCommandKey(command: RESTPostAPIApplicationCommandsJSONBody | RemoteApplicationCommand): string {

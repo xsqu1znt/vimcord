@@ -20,13 +20,12 @@ export interface ImportableModule {
 }
 
 export abstract class AbstractModuleImporter<T extends ImportableModule, K extends string = string> {
+    abstract readonly DEFAULT_SUFFIX: string | undefined;
+
     readonly modules: Map<string, T> = new Map();
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
 
-    constructor(
-        readonly client: Vimcord,
-        readonly fileSuffix?: string | string[]
-    ) {}
+    constructor(readonly client: Vimcord) {}
 
     protected abstract createModuleKey(module: T): string;
 
@@ -77,13 +76,13 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
         }
     }
 
-    async importFrom(dir: string | string[], set = false): Promise<Map<string, T>> {
+    async importFrom(dir: string | string[], suffix: string | string[], set = false): Promise<Map<string, T>> {
         if (set) this.modules.clear();
 
         const dirs = Array.isArray(dir) ? dir : [dir];
 
         for (const _dir of dirs) {
-            const results = await importModulesFromDir<{ default: T }>(_dir, this.fileSuffix);
+            const results = await importModulesFromDir<{ default: T }>(_dir, suffix);
 
             for (const result of results) {
                 const module = result.module.default;

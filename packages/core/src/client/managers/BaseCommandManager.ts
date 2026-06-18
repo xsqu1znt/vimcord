@@ -21,8 +21,8 @@ export abstract class BaseCommandManager<
 > extends AbstractModuleImporter<T, CommandModuleIndexType> {
     private readonly logger: VimcordModuleLogger;
 
-    constructor(client: Vimcord, fileSuffix?: string | string[]) {
-        super(client, fileSuffix);
+    constructor(client: Vimcord) {
+        super(client);
 
         this.logger = client.logger.module(COMMAND_MANAGER_LOGGER, { emoji: COMMAND_MANAGER_LOGGER_EMOJI });
 

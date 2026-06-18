@@ -215,6 +215,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     /**
      * Loads plugins and modules then logs in to Discord.
      * @param token The token to log in with.
+     * @default process.env.TOKEN | process.env.TOKEN_DEV
      */
     override async login(token?: string): Promise<string> {
         let clearStartupBanner: (() => void) | undefined;
@@ -224,9 +225,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             this.resolveStartupBanner = resolveBanner;
             clearStartupBanner = clearBanner;
 
-            addStartupLog("Loading plugins and modules...");
+            addStartupLog("Loading plugins...");
             await this.plugins.load();
-            await this.modules.load();
 
             token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
             if (!token) {
