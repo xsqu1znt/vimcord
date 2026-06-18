@@ -27,3 +27,5 @@ Make sure packages only export public facing.
 A way to pass context from execute to `afterExecute`.
 
 A helper for prefix command subcommands and subgroups.
+
+Automatically reset Discord/DB connections when issues are detected.

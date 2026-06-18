@@ -57,7 +57,6 @@ export enum SendMethod {
 export type SendHandler = CommandInteraction | RepliableInteraction | TextBasedChannel | Message | GuildMember | User;
 export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction;
 
-// TODO: Reimplement BetterEmbed when added to @vimcord/ux
 export type EmbedResolvable = EmbedBuilder;
 export type InteractionResolveable = CommandInteraction | RepliableInteraction;
 export type UserResolvable = GuildMember | User | string;

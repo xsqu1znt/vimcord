@@ -10,8 +10,8 @@ import type {
 import type { Vimcord } from "@/client/index.js";
 
 import { SlashCommandBuilder } from "discord.js";
-import { dynaSend, SendMethod } from "@vimcord/ux";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import { dynaSend, SendMethod } from "@/ux/index.js";
 
 type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.Slash>, "execute"> & {
     execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];

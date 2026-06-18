@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import ansis from "ansis";
-import { DEFAULT_COLORS, Logger, stripAnsi } from "@vimcord/logger";
+import { DEFAULT_COLORS, Logger, stripAnsi } from "@vimcord/internal";
 import { Vimcord } from "./Vimcord.js";
 
 export type VimcordModuleLogger = {
