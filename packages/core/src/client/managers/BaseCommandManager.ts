@@ -1,5 +1,5 @@
 import type { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import type { VimcordModuleLogger } from "@/client/logger.js";
+import type { VimcordModuleLogger } from "@/client/VimcordLogger.js";
 import type { Vimcord } from "../Vimcord.js";
 
 import { AbstractModuleImporter } from "@/abstracts/AbstractModuleImporter.js";

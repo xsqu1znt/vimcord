@@ -10,7 +10,7 @@ import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { PluginManager } from "@/plugins/index.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
-import { VimcordLogger, vimcordLogger } from "./logger.js";
+import { VimcordLogger, vimcordLogger } from "./VimcordLogger.js";
 
 export type VimcordEvents = {
     /** Returns the new Vimcord instance. */
@@ -182,7 +182,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      * Configures global client configs.
      * @param globals The options to set.
      */
-    configure(globals: VimcordGlobals): this {
+    configure(globals: PartialDeep<VimcordGlobals>): this {
         this.globals.app = mergeDeep(this.globals.app, globals.app);
         this.globals.staff = mergeDeep(this.globals.staff, globals.staff);
         this.globals.hooks = mergeDeep(this.globals.hooks ?? {}, globals.hooks);

@@ -6,7 +6,7 @@ import type {
     RESTPostAPIApplicationCommandsJSONBody
 } from "discord.js";
 import type { CommandModuleType } from "@/abstracts/index.js";
-import type { VimcordModuleLogger } from "@/client/logger.js";
+import type { VimcordModuleLogger } from "@/client/VimcordLogger.js";
 import type {
     MessageContextCommandModule,
     PrefixCommandModule,
@@ -245,6 +245,7 @@ export class CommandManager {
         if (!command) return;
 
         await command.run(message, prefix, trigger);
+        this.client.logger.command(command.name, message.author.username, message.guild?.name, message.guild?.id);
     }
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -252,6 +253,14 @@ export class CommandManager {
         if (!command) return;
 
         await command.run(interaction);
+        if (command.metadata.logUsage ?? true) {
+            this.client.logger.command(
+                command.name,
+                interaction.user.username,
+                interaction.guild?.name,
+                interaction.guild?.id
+            );
+        }
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<void> {
@@ -261,11 +270,27 @@ export class CommandManager {
 
         if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
             await messageContextCommand.run(interaction);
+            if (messageContextCommand.metadata.logUsage ?? true) {
+                this.client.logger.command(
+                    messageContextCommand.name,
+                    interaction.user.username,
+                    interaction.guild?.name,
+                    interaction.guild?.id
+                );
+            }
             return;
         }
 
         if (userContextCommand && interaction.isUserContextMenuCommand()) {
             await userContextCommand.run(interaction);
+            if (userContextCommand.metadata.logUsage ?? true) {
+                this.client.logger.command(
+                    userContextCommand.name,
+                    interaction.user.username,
+                    interaction.guild?.name,
+                    interaction.guild?.id
+                );
+            }
             return;
         }
     }

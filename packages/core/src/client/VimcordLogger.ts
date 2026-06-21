@@ -139,62 +139,6 @@ export class VimcordLogger extends Logger {
         super({ prefix: "vimcord", prefixEmoji: "⚡" });
     }
 
-    module(moduleName: string, options: VimcordModuleLoggerOptions = {}): VimcordModuleLogger {
-        const modulePrefix = this.buildModulePrefix(moduleName, options);
-
-        return {
-            log: (message, ...data) => this.writeModuleLog("log", modulePrefix, message, ...data),
-            logVerbose: (message, ...data) => {
-                if (!this.options.verbose) return;
-                this.writeModuleLog("log", modulePrefix, message, ...data);
-            },
-            debug: (message, ...data) => {
-                if (!this.shouldLog("debug")) return;
-                this.writeModuleLog("log", modulePrefix, ansis.dim(message), ...data);
-            },
-            debugVerbose: (message, ...data) => {
-                if (!this.options.verbose || !this.shouldLog("debug")) return;
-                this.writeModuleLog("log", modulePrefix, ansis.dim(message), ...data);
-            },
-            info: (message, ...data) => {
-                if (!this.shouldLog("info")) return;
-                this.writeModuleLog("log", modulePrefix, message, ...data);
-            },
-            infoVerbose: (message, ...data) => {
-                if (!this.options.verbose || !this.shouldLog("info")) return;
-                this.writeModuleLog("log", modulePrefix, message, ...data);
-            },
-            success: (message, ...data) => {
-                if (!this.shouldLog("success")) return;
-                this.writeModuleLog("log", modulePrefix, ansis.hex(this.options.colors.success)(message), ...data);
-            },
-            successVerbose: (message, ...data) => {
-                if (!this.options.verbose || !this.shouldLog("success")) return;
-                this.writeModuleLog("log", modulePrefix, ansis.hex(this.options.colors.success)(message), ...data);
-            },
-            warn: (message, ...data) => {
-                if (!this.shouldLog("warn")) return;
-                this.writeModuleLog("warn", modulePrefix, ansis.hex(this.options.colors.warn)(message), ...data);
-            },
-            warnVerbose: (message, ...data) => {
-                if (!this.options.verbose || !this.shouldLog("warn")) return;
-                this.writeModuleLog("warn", modulePrefix, ansis.hex(this.options.colors.warn)(message), ...data);
-            },
-            error: (message, error, ...data) => {
-                if (!this.shouldLog("error")) return;
-
-                this.writeModuleLog("error", modulePrefix, ansis.hex(this.options.colors.error)(message), ...data);
-                if (error?.stack) this.write("error", ansis.dim(error.stack));
-            },
-            errorVerbose: (message, error, ...data) => {
-                if (!this.options.verbose || !this.shouldLog("error")) return;
-
-                this.writeModuleLog("error", modulePrefix, ansis.hex(this.options.colors.error)(message), ...data);
-                if (error?.stack) this.write("error", ansis.dim(error.stack));
-            }
-        };
-    }
-
     private buildModulePrefix(moduleName: string, options: VimcordModuleLoggerOptions): string {
         const emoji = options.emoji ? `${options.emoji} ` : "";
         const name = ansis.bold.hex(this.options.colors.primary)(`[${moduleName}]`);
@@ -347,7 +291,7 @@ export class VimcordLogger extends Logger {
 
     private formatBannerRow(label: string, value: string, maxWidth: number): string {
         const { colors } = this.options;
-        const keyStyled = ansis.dim.hex(colors.muted)(label);
+        const keyStyled = ansis.hex(colors.muted)(label);
         const valStyled = ansis.hex(colors.muted)(value);
         const spacing = Math.max(1, maxWidth - stripAnsi(keyStyled).length - stripAnsi(valStyled).length - 6);
 
@@ -366,9 +310,75 @@ export class VimcordLogger extends Logger {
         return `${label}${ansis.hex(colors.primary)("─".repeat(remainingLength))}${ansis.hex(colors.primary)("╯")}`;
     }
 
-    clientReady(client: Vimcord<true>) {
+    clientReady(client: Vimcord<true>): void {
         this.log(
             `${ansis.hex(this.options.colors.success)(`🤖 READY`)} Connected as ${ansis.bold.hex(this.options.colors.primary)(client.user.tag)} ${ansis.hex(this.options.colors.muted)(`• ${client.guilds.cache.size} ${client.guilds.cache.size === 1 ? "guild" : "guilds"}`)}`
+        );
+    }
+
+    module(moduleName: string, options: VimcordModuleLoggerOptions = {}): VimcordModuleLogger {
+        const modulePrefix = this.buildModulePrefix(moduleName, options);
+
+        return {
+            log: (message, ...data) => this.writeModuleLog("log", modulePrefix, message, ...data),
+            logVerbose: (message, ...data) => {
+                if (!this.options.verbose) return;
+                this.writeModuleLog("log", modulePrefix, message, ...data);
+            },
+            debug: (message, ...data) => {
+                if (!this.shouldLog("debug")) return;
+                this.writeModuleLog("log", modulePrefix, ansis.dim(message), ...data);
+            },
+            debugVerbose: (message, ...data) => {
+                if (!this.options.verbose || !this.shouldLog("debug")) return;
+                this.writeModuleLog("log", modulePrefix, ansis.dim(message), ...data);
+            },
+            info: (message, ...data) => {
+                if (!this.shouldLog("info")) return;
+                this.writeModuleLog("log", modulePrefix, message, ...data);
+            },
+            infoVerbose: (message, ...data) => {
+                if (!this.options.verbose || !this.shouldLog("info")) return;
+                this.writeModuleLog("log", modulePrefix, message, ...data);
+            },
+            success: (message, ...data) => {
+                if (!this.shouldLog("success")) return;
+                this.writeModuleLog("log", modulePrefix, ansis.hex(this.options.colors.success)(message), ...data);
+            },
+            successVerbose: (message, ...data) => {
+                if (!this.options.verbose || !this.shouldLog("success")) return;
+                this.writeModuleLog("log", modulePrefix, ansis.hex(this.options.colors.success)(message), ...data);
+            },
+            warn: (message, ...data) => {
+                if (!this.shouldLog("warn")) return;
+                this.writeModuleLog("warn", modulePrefix, ansis.hex(this.options.colors.warn)(message), ...data);
+            },
+            warnVerbose: (message, ...data) => {
+                if (!this.options.verbose || !this.shouldLog("warn")) return;
+                this.writeModuleLog("warn", modulePrefix, ansis.hex(this.options.colors.warn)(message), ...data);
+            },
+            error: (message, error, ...data) => {
+                if (!this.shouldLog("error")) return;
+
+                this.writeModuleLog("error", modulePrefix, ansis.hex(this.options.colors.error)(message), ...data);
+                if (error?.stack) this.write("error", ansis.dim(error.stack));
+            },
+            errorVerbose: (message, error, ...data) => {
+                if (!this.options.verbose || !this.shouldLog("error")) return;
+
+                this.writeModuleLog("error", modulePrefix, ansis.hex(this.options.colors.error)(message), ...data);
+                if (error?.stack) this.write("error", ansis.dim(error.stack));
+            }
+        };
+    }
+
+    command(commandName: string, userName: string, guildName?: string, guildId?: string): void {
+        const { colors } = this.options;
+        this.log(
+            ansis.cyan("COMMAND"),
+            ansis.yellow(`/${commandName}`),
+            `used by ${userName}`,
+            ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}${guildId ? ` (${guildId})` : ""}`)
         );
     }
 }

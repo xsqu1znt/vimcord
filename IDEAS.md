@@ -35,3 +35,4 @@ Make all UX timeouts required.
 Be able to set the log color per client.
 
 Vimcord-CLI: get info about a guild by id or name
+Vimcord-CLI: be able to launch a separated instance of the CLI and still interact with the available clients

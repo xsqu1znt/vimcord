@@ -1,4 +1,5 @@
 import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
+import type { ModuleMetadata } from "../AbstractModule.js";
 import type {
     CommandModuleArgs,
     CommandModuleContext,
@@ -20,11 +21,13 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     protected readonly permissions: CommandModulePermissions;
     override readonly hooks: CommandModuleHooks<T>;
     readonly description?: string;
+    override readonly metadata: ModuleMetadata & { logUsage?: boolean };
 
     constructor(options: CommandModuleOptions<T>) {
         super(options);
 
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
+        this.metadata = options.metadata ?? {};
     }
 }
