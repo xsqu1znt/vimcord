@@ -32,14 +32,10 @@ export type LeanOrHydratedDocument<T, O extends QueryOptions<T>> = O["lean"] ext
     ? HydratedDocument<T>
     : Require_id<T>;
 
-export interface MongoSchemaOptions<Definition extends object> extends SchemaOptions<Definition> {
-    instanceId?: number;
-}
-
 export function createMongoSchema<Definition extends object>(
     collection: string,
     definition: SchemaDefinition<Definition>,
-    options?: MongoSchemaOptions<Definition>
+    options?: SchemaOptions<Definition>
 ): MongoSchemaBuilder<Definition> {
     return MongoSchemaBuilder.create(collection, definition, options);
 }
@@ -108,44 +104,40 @@ export function createMongoPlugin<Definition extends object = any>(
 export class MongoSchemaBuilder<Definition extends object = any> {
     private static globalPlugins: MongoPlugin<any>[] = [];
 
-    readonly collection: string;
-    readonly instanceId: number;
-
+    readonly collectionName: string;
     readonly schema: Schema<Definition>;
+
     model: Model<Definition> | null = null;
     plugin: MongoosePlugin | null = null;
 
     private logger: Logger;
 
-    static create<Definition extends object = any>(
-        collection: string,
-        definition: SchemaDefinition<Definition>,
-        options?: MongoSchemaOptions<Definition>
-    ) {
-        return new MongoSchemaBuilder(collection, definition, options);
-    }
-
     /**
      * Registers a plugin globally to be used by all future schemas.
+     * @param plugin The plugin to register
      */
     static use(plugin: MongoPlugin<any>) {
         this.globalPlugins.push(plugin);
     }
 
-    constructor(collection: string, definition: SchemaDefinition<Definition>, options: MongoSchemaOptions<Definition> = {}) {
-        const { instanceId = 0, ...schemaOptions } = options;
+    static create<Definition extends object>(
+        collection: string,
+        definition: SchemaDefinition<Definition>,
+        options?: SchemaOptions<Definition>
+    ): MongoSchemaBuilder<Definition> {
+        return new MongoSchemaBuilder(collection, definition, options);
+    }
 
-        this.instanceId = instanceId;
-        this.collection = collection;
-        this.schema = new Schema(definition, { versionKey: false, ...schemaOptions });
-
+    constructor(collectionName: string, definition: SchemaDefinition<Definition>, options: SchemaOptions<Definition> = {}) {
+        this.collectionName = collectionName;
+        this.schema = new Schema(definition, { versionKey: false, ...options });
         this.logger = new Logger({
             prefixEmoji: "🥭",
-            prefix: `MongoSchema (i${instanceId}) [${collection}]`,
+            prefix: `MongoSchema [${collectionName}]`,
             colors: { primary: "#F29B58" }
         });
 
-        // Apply global plugins immediately
+        // Apply global plugins
         for (const plugin of MongoSchemaBuilder.globalPlugins) {
             plugin(this);
         }
@@ -159,7 +151,7 @@ export class MongoSchemaBuilder<Definition extends object = any> {
         }
 
         // Compile model on the plugin's mongoose instance
-        this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema);
+        this.model = this.plugin.mongoose.model<Definition>(this.collectionName, this.schema);
         this.logger.debugVerbose(`Compiled! | ${this.plugin?.client?.$name}`);
         return this.model;
     }

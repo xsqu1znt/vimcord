@@ -3,7 +3,6 @@ show database ping stat in command and startup log
 add instance process info to the CLI instead of showing on startup
 show the amount of commands/events disabled
 
-`MongoSchemaBuilder.useTransaction` should let you return anything
 `MongoSchemaBuilder.extend` should wrap with execute and try/catch middleware
 
 `EventBuilder` and `X*CommandBuilder` should have its execute args as an object, that way you can do `({ interaction })` for example instead of needing to add "client," first. This leaves room for introducing context based utils to execute.

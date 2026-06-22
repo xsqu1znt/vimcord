@@ -6,7 +6,7 @@ import { PluginError } from "@/errors/PluginError.js";
 export class PluginManager {
     private plugins: Map<string, VimcordPlugin> = new Map();
 
-    constructor(readonly client: Vimcord) {}
+    constructor(private client: Vimcord) {}
 
     async load(): Promise<void> {
         let installedCount = 0;
@@ -65,12 +65,24 @@ export class PluginManager {
         this.plugins.set(plugin.name, plugin);
     }
 
-    get(name: string): VimcordPlugin | undefined {
-        return this.plugins.get(name);
+    get<T extends VimcordPlugin>(name: string): T | undefined;
+    get<T extends VimcordPlugin>(name: string, installed: true): T;
+    get<T extends VimcordPlugin>(name: string, installed?: boolean): T | undefined;
+    get<T extends VimcordPlugin>(name: string, installed?: boolean): T | undefined {
+        const plugin = this.plugins.get(name) as T;
+        if (installed && !plugin.installed) {
+            throw new PluginError(`Plugin '${name}' is not installed on client (${this.client.id})`);
+        }
+
+        return plugin;
     }
 
-    getAll(installed?: boolean): VimcordPlugin[] {
-        return Array.from(this.plugins.values()).filter(p => (installed === undefined ? true : p.installed === installed));
+    getAll<T extends VimcordPlugin[]>(installed: true): T;
+    getAll<T extends (VimcordPlugin | undefined)[]>(installed?: boolean): T;
+    getAll<T extends VimcordPlugin[]>(installed?: boolean): T {
+        return Array.from(this.plugins.values()).filter(p =>
+            installed === undefined ? true : p.installed === installed
+        ) as T;
     }
 
     has(name: string): boolean {

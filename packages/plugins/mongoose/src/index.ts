@@ -3,6 +3,7 @@ import type { ClientSessionOptions } from "mongoose";
 import mongoose from "mongoose";
 import { retry } from "qznt";
 import { PluginError, Vimcord, VimcordPlugin } from "@vimcord/core";
+import { Logger } from "@vimcord/internal";
 
 export * from "./mongoSchema.builder.js";
 
@@ -19,19 +20,25 @@ export interface MongooseOptions extends mongoose.MongooseOptions {
     maxRetries?: number;
 }
 
+export const PLUGIN_NAME = "@vimcord/plugin-mongoose";
+export const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
+export const PLUGIN_VERSION = "0.1.0";
+
 export class MongoosePlugin extends VimcordPlugin {
-    override name = "@vimcord/plugin-mongoose";
-    override description = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
-    override version = "0.1.0";
+    override name = PLUGIN_NAME;
+    override description = PLUGIN_DESCRIPTION;
+    override version = PLUGIN_VERSION;
 
     readonly client: Vimcord | null = null;
     readonly mongoose: mongoose.Mongoose;
 
+    readonly logger: Logger;
     private connectingPromise: Promise<void> | null = null;
 
     constructor(private config?: MongooseOptions) {
         super();
         this.mongoose = new mongoose.Mongoose(config);
+        this.logger = new Logger({ prefixEmoji: "🥭", prefix: `MongoDB`, colors: { primary: "#F29B58" } });
     }
 
     override async install(client: Vimcord): Promise<void> {
@@ -86,12 +93,15 @@ export class MongoosePlugin extends VimcordPlugin {
         await this.mongoose.disconnect();
     }
 
-    async startSession(options?: ClientSessionOptions) {
+    async startSession(options?: ClientSessionOptions): Promise<mongoose.ClientSession> {
         return this.mongoose.startSession(options);
     }
 
-    async useSession(fn: (session: mongoose.ClientSession) => Promise<void>) {
-        const session = await this.startSession();
+    async useSession(
+        fn: (session: mongoose.ClientSession) => Promise<unknown>,
+        options?: ClientSessionOptions
+    ): Promise<void> {
+        const session = await this.startSession(options);
         try {
             await fn(session);
         } finally {
@@ -99,16 +109,16 @@ export class MongoosePlugin extends VimcordPlugin {
         }
     }
 
-    async startTransaction(options?: mongoose.mongo.TransactionOptions) {
+    async startTransaction(options?: mongoose.mongo.TransactionOptions): Promise<mongoose.ClientSession> {
         const session = await this.startSession();
         session.startTransaction(options);
         return session;
     }
 
     async useTransaction(
-        fn: (session: mongoose.ClientSession) => Promise<void>,
+        fn: (session: mongoose.ClientSession) => Promise<unknown>,
         options?: mongoose.mongo.TransactionOptions
-    ) {
+    ): Promise<void> {
         await this.useSession(async session => {
             session.startTransaction(options);
             try {
