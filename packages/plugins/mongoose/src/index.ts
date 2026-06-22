@@ -38,7 +38,7 @@ export class MongoosePlugin extends VimcordPlugin {
     constructor(private config?: MongooseOptions) {
         super();
         this.mongoose = new mongoose.Mongoose(config);
-        this.logger = new Logger({ prefixEmoji: "🥭", prefix: `MongoDB`, colors: { primary: "#F29B58" } });
+        this.logger = new Logger({ prefixEmoji: "🥭", prefix: `Mongoose`, colors: { primary: "#F29B58" } });
     }
 
     override async install(client: Vimcord): Promise<void> {
