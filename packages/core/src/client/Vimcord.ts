@@ -4,7 +4,7 @@ import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
 import type { VimcordGlobals } from "./globals.js";
 
-import { EventEmitter } from "node:stream";
+import EventEmitter from "node:events";
 import { Client } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";

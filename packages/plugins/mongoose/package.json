@@ -21,10 +21,10 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "@vimcord/internal": "workspace:*",
         "@vimcord/core": "workspace:*",
+        "@vimcord/internal": "workspace:*",
         "mongoose": "^9.7.1",
-        "qznt": "^1.0.36"
+        "qznt": "link:/home/xsqu1znt/Desktop/Stuff/Development/02_Personal/Modules/qznt"
     },
     "devDependencies": {
         "@types/node": "^25.8.0"

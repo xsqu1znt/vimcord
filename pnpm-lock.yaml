@@ -83,8 +83,8 @@ importers:
         specifier: ^9.7.1
         version: 9.7.1
       qznt:
-        specifier: ^1.0.36
-        version: 1.0.36
+        specifier: link:/home/xsqu1znt/Desktop/Stuff/Development/02_Personal/Modules/qznt
+        version: link:../../../../qznt
     devDependencies:
       '@types/node':
         specifier: ^25.8.0
@@ -1200,9 +1200,6 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
-  qznt@1.0.36:
-    resolution: {integrity: sha512-gE5gG4CUCXRy/NnPlpkDwlvBA1rizbgFyisElP0wpLEdcSnN8RsF/CgV6RXEcmCzDvffYhMio/AklBpIWpVnXQ==}
-
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
@@ -2270,8 +2267,6 @@ snapshots:
   prettier@3.8.3: {}
 
   punycode@2.3.1: {}
-
-  qznt@1.0.36: {}
 
   readdirp@4.1.2: {}
 
