@@ -14,8 +14,7 @@ export class DotEnvPlugin extends VimcordPlugin {
 
     override install(client: Vimcord): void {
         configDotenv({ quiet: true, ...this.config });
-        // Make a logger for plugins
-        client.logger.module("dotenv", { emoji: "🔌" }).log("Environment variables injected");
+        client.logger.plugin("dotenv", "Environment variables injected");
         this.installed = true;
     }
 

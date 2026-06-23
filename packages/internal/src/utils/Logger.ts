@@ -31,20 +31,22 @@ export type LoggerOptions = {
      * @default false
      */
     verbose?: boolean;
-    /**
-     * Show timestamp before each message.
-     * @default true
-     */
-    showTimestamp?: boolean;
     /** Color scheme to use. */
     colors?: Partial<ColorScheme>;
 };
 
+export type LoaderOptions = {
+    /** Returns the next loader message while the spinner is active. */
+    cycle?: () => string;
+    /** How often `cycle` should be called in milliseconds. */
+    interval?: number;
+};
+
 type LoaderEntry = {
-    getMessage?: () => string;
+    cycle?: () => string;
+    cycleInterval: number;
+    lastCycleAt: number;
     message: string;
-    messageUpdatedAt: number;
-    frame: string;
 };
 
 // --- Constants ---
@@ -68,9 +70,9 @@ export const DEFAULT_COLORS: ColorScheme = {
     text: "#FFFFFF"
 };
 
-let { frames: SPINNER_FRAMES, interval: SPINNER_INTERVAL } = spinners.breathe;
-SPINNER_FRAMES = SPINNER_FRAMES.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
-const LOADER_MESSAGE_UPDATE_INTERVAL_MS = 3_000;
+const SPINNER_FRAMES = spinners.breathe.frames.map(f => ansis.hex(DEFAULT_COLORS.muted)(f));
+const SPINNER_INTERVAL = spinners.breathe.interval;
+const DEFAULT_LOADER_CYCLE_INTERVAL_MS = 3_000;
 
 // --- Helpers ---
 
@@ -87,6 +89,7 @@ function padVisible(str: string, length: number): string {
 
 // --- Logger ---
 
+/** Timestamped console logger with level filtering, colors, and optional live terminal loaders. */
 export class Logger {
     readonly options: Required<LoggerOptions> & { colors: ColorScheme };
 
@@ -101,93 +104,19 @@ export class Logger {
             prefixEmoji: null,
             minLevel: "debug",
             verbose: false,
-            showTimestamp: true,
             ...options,
             colors: { ...DEFAULT_COLORS, ...options.colors }
         };
     }
 
-    // --- Loader Rendering ---
-
-    private startLoaderRenderLoop(): void {
-        if (this.renderInterval) return;
-        this.renderInterval = setInterval(() => {
-            this.frameIndex = (this.frameIndex + 1) % SPINNER_FRAMES.length;
-
-            // Redraw all loaders in one pass
-            const count = this.activeLoaders.size;
-            if (count === 0) return;
-
-            // Move cursor up to first loader line
-            process.stdout.write(`\x1b[${count}A`);
-
-            for (const [, loader] of this.activeLoaders) {
-                this.updateLoaderMessage(loader);
-
-                const frame = SPINNER_FRAMES[this.frameIndex]!;
-                const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-                process.stdout.write(`\r\x1b[K${prefix} ${frame} ${loader.message}\n`);
-            }
-        }, SPINNER_INTERVAL);
-    }
-
-    private stopLoaderRenderLoop(): void {
-        if (!this.renderInterval) return;
-        clearInterval(this.renderInterval);
-        this.renderInterval = null;
-        this.frameIndex = 0;
-    }
-
-    private clearLoaders(): void {
-        const count = this.activeLoaders.size;
-        if (count === 0) return;
-        process.stdout.write(`\x1b[${count}A`);
-        process.stdout.write("\x1b[J");
-    }
-
-    private redrawLoaders(): void {
-        for (const [, loader] of this.activeLoaders) {
-            this.updateLoaderMessage(loader);
-
-            const frame = ansis.hex(this.options.colors.warn)(loader.frame);
-            const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-            process.stdout.write(`${prefix} ${frame} ${loader.message}\n`);
-        }
-    }
-
-    private updateLoaderMessage(loader: LoaderEntry): void {
-        if (!loader.getMessage) return;
-
-        const now = Date.now();
-        if (now - loader.messageUpdatedAt < LOADER_MESSAGE_UPDATE_INTERVAL_MS) return;
-
-        loader.message = loader.getMessage();
-        loader.messageUpdatedAt = now;
-    }
-
-    // --- Formatting ---
-
-    protected fmtTimestamp(): string {
-        const { showTimestamp, colors } = this.options;
-        if (!showTimestamp) return "";
-        const now = new Date();
-        const time = now.toLocaleTimeString("en-US", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-        });
-        return ansis.hex(colors.muted)(`[${time}]`);
-    }
-
-    protected fmtPrefix(): string {
+    private formatPrefix(): string {
         const { prefixEmoji, prefix, colors } = this.options;
         if (!prefix) return "";
         const emoji = prefixEmoji ? `${prefixEmoji} ` : "";
         return ansis.bold.hex(colors.primary)(`${emoji}${prefix}`);
     }
 
-    protected fmtLevel(level: LogLevel): string {
+    private formatLevel(level: LogLevel): string {
         const { colors } = this.options;
         switch (level) {
             case "debug":
@@ -203,44 +132,64 @@ export class Logger {
         }
     }
 
-    protected buildLine(...parts: (string | undefined)[]): string {
-        return parts.filter(Boolean).join(" ");
-    }
-
-    // --- Core ---
-
     /** Checks if the given log level should be logged. */
-    protected shouldLog(level: LogLevel): boolean {
+    private shouldLog(level: LogLevel): boolean {
         return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[this.options.minLevel];
     }
 
-    /** Writes a line using the builtin `console`. */
-    protected write(stream: "log" | "warn" | "error", ...data: unknown[]): void {
-        const hasLoaders = this.activeLoaders.size > 0;
-        if (hasLoaders) this.clearLoaders();
+    /** Returns a colored `[HH:mm:ss]` timestamp for log prefixes. */
+    timestamp(): string {
+        const { colors } = this.options;
+        const now = new Date();
+        const time = now.toLocaleTimeString("en-US", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        });
+
+        return ansis.hex(colors.muted)(`[${time}]`);
+    }
+
+    /** Writes a line using the builtin `console`, keeping active TTY loaders pinned below the new output. */
+    write(stream: "log" | "warn" | "error", ...data: unknown[]): void {
+        const loaderCount = this.activeLoaders.size;
+        const shouldRedrawLoaders = process.stdout.isTTY === true && loaderCount > 0;
+
+        // TTY loaders are already printed at the bottom. Move up and clear them before writing the real log line.
+        if (shouldRedrawLoaders) process.stdout.write(`\x1b[${loaderCount}A\x1b[J`);
+
         console[stream](...data);
-        if (hasLoaders) this.redrawLoaders();
+
+        if (!shouldRedrawLoaders) return;
+
+        const now = Date.now();
+        const frame = SPINNER_FRAMES[this.frameIndex]!;
+
+        // Redraw loaders after normal logs so they remain the last visible lines in the terminal.
+        for (const [, loader] of this.activeLoaders) {
+            if (loader.cycle && now - loader.lastCycleAt >= loader.cycleInterval) {
+                loader.message = loader.cycle();
+                loader.lastCycleAt = now;
+            }
+
+            process.stdout.write(`${this.timestamp()} ${this.formatPrefix()} ${frame} ${loader.message}\n`);
+        }
     }
 
-    // --- Public Log Methods ---
-
-    log(message: string, ...data: unknown[]): void {
-        this.write("log", this.buildLine(this.fmtTimestamp(), this.fmtPrefix()), message, ...data);
+    /** Logs a message without level filtering. */
+    log(...data: unknown[]): void {
+        this.write("log", this.timestamp(), this.formatPrefix(), ...data);
     }
 
-    logVerbose(message: string, ...data: unknown[]): void {
+    logVerbose(...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.log(message, data);
+        this.log(...data);
     }
 
     debug(message: string, ...data: unknown[]): void {
         if (!this.shouldLog("debug")) return;
-        this.write(
-            "log",
-            this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("debug")),
-            ansis.dim(message),
-            ...data
-        );
+        this.write("log", this.timestamp(), this.formatPrefix(), this.formatLevel("debug"), ansis.dim(message), ...data);
     }
 
     debugVerbose(message: string, ...data: unknown[]): void {
@@ -248,21 +197,23 @@ export class Logger {
         this.debug(message, ...data);
     }
 
-    info(message: string, ...data: unknown[]): void {
+    info(...data: unknown[]): void {
         if (!this.shouldLog("info")) return;
-        this.write("log", this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("info")), message, ...data);
+        this.write("log", this.timestamp(), this.formatPrefix(), this.formatLevel("info"), ...data);
     }
 
-    infoVerbose(message: string, ...data: unknown[]): void {
+    infoVerbose(...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.info(message, ...data);
+        this.info(...data);
     }
 
     success(message: string, ...data: unknown[]): void {
         if (!this.shouldLog("success")) return;
         this.write(
             "log",
-            this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("success")),
+            this.timestamp(),
+            this.formatPrefix(),
+            this.formatLevel("success"),
             ansis.hex(this.options.colors.success)(message),
             ...data
         );
@@ -277,7 +228,9 @@ export class Logger {
         if (!this.shouldLog("warn")) return;
         this.write(
             "warn",
-            this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("warn")),
+            this.timestamp(),
+            this.formatPrefix(),
+            this.formatLevel("warn"),
             ansis.hex(this.options.colors.warn)(message),
             ...data
         );
@@ -285,14 +238,16 @@ export class Logger {
 
     warnVerbose(message: string, ...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.warn(message, data);
+        this.warn(message, ...data);
     }
 
     error(message: string, error?: Error, ...data: unknown[]): void {
         if (!this.shouldLog("error")) return;
         this.write(
             "error",
-            this.buildLine(this.fmtTimestamp(), this.fmtPrefix(), this.fmtLevel("error")),
+            this.timestamp(),
+            this.formatPrefix(),
+            this.formatLevel("error"),
             ansis.hex(this.options.colors.error)(message),
             ...data
         );
@@ -303,14 +258,14 @@ export class Logger {
 
     errorVerbose(message: string, error?: Error, ...data: unknown[]): void {
         if (!this.options.verbose) return;
-        this.error(message, error, data);
+        this.error(message, error, ...data);
     }
 
     // --- Structured Output ---
-
+    /** @deprecated */
     table(title: string, data: Record<string, unknown>): void {
         const { colors } = this.options;
-        this.write("log", this.buildLine(this.fmtTimestamp(), this.fmtPrefix()), ansis.bold(title));
+        this.write("log", this.timestamp(), this.formatPrefix(), ansis.bold(title));
         for (const [key, value] of Object.entries(data)) {
             const formattedKey = padVisible(ansis.hex(colors.warn)(`  ${key}`), 25);
             const formattedValue = ansis.hex(colors.muted)(String(value));
@@ -319,6 +274,7 @@ export class Logger {
     }
 
     // TODO: Make this prettier, replace it with `header` using the textThroughLine helper
+    /** @deprecated */
     section(title: string): void {
         const { colors } = this.options;
         const titleVisible = stripAnsi(title);
@@ -332,9 +288,16 @@ export class Logger {
     }
 
     /**
-     * Starts a spinner and returns a `stop` function.
-     * Always call `stop()` — use try/finally to guarantee cleanup.
-     * Supports multiple concurrent loaders.
+     * Starts a loader and returns a `stop` function.
+     *
+     * In an interactive TTY, loaders render as live spinners pinned below regular logs. In hosted logs, CI,
+     * Docker logs, and other non-TTY streams, loaders degrade to normal start/final lines without ANSI cursor codes.
+     * Always call `stop()` with `try/finally` so the render loop can be cleaned up.
+     *
+     * @param message Initial loader message.
+     * @param cycleOrOptions Optional message cycle function or options object.
+     * @param interval How often to call the cycle function in milliseconds. Defaults to `3000`.
+     * @returns A function that stops the loader. Pass `clear: true` to suppress the success line.
      *
      * @example
      * ```ts
@@ -346,19 +309,57 @@ export class Logger {
      *   stop("Failed")
      * }
      * ```
+     *
+     * @example
+     * ```ts
+     * const stop = logger.loader("Starting...", () => "Still starting...", 1000)
+     * ```
      */
-    loader(message: string, getMessage?: () => string): (finalMessage?: string, clear?: boolean) => void {
+    loader(message: string, cycle?: () => string, interval?: number): (finalMessage?: string, clear?: boolean) => void;
+    loader(message: string, options?: LoaderOptions): (finalMessage?: string, clear?: boolean) => void;
+    loader(
+        message: string,
+        cycleOrOptions?: LoaderOptions | (() => string),
+        interval: number = DEFAULT_LOADER_CYCLE_INTERVAL_MS
+    ): (finalMessage?: string, clear?: boolean) => void {
         const { colors } = this.options;
-
+        const cycle = typeof cycleOrOptions === "function" ? cycleOrOptions : cycleOrOptions?.cycle;
+        const cycleInterval = typeof cycleOrOptions === "function" ? interval : (cycleOrOptions?.interval ?? interval);
         let stopped = false;
         const id = this.nextLoaderId++;
+        const prefix = `${this.timestamp()} ${this.formatPrefix()}`;
 
-        // Register and initial render
-        this.activeLoaders.set(id, { getMessage, message, messageUpdatedAt: Date.now(), frame: SPINNER_FRAMES[0]! });
-        const prefix = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-        process.stdout.write(`${prefix} ${SPINNER_FRAMES[0]!} ${message}\n`);
+        this.activeLoaders.set(id, { cycle, cycleInterval, lastCycleAt: Date.now(), message });
 
-        this.startLoaderRenderLoop();
+        if (process.stdout.isTTY !== true) {
+            this.write("log", prefix, message);
+        } else {
+            process.stdout.write(`${prefix} ${SPINNER_FRAMES[0]!} ${message}\n`);
+
+            if (!this.renderInterval) {
+                this.renderInterval = setInterval(() => {
+                    const loaderCount = this.activeLoaders.size;
+                    if (!loaderCount) return;
+
+                    this.frameIndex = (this.frameIndex + 1) % SPINNER_FRAMES.length;
+
+                    // Replace the existing loader block in-place. This only runs for real TTY streams.
+                    process.stdout.write(`\x1b[${loaderCount}A\x1b[J`);
+
+                    const now = Date.now();
+                    const frame = SPINNER_FRAMES[this.frameIndex]!;
+
+                    for (const [, loader] of this.activeLoaders) {
+                        if (loader.cycle && now - loader.lastCycleAt >= loader.cycleInterval) {
+                            loader.message = loader.cycle();
+                            loader.lastCycleAt = now;
+                        }
+
+                        process.stdout.write(`${this.timestamp()} ${this.formatPrefix()} ${frame} ${loader.message}\n`);
+                    }
+                }, SPINNER_INTERVAL);
+            }
+        }
 
         return (finalMessage?: string, clear = false) => {
             if (stopped) return;
@@ -366,53 +367,51 @@ export class Logger {
 
             this.activeLoaders.delete(id);
 
-            // If no loaders left, stop the loop
-            if (this.activeLoaders.size === 0) this.stopLoaderRenderLoop();
+            if (this.activeLoaders.size === 0 && this.renderInterval) {
+                clearInterval(this.renderInterval);
+                this.renderInterval = null;
+                this.frameIndex = 0;
+            }
 
-            // Clear all loader lines and redraw remaining
-            const remaining = this.activeLoaders.size;
-            const totalLines = remaining + 1; // +1 for this loader's line
+            if (process.stdout.isTTY !== true) {
+                if (clear) {
+                    if (finalMessage) this.write("log", finalMessage);
+                    return;
+                }
 
-            process.stdout.write(`\x1b[${totalLines}A`);
-            process.stdout.write("\x1b[J");
+                this.write(
+                    "log",
+                    `${this.timestamp()} ${this.formatPrefix()}`,
+                    ansis.hex(colors.success)("✓"),
+                    finalMessage ?? message
+                );
+                return;
+            }
 
-            // Print final message for this loader
+            // Clear the stopped loader plus any remaining loaders that were printed beneath it.
+            process.stdout.write(`\x1b[${this.activeLoaders.size + 1}A\x1b[J`);
+
             if (clear) {
                 if (finalMessage) process.stdout.write(`${finalMessage}\n`);
             } else {
                 const check = ansis.hex(colors.success)("✓");
-                const p = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-                process.stdout.write(`${p} ${check} ${finalMessage ?? message}\n`);
+                process.stdout.write(`${this.timestamp()} ${this.formatPrefix()} ${check} ${finalMessage ?? message}\n`);
             }
 
-            // Redraw remaining loaders
+            const frame = SPINNER_FRAMES[this.frameIndex]!;
             for (const [, loader] of this.activeLoaders) {
-                const frame = SPINNER_FRAMES[this.frameIndex]!;
-                const pr = this.buildLine(this.fmtTimestamp(), this.fmtPrefix());
-                process.stdout.write(`${pr} ${frame} ${loader.message}\n`);
+                process.stdout.write(`${this.timestamp()} ${this.formatPrefix()} ${frame} ${loader.message}\n`);
             }
         };
     }
 
-    // --- Configuration ---
-
-    setLevel(level: LogLevel) {
+    /** Sets the minimum log level required for level-filtered messages. */
+    setLevel(level: LogLevel): void {
         this.options.minLevel = level;
     }
 
-    setVerbose(verbose: boolean) {
+    /** Enables or disables verbose-only log methods. */
+    setVerbose(verbose: boolean): void {
         this.options.verbose = verbose;
-    }
-
-    /** Creates a child logger that inherits this logger's config with overrides */
-    clone(options: LoggerOptions): Logger {
-        return new Logger({
-            prefix: this.options.prefix ?? undefined,
-            prefixEmoji: this.options.prefixEmoji ?? undefined,
-            minLevel: this.options.minLevel,
-            showTimestamp: this.options.showTimestamp,
-            colors: { ...this.options.colors, ...options.colors },
-            ...options
-        });
     }
 }

@@ -6,7 +6,6 @@ import type {
     RESTPostAPIApplicationCommandsJSONBody
 } from "discord.js";
 import type { CommandModuleType } from "@/abstracts/index.js";
-import type { VimcordModuleLogger } from "@/client/VimcordLogger.js";
 import type {
     MessageContextCommandModule,
     PrefixCommandModule,
@@ -37,7 +36,6 @@ interface RemoteApplicationCommand {
 type RestRoute = `/${string}`;
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
-const COMMAND_MANAGER_LOGGER_EMOJI = "📦";
 const DEFAULT_APPLICATION_COMMAND_CONTEXTS = [0, 1, 2];
 const DEFAULT_APPLICATION_COMMAND_GUILD_CONTEXTS = [0];
 const DEFAULT_APPLICATION_COMMAND_INTEGRATION_TYPES = [0];
@@ -84,11 +82,7 @@ export class CommandManager {
     readonly slash: SlashCommandManager;
     readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
 
-    private readonly logger: VimcordModuleLogger;
-
     constructor(readonly client: Vimcord) {
-        this.logger = client.logger.module(COMMAND_MANAGER_LOGGER, { emoji: COMMAND_MANAGER_LOGGER_EMOJI });
-
         this.prefix = new PrefixCommandManager(client);
         this.slash = new SlashCommandManager(client);
         this.context = { message: new MessageContextCommandManager(client), user: new UserContextCommandManager(client) };
@@ -129,11 +123,14 @@ export class CommandManager {
             .filter(command => command.registration.global !== false)
             .map(command => command.builder.toJSON());
         if (!commands.length) {
-            this.logger.info("✖ There are no app commands to push");
+            this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to push");
             return;
         }
 
-        this.logger.info(`↑ Pushing ${commands.length} app command${commands.length === 1 ? "" : "s"}...`);
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `↑ Pushing ${commands.length} app command${commands.length === 1 ? "" : "s"}...`
+        );
 
         // --- Remote Sync ---
         const existing = (await client.rest.get(Routes.applicationCommands(client.user.id))) as RemoteApplicationCommand[];
@@ -141,8 +138,11 @@ export class CommandManager {
             createRoute: Routes.applicationCommands(client.user.id),
             editRoute: commandId => Routes.applicationCommand(client.user.id, commandId)
         });
-        this.logger.info("🗸 Pushed app commands");
-        this.logger.info(`╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`);
+        this.client.logger.module(COMMAND_MANAGER_LOGGER, "🗸 Pushed app commands");
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
+        );
     }
 
     /** Pulls app commands from the bot application. */
@@ -150,9 +150,9 @@ export class CommandManager {
         const client = await this.getReadyClient("pull app commands");
         if (!client) return;
 
-        this.logger.info("↓ Pulling app commands...");
+        this.client.logger.module(COMMAND_MANAGER_LOGGER, "↓ Pulling app commands...");
         await client.rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-        this.logger.info("🗸 Pulled app commands");
+        this.client.logger.module(COMMAND_MANAGER_LOGGER, "🗸 Pulled app commands");
     }
 
     /**
@@ -165,13 +165,16 @@ export class CommandManager {
 
         const commands = this.getAllAppCommands(options).map(command => command.builder.toJSON());
         if (!commands.length) {
-            this.logger.info("✖ There are no app commands to register");
+            this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to register");
             return;
         }
 
         // Default to every cached guild when the caller does not provide a narrower target list
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
-        this.logger.info(`↑ Pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `↑ Pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`
+        );
 
         // Sync guilds in parallel because Discord keeps each guild command registry separate
         await Promise.all(
@@ -184,12 +187,18 @@ export class CommandManager {
                     editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
                 });
                 const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.logger.info(`Pushed app commands to ${guildName} (${guildId})`);
-                this.logger.info(`╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`);
+                this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pushed app commands to ${guildName} (${guildId})`);
+                this.client.logger.module(
+                    COMMAND_MANAGER_LOGGER,
+                    `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
+                );
             })
         );
 
-        this.logger.info(`🗸 Finished pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`);
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `🗸 Finished pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
+        );
     }
 
     /**
@@ -202,17 +211,23 @@ export class CommandManager {
 
         // Empty each guild command registry instead of deleting commands one at a time
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
-        this.logger.info(`↓ Pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`);
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `↓ Pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`
+        );
 
         await Promise.all(
             guildIds.map(async guildId => {
                 await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
                 const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.logger.info(`Pulled app commands from ${guildName} (${guildId})`);
+                this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pulled app commands from ${guildName} (${guildId})`);
             })
         );
 
-        this.logger.info(`🗸 Finished pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`);
+        this.client.logger.module(
+            COMMAND_MANAGER_LOGGER,
+            `🗸 Finished pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
+        );
     }
 
     /**
@@ -245,7 +260,7 @@ export class CommandManager {
         if (!command) return;
 
         await command.run(message, prefix, trigger);
-        this.client.logger.command(command.name, message.author.username, message.guild?.name, message.guild?.id);
+        this.client.logger.commandUsed(command.name, message.author.username, message.guild?.name, message.guild?.id);
     }
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -254,7 +269,7 @@ export class CommandManager {
 
         await command.run(interaction);
         if (command.metadata.logUsage ?? true) {
-            this.client.logger.command(
+            this.client.logger.commandUsed(
                 command.name,
                 interaction.user.username,
                 interaction.guild?.name,
@@ -271,7 +286,7 @@ export class CommandManager {
         if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
             await messageContextCommand.run(interaction);
             if (messageContextCommand.metadata.logUsage ?? true) {
-                this.client.logger.command(
+                this.client.logger.commandUsed(
                     messageContextCommand.name,
                     interaction.user.username,
                     interaction.guild?.name,
@@ -284,7 +299,7 @@ export class CommandManager {
         if (userContextCommand && interaction.isUserContextMenuCommand()) {
             await userContextCommand.run(interaction);
             if (userContextCommand.metadata.logUsage ?? true) {
-                this.client.logger.command(
+                this.client.logger.commandUsed(
                     userContextCommand.name,
                     interaction.user.username,
                     interaction.guild?.name,
@@ -299,7 +314,7 @@ export class CommandManager {
         const ready = await this.client.awaitReady();
         if (!ready || !this.client.isReady()) {
             // REST routes need the application id from the ready client user
-            this.logger.error(`Failed to ${action}: client is not ready`);
+            this.client.logger.error(`[${COMMAND_MANAGER_LOGGER}] Failed to ${action}: client is not ready`);
             return null;
         }
 

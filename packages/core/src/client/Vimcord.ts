@@ -106,6 +106,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.once("clientReady", () => {
             Vimcord.$events.emit("ready", this);
             this.resolveStartupBanner?.();
+            this.resolveStartupBanner = undefined;
             this.logger.clientReady(this as Vimcord<true>);
         });
     }
@@ -218,14 +219,11 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      * @default process.env.TOKEN | process.env.TOKEN_DEV
      */
     override async login(token?: string): Promise<string> {
-        let clearStartupBanner: (() => void) | undefined;
-
         try {
-            const { addStartupLog, clearBanner, resolveBanner } = this.logger.startupBanner(this);
+            const resolveBanner = this.logger.startupBanner(this);
             this.resolveStartupBanner = resolveBanner;
-            clearStartupBanner = clearBanner;
 
-            addStartupLog("Loading plugins...");
+            this.logger.debug("Loading plugins...");
             await this.plugins.load();
 
             token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
@@ -235,13 +233,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 );
             }
 
-            addStartupLog("Logging in to Discord...");
+            this.logger.debug("Logging in to Discord...");
             const result = await super.login(token);
-            addStartupLog("Waiting for the client to be ready...");
+            this.logger.debug("Waiting for the client to be ready...");
 
             return result;
         } catch (err) {
-            clearStartupBanner?.();
+            this.resolveStartupBanner?.();
+            this.resolveStartupBanner = undefined;
             throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");
         }
     }

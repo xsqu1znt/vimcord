@@ -2,8 +2,9 @@ import type { ClientSessionOptions } from "mongoose";
 
 import mongoose from "mongoose";
 import { retry } from "qznt";
-import { PluginError, Vimcord, VimcordPlugin } from "@vimcord/core";
+import { Vimcord, VimcordPlugin } from "@vimcord/core";
 import { Logger } from "@vimcord/internal";
+import { MongoosePluginError } from "./MongoosePluginError.js";
 
 export * from "./mongoSchema.builder.js";
 
@@ -32,13 +33,11 @@ export class MongoosePlugin extends VimcordPlugin {
     readonly client: Vimcord | null = null;
     readonly mongoose: mongoose.Mongoose;
 
-    readonly logger: Logger;
     private connectingPromise: Promise<void> | null = null;
 
     constructor(private config?: MongooseOptions) {
         super();
         this.mongoose = new mongoose.Mongoose(config);
-        this.logger = new Logger({ prefixEmoji: "🥭", prefix: `Mongoose`, colors: { primary: "#F29B58" } });
     }
 
     override async install(client: Vimcord): Promise<void> {
@@ -59,28 +58,33 @@ export class MongoosePlugin extends VimcordPlugin {
 
         this.connectingPromise = (async () => {
             if (!this.client) {
-                throw new PluginError("Cannot connect to MongoDB: MongoosePlugin has not been installed yet");
+                throw new MongoosePluginError("Cannot connect to MongoDB: Plugin has not been installed yet");
             }
 
             const devMode = this.client.$devMode;
             const connectionUri = this.config?.uri ?? (devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI);
             if (!connectionUri) {
-                throw new PluginError(
+                throw new MongoosePluginError(
                     `MONGO_URI Missing: ${devMode ? "DEV MODE is enabled, but MONGO_URI_DEV is not set" : "MONGO_URI not set"}`
                 );
             }
 
             const maxRetries = this.config?.maxRetries ?? 3;
-            this.client.logger.module("mongoose", { emoji: "🔌" }).log("Connecting to MongoDB...");
+            this.client.logger.plugin("mongoose", "⏳ Connecting to MongoDB...");
 
             try {
                 await retry(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.config }), {
                     retries: maxRetries
                 });
+
+                this.client.logger.plugin("mongoose", "🗸 Connected to MongoDB");
             } catch (err) {
-                this.client.logger
-                    .module("mongoose", { emoji: "🔌" })
-                    .error("Failed to connect to MongoDB", err as Error, `${maxRetries} attempt(s) reached`);
+                this.client.logger.plugin(
+                    "mongoose",
+                    "✖ Failed to connect to MongoDB",
+                    err as Error,
+                    `${maxRetries} attempt(s) reached`
+                );
             } finally {
                 this.connectingPromise = null;
             }

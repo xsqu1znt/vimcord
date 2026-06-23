@@ -87,7 +87,7 @@ export class MongoSchemaBuilder<Definition> {
 
         // Compile model on the plugin's mongoose instance
         this.model = this.plugin.mongoose.model<Definition>(this.collectionName, this.schema);
-        this.plugin.logger.debugVerbose(`[${this.collectionName}] ✔ Compiled`);
+        this.client.logger.debugVerbose(`[${this.collectionName}] ✔ Compiled`);
 
         return { client: this.client, plugin: this.plugin, model: this.model };
     }
@@ -196,7 +196,7 @@ export class MongoSchemaBuilder<Definition> {
 
             if (attempt === maxRetries) {
                 throw new MongoosePluginError(
-                    `Failed to generate a unique value for "${path}" after ${maxRetries} retr${maxRetries === 1 ? "y" : "ies"}`
+                    `Failed to generate a unique value for "${path}" after ${maxRetries} attempt${maxRetries === 1 ? "" : "s"}`
                 );
             }
         }
