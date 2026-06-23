@@ -17,7 +17,7 @@ const STARTUP_LINES = [
     "Combining the best of the best..."
 ];
 
-const STARTUP_PADDING_X = 2;
+const STARTUP_PADDING_X = 0;
 const MIN_CONSOLE_WIDTH = 80;
 
 function getCorePackageVersion(): string {
@@ -129,7 +129,7 @@ export class VimcordLogger extends Logger {
             if (state.resolved) return;
             state.resolved = true;
 
-            stopLoader();
+            stopLoader("", true);
             this.write("log", this.buildStartupFooter(client));
 
             const cliLine = ` 🚀 ${ansis.bold.hex(colors.primary)("CLI")} ${ansis.bold("~ Type /help to view available commands")} `;
@@ -157,12 +157,36 @@ export class VimcordLogger extends Logger {
 
     module(moduleName: string, ...data: unknown[]): void {
         const { colors } = this.options;
-        this.log(`📦 ${ansis.hex(colors.muted)(`<${moduleName}>`)}`, ansis.dim(data.join("\n")));
+        this.log(`${ansis.yellow(`[${moduleName}]`)}`, ansis.dim(data.join("\n")));
+    }
+
+    moduleSuccess(moduleName: string, ...data: unknown[]): void {
+        const { colors } = this.options;
+        this.log(`${ansis.yellow(`[${moduleName}]`)}`, ansis.hex(colors.success)("🗸"), ansis.dim(data.join("\n")));
+    }
+
+    moduleError(moduleName: string, message: string, error: Error, ...data: unknown[]): void {
+        const { colors } = this.options;
+        this.log(
+            `${ansis.yellow(`[${moduleName}]`)}`,
+            ansis.hex(colors.error)(message),
+            ansis.dim(data.join("\n")),
+            `\n${error}`
+        );
     }
 
     plugin(pluginName: string, ...data: unknown[]): void {
         const { colors } = this.options;
         this.log(ansis.hex(colors.muted)(`<plugin-${pluginName}>`), ansis.dim(data.join("\n")));
+    }
+
+    pluginSuccess(pluginName: string, ...data: unknown[]): void {
+        const { colors } = this.options;
+        this.log(
+            ansis.hex(colors.muted)(`<plugin-${pluginName}>`),
+            ansis.hex(colors.success)("🗸"),
+            ansis.dim(data.join("\n"))
+        );
     }
 
     pluginError(pluginName: string, message: string, error: Error, ...data: unknown[]): void {

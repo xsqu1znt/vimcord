@@ -142,7 +142,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     mount(event?: keyof ClientEvents): void {
-        const clientEvents = event ? [event] : Array.from(new Set(this.modules.values().map(m => m.event)));
+        const clientEvents = event ? [event] : Array.from(new Set(Array.from(this.modules.values()).map(m => m.event)));
         if (!clientEvents.length) return;
 
         for (const event of clientEvents) {

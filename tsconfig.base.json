@@ -1,10 +1,10 @@
 {
     "compilerOptions": {
         // --- Core ---
-        "target": "esnext",
-        "module": "nodenext",
-        "moduleResolution": "nodenext",
-        "lib": ["ESNext"],
+        "target": "es2022",
+        "module": "node20",
+        "types": ["node"],
+        "ignoreDeprecations": "6.0",
 
         // --- Output ---
         "declaration": true,

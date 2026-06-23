@@ -159,7 +159,7 @@ export class BetterModal {
         return new BetterModal({
             customId: this.customId,
             title: this.modal.data.title,
-            components: this.components.values().toArray()
+            components: Array.from(this.components.values())
         });
     }
 

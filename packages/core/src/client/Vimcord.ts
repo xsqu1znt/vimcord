@@ -223,8 +223,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             const resolveBanner = this.logger.startupBanner(this);
             this.resolveStartupBanner = resolveBanner;
 
-            this.logger.debug("Loading plugins...");
-            await this.plugins.load();
+            if (this.plugins.getAll().length) {
+                this.logger.log("Loading plugins...");
+                await this.plugins.load();
+            }
 
             token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
             if (!token) {
@@ -233,9 +235,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 );
             }
 
-            this.logger.debug("Logging in to Discord...");
+            this.logger.log("Logging in to Discord...");
             const result = await super.login(token);
-            this.logger.debug("Waiting for the client to be ready...");
 
             return result;
         } catch (err) {

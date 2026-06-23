@@ -24,18 +24,26 @@ import { Vimcord } from "@vimcord/core";
 import { MongoosePlugin, PLUGIN_NAME } from "./index.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
+export type LeanOrHydratedDocument<Definition, Options extends QueryOptions<Definition>> = Options["lean"] extends false
+    ? HydratedDocument<Definition>
+    : Definition;
+
+type DistinctValue<Value> = Value extends readonly (infer Item)[] ? NonNullable<Item> : NonNullable<Value>;
+type CreateDocument<Definition> = Parameters<Model<Definition>["create"]>[0];
+type BulkWriteOperations<Definition> = Parameters<Model<Definition>["bulkWrite"]>[0];
+
 export interface MongoSchemaBuilderOptions<Definition = any> extends SchemaOptions<Definition> {
     /** The Vimcord client ID to attach to. Leave blank to use the default. */
     clientId?: string;
 }
 
-export type LeanOrHydratedDocument<Definition, Options extends QueryOptions<Definition>> = Options["lean"] extends false
-    ? HydratedDocument<Definition>
-    : Require_id<Definition>;
-
-type DistinctValue<Value> = Value extends readonly (infer Item)[] ? NonNullable<Item> : NonNullable<Value>;
-type CreateDocument<Definition> = Parameters<Model<Definition>["create"]>[0];
-type BulkWriteOperations<Definition> = Parameters<Model<Definition>["bulkWrite"]>[0];
+export function createMongoSchema<Definition extends object>(
+    collection: string,
+    definition: SchemaDefinition<Definition>,
+    options: MongoSchemaBuilderOptions<Definition> = {}
+): MongoSchemaBuilder<Definition> {
+    return new MongoSchemaBuilder(collection, definition, options);
+}
 
 export class MongoSchemaBuilder<Definition> {
     static globalPlugins: MongoPlugin[] = [];
@@ -43,14 +51,14 @@ export class MongoSchemaBuilder<Definition> {
     readonly client: Vimcord | null = null;
     readonly plugin: MongoosePlugin | null = null;
 
-    readonly collectionName: string;
+    readonly collection: string;
     readonly schema: Schema<Definition>;
     model: Model<Definition> | null = null;
 
     constructor(
         collectionName: string,
         definition: SchemaDefinition<Definition>,
-        private options: MongoSchemaBuilderOptions<Definition> = {}
+        options: MongoSchemaBuilderOptions<Definition> = {}
     ) {
         const { clientId, ...schemaOptions } = options;
 
@@ -66,7 +74,7 @@ export class MongoSchemaBuilder<Definition> {
         this.plugin = this.client.plugins.get<MongoosePlugin>(PLUGIN_NAME, true);
 
         // --- Continue initializing ---
-        this.collectionName = collectionName;
+        this.collection = collectionName;
         this.schema = new Schema(definition, { versionKey: false, ...schemaOptions });
 
         // Apply global plugins
@@ -86,8 +94,8 @@ export class MongoSchemaBuilder<Definition> {
         if (this.model) return { client: this.client, plugin: this.plugin, model: this.model };
 
         // Compile model on the plugin's mongoose instance
-        this.model = this.plugin.mongoose.model<Definition>(this.collectionName, this.schema);
-        this.client.logger.debugVerbose(`[${this.collectionName}] ✔ Compiled`);
+        this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema);
+        this.client.logger.debugVerbose(`[${this.collection}] ✔ Compiled`);
 
         return { client: this.client, plugin: this.plugin, model: this.model };
     }

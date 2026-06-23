@@ -5,7 +5,7 @@ import { retry } from "qznt";
 import { Vimcord, VimcordPlugin } from "@vimcord/core";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
-export * from "./mongoSchema.builder.js";
+export * from "./MongoSchemaBuilder.js";
 
 export interface MongooseOptions extends mongoose.MongooseOptions {
     /**
@@ -76,7 +76,7 @@ export class MongoosePlugin extends VimcordPlugin {
                     retries: maxRetries
                 });
 
-                this.client.logger.plugin(this.name, "🗸 Connected to MongoDB");
+                this.client.logger.pluginSuccess(this.name, "Connected to MongoDB");
             } catch (err) {
                 this.client.logger.pluginError(
                     this.name,
