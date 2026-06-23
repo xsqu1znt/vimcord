@@ -3,7 +3,6 @@ import type { ClientSessionOptions } from "mongoose";
 import mongoose from "mongoose";
 import { retry } from "qznt";
 import { Vimcord, VimcordPlugin } from "@vimcord/core";
-import { Logger } from "@vimcord/internal";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
 export * from "./mongoSchema.builder.js";
@@ -21,7 +20,7 @@ export interface MongooseOptions extends mongoose.MongooseOptions {
     maxRetries?: number;
 }
 
-export const PLUGIN_NAME = "@vimcord/plugin-mongoose";
+export const PLUGIN_NAME = "mongoose";
 export const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
 export const PLUGIN_VERSION = "0.1.0";
 
@@ -70,20 +69,19 @@ export class MongoosePlugin extends VimcordPlugin {
             }
 
             const maxRetries = this.config?.maxRetries ?? 3;
-            this.client.logger.plugin("mongoose", "⏳ Connecting to MongoDB...");
+            this.client.logger.plugin(this.name, "Connecting to MongoDB...");
 
             try {
                 await retry(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.config }), {
                     retries: maxRetries
                 });
 
-                this.client.logger.plugin("mongoose", "🗸 Connected to MongoDB");
+                this.client.logger.plugin(this.name, "🗸 Connected to MongoDB");
             } catch (err) {
-                this.client.logger.plugin(
-                    "mongoose",
-                    "✖ Failed to connect to MongoDB",
-                    err as Error,
-                    `${maxRetries} attempt(s) reached`
+                this.client.logger.pluginError(
+                    this.name,
+                    `Failed to connect: max attempt${maxRetries === 1 ? "" : "s"} (${maxRetries}) reached`,
+                    err as Error
                 );
             } finally {
                 this.connectingPromise = null;

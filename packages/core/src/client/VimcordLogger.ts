@@ -156,15 +156,23 @@ export class VimcordLogger extends Logger {
     }
 
     module(moduleName: string, ...data: unknown[]): void {
-        this.log(`📦 ${ansis.bold(`[${moduleName}]`)}`, ...data);
+        const { colors } = this.options;
+        this.log(`📦 ${ansis.hex(colors.muted)(`<${moduleName}>`)}`, ansis.dim(data.join("\n")));
     }
 
     plugin(pluginName: string, ...data: unknown[]): void {
-        this.log(`🔌 ${ansis.bold(`[${pluginName}]`)}`, ...data);
+        const { colors } = this.options;
+        this.log(ansis.hex(colors.muted)(`<plugin-${pluginName}>`), ansis.dim(data.join("\n")));
     }
 
     pluginError(pluginName: string, message: string, error: Error, ...data: unknown[]): void {
-        this.error(`🔌 ${ansis.bold(`[${pluginName}]`)}`);
+        const { colors } = this.options;
+        this.log(
+            ansis.hex(colors.muted)(`<plugin-${pluginName}>`),
+            ansis.hex(colors.error)(message),
+            ansis.dim(data.join("\n")),
+            `\n${error}`
+        );
     }
 }
 
