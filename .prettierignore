@@ -1,1 +1,7 @@
+# Directories
+dist
+**/dist
+node_modules
+
+# File Types
 *.md

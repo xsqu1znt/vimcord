@@ -1,5 +1,5 @@
 import ansis from "ansis";
-import spinners from "unicode-animations";
+import { spinners } from "unicode-animations";
 
 // --- Types ---
 
