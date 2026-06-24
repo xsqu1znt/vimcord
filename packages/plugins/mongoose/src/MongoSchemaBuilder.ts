@@ -58,22 +58,10 @@ export class MongoSchemaBuilder<Definition> {
     constructor(
         collectionName: string,
         definition: SchemaDefinition<Definition>,
-        options: MongoSchemaBuilderOptions<Definition> = {}
+        private options: MongoSchemaBuilderOptions<Definition> = {}
     ) {
         const { clientId, ...schemaOptions } = options;
 
-        // --- Get the vimcord client ---
-        const client = Vimcord.getInstance(clientId);
-        if (!client) {
-            throw new MongoosePluginError(`Client instance (${clientId ?? "DEFAULT"}) does not exist`);
-        }
-
-        this.client = client;
-
-        // Get the MongoosePlugin from the client
-        this.plugin = this.client.plugins.get<MongoosePlugin>(PLUGIN_NAME, true);
-
-        // --- Continue initializing ---
         this.collection = collectionName;
         this.schema = new Schema(definition, { versionKey: false, ...schemaOptions });
 
@@ -84,9 +72,27 @@ export class MongoSchemaBuilder<Definition> {
     }
 
     private compileModel(): { client: Vimcord; plugin: MongoosePlugin; model: Model<Definition> } {
+        // --- Get the vimcord client ---
+        if (!this.client) {
+            const client = Vimcord.getInstance(this.options.clientId);
+            if (!client) {
+                throw new MongoosePluginError(`Client instance (${this.options.clientId ?? "DEFAULT"}) does not exist`);
+            }
+
+            // NOTE: We're casting `this` because `client` is readonly
+            (this as { client: Vimcord | null }).client = client;
+        }
+
         if (!this.client) {
             throw new MongoosePluginError(`Client instance not found`);
         }
+
+        if (!this.plugin) {
+            // Get the MongoosePlugin from the client
+            // NOTE: We're casting `this` because `plugin` is readonly
+            (this as { plugin: MongoosePlugin | null }).plugin = this.client!.plugins.get<MongoosePlugin>(PLUGIN_NAME, true);
+        }
+
         if (!this.plugin) {
             throw new MongoosePluginError(`Plugin "${PLUGIN_NAME}" is required, but not installed on the client`);
         }
@@ -94,7 +100,7 @@ export class MongoSchemaBuilder<Definition> {
         if (this.model) return { client: this.client, plugin: this.plugin, model: this.model };
 
         // Compile model on the plugin's mongoose instance
-        this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema);
+        this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema, this.collection);
         this.client.logger.debugVerbose(`[${this.collection}] ✔ Compiled`);
 
         return { client: this.client, plugin: this.plugin, model: this.model };

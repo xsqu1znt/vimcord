@@ -148,7 +148,7 @@ export class VimcordLogger extends Logger {
     commandUsed(commandName: string, userName: string, guildName?: string, guildId?: string): void {
         const { colors } = this.options;
         this.log(
-            ansis.cyan("COMMAND"),
+            ansis.hex(colors.muted)("COMMAND"),
             ansis.yellow(`/${commandName}`),
             `used by ${userName}`,
             ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}${guildId ? ` (${guildId})` : ""}`)
@@ -157,17 +157,23 @@ export class VimcordLogger extends Logger {
 
     module(moduleName: string, ...data: unknown[]): void {
         const { colors } = this.options;
-        this.log(`${ansis.yellow(`[${moduleName}]`)}`, ansis.dim(data.join("\n")));
+        this.log(ansis.hex(colors.muted)("MODULE"), ansis.yellow(`[${moduleName}]`), ansis.dim(data.join("\n")));
     }
 
     moduleSuccess(moduleName: string, ...data: unknown[]): void {
         const { colors } = this.options;
-        this.log(`${ansis.yellow(`[${moduleName}]`)}`, ansis.hex(colors.success)("🗸"), ansis.dim(data.join("\n")));
+        this.log(
+            ansis.hex(colors.muted)("MODULE"),
+            ansis.yellow(`[${moduleName}]`),
+            ansis.hex(colors.success)("🗸"),
+            ansis.dim(data.join("\n"))
+        );
     }
 
     moduleError(moduleName: string, message: string, error: Error, ...data: unknown[]): void {
         const { colors } = this.options;
         this.log(
+            ansis.hex(colors.muted)("MODULE"),
             `${ansis.yellow(`[${moduleName}]`)}`,
             ansis.hex(colors.error)(message),
             ansis.dim(data.join("\n")),
@@ -177,13 +183,14 @@ export class VimcordLogger extends Logger {
 
     plugin(pluginName: string, ...data: unknown[]): void {
         const { colors } = this.options;
-        this.log(ansis.hex(colors.muted)(`<plugin-${pluginName}>`), ansis.dim(data.join("\n")));
+        this.log(ansis.hex(colors.muted)("PLUGIN"), ansis.hex(colors.muted)(`<${pluginName}>`), ansis.dim(data.join("\n")));
     }
 
     pluginSuccess(pluginName: string, ...data: unknown[]): void {
         const { colors } = this.options;
         this.log(
-            ansis.hex(colors.muted)(`<plugin-${pluginName}>`),
+            ansis.hex(colors.muted)("PLUGIN"),
+            ansis.hex(colors.muted)(`<${pluginName}>`),
             ansis.hex(colors.success)("🗸"),
             ansis.dim(data.join("\n"))
         );
@@ -192,7 +199,8 @@ export class VimcordLogger extends Logger {
     pluginError(pluginName: string, message: string, error: Error, ...data: unknown[]): void {
         const { colors } = this.options;
         this.log(
-            ansis.hex(colors.muted)(`<plugin-${pluginName}>`),
+            ansis.hex(colors.muted)("PLUGIN"),
+            ansis.hex(colors.muted)(`<${pluginName}>`),
             ansis.hex(colors.error)(message),
             ansis.dim(data.join("\n")),
             `\n${error}`

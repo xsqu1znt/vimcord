@@ -1,4 +1,4 @@
-import type { ClientOptions } from "discord.js";
+import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
 import type { LogLevel, PartialDeep } from "@vimcord/internal";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { VimcordFeatures } from "./features.js";
@@ -9,6 +9,7 @@ import { Client } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { PluginManager } from "@/plugins/index.js";
+import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { VimcordLogger, vimcordLogger } from "./VimcordLogger.js";
 
@@ -111,7 +112,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         });
     }
 
-    // --- Getter/Setter Aliases ---
     /** Current app name. */
     get $name() {
         return this.globals.app.name;
@@ -144,7 +144,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.globals.app.verbose = mode;
     }
 
-    // --- Plugins ---
     /**
      * Registers a plugin. Alias for `client.plugins.use`.
      * @param plugin The plugin to register.
@@ -152,31 +151,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     use(plugin: VimcordPlugin): this {
         this.plugins.use(plugin);
         return this;
-    }
-
-    // --- Utility ---
-    /**
-     * Waits for the client to be ready.
-     * @param timeout `60_000` by default.
-     */
-    async awaitReady(timeout: number = 60_000): Promise<boolean> {
-        if (this.isReady()) return true;
-        if (this.awaitReadyPromise) return this.awaitReadyPromise;
-
-        this.awaitReadyPromise = new Promise(resolve => {
-            const _timeout = setTimeout(() => {
-                this.awaitReadyPromise = null;
-                resolve(false);
-            }, timeout);
-
-            this.once("clientReady", () => {
-                clearTimeout(_timeout);
-                this.awaitReadyPromise = null;
-                resolve(true);
-            });
-        });
-
-        return this.awaitReadyPromise;
     }
 
     /**
@@ -253,5 +227,51 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         await super.destroy();
         Vimcord.$instances.delete(this.id);
         Vimcord.$events.emit("destroy", this.id);
+    }
+
+    /**
+     * Waits for the client to be ready.
+     * @param timeout `60_000` by default.
+     */
+    async awaitReady(timeout: number = 60_000): Promise<boolean> {
+        if (this.isReady()) return true;
+        if (this.awaitReadyPromise) return this.awaitReadyPromise;
+
+        this.awaitReadyPromise = new Promise(resolve => {
+            const _timeout = setTimeout(() => {
+                this.awaitReadyPromise = null;
+                resolve(false);
+            }, timeout);
+
+            this.once("clientReady", () => {
+                clearTimeout(_timeout);
+                this.awaitReadyPromise = null;
+                resolve(true);
+            });
+        });
+
+        return this.awaitReadyPromise;
+    }
+
+    /**
+     * Fetches a guild, first checking if the guild is cached.
+     *
+     * *Alias for {@link fetchGuild}.*
+     *
+     * @param options The ID or options to fetch
+     */
+    async fetchGuild(options: string | FetchGuildOptions | null | undefined): Promise<Guild | null> {
+        return fetchGuild(this, options);
+    }
+
+    /**
+     * Fetches a user, first checking if the user is cached.
+     *
+     * *Alias for {@link fetchUser}.*
+     *
+     * @param user The ID or user to fetch
+     */
+    async fetchUser(user: UserResolvable | null | undefined): Promise<User | null> {
+        return fetchUser(this, user);
     }
 }
