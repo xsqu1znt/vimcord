@@ -47,12 +47,7 @@ export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.P
     }
 
     getByTrigger(trigger: string): PrefixCommandModule | undefined {
-        return this.getByName(trigger) ?? this.getIndex("alias", trigger, true)[0];
-    }
-
-    protected override reindex(): void {
-        super.reindex();
-        this.indexes.set("alias", { key: m => m.aliases, map: new Map(), isArray: true });
+        return this.getByName(trigger) ?? this.getIndex("alias", trigger.toLowerCase(), true)[0];
     }
 }
 

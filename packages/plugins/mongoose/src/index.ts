@@ -69,16 +69,16 @@ export class MongoosePlugin extends VimcordPlugin {
             }
 
             const maxRetries = this.config?.maxRetries ?? 3;
-            this.client.logger.plugin(this.name, "Connecting to MongoDB...");
+            this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
 
             try {
                 await retry(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.config }), {
                     retries: maxRetries
                 });
 
-                this.client.logger.pluginSuccess(this.name, "Connected to MongoDB");
+                this.client.logger.plugin.success(this.name, "Connected to MongoDB");
             } catch (err) {
-                this.client.logger.pluginError(
+                this.client.logger.plugin.error(
                     this.name,
                     `Failed to connect: max attempt${maxRetries === 1 ? "" : "s"} (${maxRetries}) reached`,
                     err as Error

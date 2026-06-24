@@ -101,7 +101,7 @@ export class MongoSchemaBuilder<Definition> {
 
         // Compile model on the plugin's mongoose instance
         this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema, this.collection);
-        this.client.logger.debugVerbose(`[${this.collection}] ✔ Compiled`);
+        this.client.logger.plugin.successVerbose(PLUGIN_NAME, `[${this.collection}] Compiled!`);
 
         return { client: this.client, plugin: this.plugin, model: this.model };
     }
