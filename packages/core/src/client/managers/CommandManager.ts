@@ -233,80 +233,106 @@ export class CommandManager {
     /**
      * Dispatches a Discord interaction to the matching slash or context command module.
      */
-    async dispatchInteraction(interaction: Interaction): Promise<void> {
+    async dispatchInteraction(interaction: Interaction): Promise<boolean> {
         // Route Discord interactions to the manager that owns the underlying command type
         if (interaction.isChatInputCommand()) {
-            await this.dispatchSlash(interaction);
-            return;
+            return await this.dispatchSlash(interaction);
         }
 
         if (interaction.isContextMenuCommand()) {
-            await this.dispatchContext(interaction);
+            return await this.dispatchContext(interaction);
         }
+
+        return false;
     }
 
     /**
      * Dispatches a Discord message to the matching prefix command module.
      */
-    async dispatchMessage(message: Message, allowedPrefixes: string[]): Promise<void> {
+    async dispatchMessage(message: Message, allowedPrefixes: string[]): Promise<boolean> {
         const prefix = allowedPrefixes.find(p => message.content.startsWith(p));
-        if (!prefix) return;
+        if (!prefix) return false;
 
         // The first token after the prefix is the command name or alias
         const trigger = message.content.slice(prefix.length).trim().split(/\s+/, 1).shift();
-        if (!trigger) return;
+        if (!trigger) return false;
 
         const command = this.prefix.getByTrigger(trigger);
-        if (!command) return;
+        if (!command) return false;
 
-        await command.run(message, prefix, trigger);
-        this.client.logger.commandUsed(command.name, message.author.username, message.guild?.name, message.guild?.id);
-    }
-
-    private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<void> {
-        const command = this.slash.getByName(interaction.commandName);
-        if (!command) return;
-
-        await command.run(interaction);
-        if (command.metadata.logUsage ?? true) {
-            this.client.logger.commandUsed(
-                command.name,
-                interaction.user.username,
-                interaction.guild?.name,
-                interaction.guild?.id
-            );
+        try {
+            await command.run(message, prefix, trigger);
+            if (command.metadata.logUsage ?? true) {
+                this.client.logger.commandUsed(
+                    command.name,
+                    message.author.username,
+                    message.guild?.name,
+                    message.guild?.id
+                );
+            }
+        } catch (err) {
+            throw err;
+        } finally {
+            return true;
         }
     }
 
-    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<void> {
+    private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<boolean> {
+        const command = this.slash.getByName(interaction.commandName);
+        if (!command) return false;
+
+        try {
+            await command.run(interaction);
+            if (command.metadata.logUsage ?? true) {
+                this.client.logger.commandUsed(
+                    command.name,
+                    interaction.user.username,
+                    interaction.guild?.name,
+                    interaction.guild?.id
+                );
+            }
+        } catch (err) {
+            throw err;
+        } finally {
+            return true;
+        }
+    }
+
+    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
         const messageContextCommand = this.context.message.getByName(interaction.commandName);
         const userContextCommand = this.context.user.getByName(interaction.commandName);
-        if (!messageContextCommand && !userContextCommand) return;
+        if (!messageContextCommand && !userContextCommand) return false;
 
-        if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
-            await messageContextCommand.run(interaction);
-            if (messageContextCommand.metadata.logUsage ?? true) {
-                this.client.logger.commandUsed(
-                    messageContextCommand.name,
-                    interaction.user.username,
-                    interaction.guild?.name,
-                    interaction.guild?.id
-                );
+        try {
+            if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
+                await messageContextCommand.run(interaction);
+                if (messageContextCommand.metadata.logUsage ?? true) {
+                    this.client.logger.commandUsed(
+                        messageContextCommand.name,
+                        interaction.user.username,
+                        interaction.guild?.name,
+                        interaction.guild?.id
+                    );
+                }
+                return false;
             }
-            return;
-        }
 
-        if (userContextCommand && interaction.isUserContextMenuCommand()) {
-            await userContextCommand.run(interaction);
-            if (userContextCommand.metadata.logUsage ?? true) {
-                this.client.logger.commandUsed(
-                    userContextCommand.name,
-                    interaction.user.username,
-                    interaction.guild?.name,
-                    interaction.guild?.id
-                );
+            if (userContextCommand && interaction.isUserContextMenuCommand()) {
+                await userContextCommand.run(interaction);
+                if (userContextCommand.metadata.logUsage ?? true) {
+                    this.client.logger.commandUsed(
+                        userContextCommand.name,
+                        interaction.user.username,
+                        interaction.guild?.name,
+                        interaction.guild?.id
+                    );
+                }
+                return false;
             }
-            return;
+        } catch (err) {
+            throw err;
+        } finally {
+            return true;
         }
     }
 

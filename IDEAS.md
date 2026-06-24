@@ -35,3 +35,9 @@ Be able to set the log color per client.
 
 Vimcord-CLI: get info about a guild by id or name
 Vimcord-CLI: be able to launch a separated instance of the CLI and still interact with the available clients
+
+Paginator: remove reaction based navigation
+Paginator: allow custom buttons by passing their custom_id
+Paginator: allow containers
+Paginator: fix jump being different than what it was, while keeping the new jump behavior, just under a different name
+Paginator: verify `PaginationType` and `PaginationTimeoutType`
