@@ -18,6 +18,7 @@ export enum ResolveAction {
     DeleteMessageOnReject = "DeleteMessageOnReject",
     DoNothing = "DoNothing"
 }
+
 async function resolveAction_disableComponents(message: Message | null | undefined): Promise<void> {
     if (!message?.editable) return;
 
@@ -80,6 +81,8 @@ export async function handleResolveAction(message: Message | null | undefined, a
             return resolveAction_clearComponents(message);
         case ResolveAction.DeleteMessage:
             return resolveAction_deleteMessage(message);
+        case ResolveAction.DeleteMessageOnConfirm:
+        case ResolveAction.DeleteMessageOnReject:
         case ResolveAction.DoNothing:
         default:
             break;

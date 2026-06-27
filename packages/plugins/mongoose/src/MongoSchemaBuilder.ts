@@ -379,6 +379,30 @@ export class MongoSchemaBuilder<Definition> {
     }
 
     /**
+     * Fetches the latest document that matches a filter.
+     *
+     * Queries are lean by default. Pass `{ lean: false }` when a hydrated Mongoose document is needed.
+     *
+     * @param filter The filter used to match the document
+     * @param projection The fields to include or exclude
+     * @param options The query options to pass to Mongoose
+     */
+    async fetchLatest<Options extends QueryOptions<Definition>>(
+        filter: QueryFilter<Definition>,
+        projection?: ProjectionType<Definition>,
+        options?: Options
+    ): Promise<LeanOrHydratedDocument<Definition, Options> | null> {
+        const { model } = this.compileModel();
+        const result = await model.findOne(filter, projection, {
+            ...options,
+            lean: options?.lean ?? true,
+            sort: { createdAt: -1 }
+        });
+
+        return result as LeanOrHydratedDocument<Definition, Options> | null;
+    }
+
+    /**
      * Updates the first document that matches a filter and returns the updated document.
      *
      * Queries are lean by default. Pass `{ lean: false }` when a hydrated Mongoose document is needed.

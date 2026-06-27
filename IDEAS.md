@@ -41,3 +41,6 @@ Paginator: allow custom buttons by passing their custom_id
 Paginator: allow containers
 Paginator: fix jump being different than what it was, while keeping the new jump behavior, just under a different name
 Paginator: verify `PaginationType` and `PaginationTimeoutType`
+
+MongoSchemaBuilder: should clarify that `returnDocument` is by default "after"
+MongoSchemaBuilder: should clarify what `required: true` does in fetch

@@ -127,7 +127,7 @@ export class MongoosePlugin extends VimcordPlugin {
                 await fn(session);
                 await session.commitTransaction();
             } catch (err) {
-                await session.abortTransaction();
+                if (session.inTransaction()) await session.abortTransaction();
                 throw err;
             }
         });

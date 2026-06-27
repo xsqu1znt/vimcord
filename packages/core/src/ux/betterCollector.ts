@@ -137,7 +137,10 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         // Set up event handlers for the underlying collector
         const collector = this.collector as {
             on(event: "collect", handler: (interaction: CollectedMessageInteraction) => unknown): void;
-            on(event: "end", handler: (collected: CollectedMessageInteraction[]) => unknown): void;
+            on(
+                event: "end",
+                handler: (collected: { values(): IterableIterator<CollectedMessageInteraction> }, reason: string) => unknown
+            ): void;
             stop(reason?: string): void;
         };
 
@@ -147,8 +150,8 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         });
 
         // Handle when collector stops
-        collector.on("end", async collected => {
-            await this.handleEnd(collected as MessageComponentInteraction[], "ended");
+        collector.on("end", async (collected, reason) => {
+            await this.handleEnd(Array.from(collected.values()) as MessageComponentInteraction[], reason);
         });
     }
 

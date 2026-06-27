@@ -1,6 +1,7 @@
-import type { CommandInteraction, Message, MessageComponentInteraction } from "discord.js";
+import type { CommandInteraction, Message } from "discord.js";
 import type { BetterModalSubmitResult } from "./betterModal.js";
-import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler, UserResolvable } from "./dynaSend.js";
+import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type { Participant } from "./shared.js";
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, TextInputStyle } from "discord.js";
 import { BetterCollector, CollectorMode } from "./betterCollector.js";
@@ -8,314 +9,316 @@ import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 import { handleResolveAction, ResolveAction } from "./shared.js";
 
-// TODO: Will eventually come from a global config
-const DEFAULT_CONFIG = {
-    timeout: 60_000,
-    confirmLabel: "Confirm",
-    rejectLabel: "Reject",
-    promptTitle: "Confirmation Required",
-    promptDescription: "Please confirm or reject this action.",
-    inputLabel: "Your answer",
-    inputPlaceholder: "Enter yes or no"
-} as const;
+export type PromptCollector = BetterCollector<ComponentType.Button>;
+export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
 
-interface AdditionalButton {
-    builder: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
-    handler?: (interaction: MessageComponentInteraction) => void | Promise<void>;
-    index?: number;
+/** User-facing confirm and reject button overrides. */
+export interface PromptMessageButtonOptions {
+    /** Confirm button override. */
+    confirm?: PromptButtonResolvable;
+    /** Reject button override. */
+    reject?: PromptButtonResolvable;
 }
 
+/** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageOptions {
-    participants?: UserResolvable[];
+    /** Users allowed to interact with the prompt. */
+    participants?: Participant[];
+    /** Message content sent with the prompt. */
     content?: string;
+    /** Embed sent with the prompt. */
     embed?: EmbedResolvable;
-    buttons?: {
-        confirm?: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
-        reject?: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder);
-    };
-    additionalButtons?: Record<string, AdditionalButton>;
+    /** Confirm and reject button overrides. */
+    buttons?: PromptMessageButtonOptions;
+    /** Extra buttons appended after reject without changing their custom IDs or styling. */
+    additionalButtons?: ButtonBuilder[];
+    /** Receives the internal collector before waiting so extra button listeners can be registered. */
+    onCollector?: (collector: PromptCollector) => void | Promise<void>;
+    /** Resolve actions applied after confirm, reject, or timeout. */
     onResolve?: ResolveAction[];
-    timeout?: number;
+    /** Whether DisableComponents should keep the selected prompt button colored. */
+    highlightSelectedButton?: boolean;
+    /** Time in milliseconds before the prompt stops waiting. */
+    timeout: number;
 }
 
+/** Result returned by a button-based confirmation prompt. */
 export interface PromptMessageResult {
+    /** Prompt message returned by dynaSend when Discord provides one */
     message?: Message;
+    /** Whether the prompt was answered with confirm or reject */
     replied: boolean;
+    /** Whether the prompt was confirmed */
     confirmed: boolean;
+    /** Whether the prompt was rejected */
     denied: boolean;
 }
 
+/** Options for prompting with a yes/no modal. */
 export interface PromptModalOptions {
-    timeout?: number;
+    /** Time in milliseconds before the modal stops waiting */
+    timeout: number;
+    /** Text input label */
     inputLabel?: string;
+    /** Text input placeholder */
     inputPlaceholder?: string;
-    onResolve?: ResolveAction[];
 }
 
+/** Result returned by a yes/no modal prompt. */
 export interface PromptModalResult {
+    /** Whether the submitted value was yes or no */
     valid: boolean | null;
+    /** Whether the modal was submitted */
     replied: boolean;
+    /** Whether the submitted value was yes */
     confirmed: boolean | null;
+    /** Whether the submitted value was no */
     denied: boolean | null;
+    /** BetterModal submit result for the submitted modal */
     submitResult?: BetterModalSubmitResult;
 }
 
-// Builds a button from an optional override or creates a default with the given customId, label, and style
-function buildButton(
-    option: ButtonBuilder | ((b: ButtonBuilder) => ButtonBuilder) | undefined,
-    customId: string,
-    defaultLabel: string,
-    defaultStyle: ButtonStyle
-): ButtonBuilder {
-    if (typeof option === "function") {
-        return option(new ButtonBuilder());
+const PROMPT_CUSTOM_IDS = {
+    confirm: "prompt:confirm",
+    reject: "prompt:reject",
+    input: "prompt:input"
+} as const;
+
+// TODO: Will eventually come from a global config
+const DEFAULT_CONFIG = {
+    promptTitle: "Confirmation Required",
+    promptDescription: "Please confirm or reject this action.",
+    inputLabel: "Your answer",
+    inputPlaceholder: "Enter yes or no",
+    buttons: {
+        confirm: new ButtonBuilder({
+            customId: PROMPT_CUSTOM_IDS.confirm,
+            label: "Confirm",
+            style: ButtonStyle.Success
+        }),
+        reject: new ButtonBuilder({
+            customId: PROMPT_CUSTOM_IDS.reject,
+            label: "Reject",
+            style: ButtonStyle.Danger
+        })
     }
-
-    return option ?? new ButtonBuilder({ customId, label: defaultLabel, style: defaultStyle });
-}
-
-// Builds an ActionRow with confirm/reject buttons and custom buttons at their specified positions
-// Positions: 0 = before confirm, 1 = between confirm/reject, 2+ = after reject
-function buildActionRow(
-    confirmBtn: ButtonBuilder,
-    rejectBtn: ButtonBuilder,
-    customButtons: Map<string, { button: ButtonBuilder; handler?: AdditionalButton["handler"]; index: number }>,
-    disable: Record<string, boolean> = {}
-): ActionRowBuilder<ButtonBuilder> {
-    const confirmDisabled = disable.confirm ? new ButtonBuilder(confirmBtn.data).setDisabled(true) : confirmBtn;
-
-    const rejectDisabled = disable.reject ? new ButtonBuilder(rejectBtn.data).setDisabled(true) : rejectBtn;
-
-    const buttons: ButtonBuilder[] = [];
-    const customArray = Array.from(customButtons.entries()).map(([id, data]) => ({
-        id,
-        btn: disable[id] ? new ButtonBuilder(data.button.data).setDisabled(true) : data.button,
-        index: data.index
-    }));
-
-    customArray.sort((a, b) => a.index - b.index);
-
-    for (const custom of customArray) {
-        if (custom.index === 0) buttons.push(custom.btn);
-    }
-
-    buttons.push(confirmDisabled);
-
-    for (const custom of customArray) {
-        if (custom.index === 1) buttons.push(custom.btn);
-    }
-
-    buttons.push(rejectDisabled);
-
-    for (const custom of customArray) {
-        if (custom.index >= 2) buttons.push(custom.btn);
-    }
-
-    return new ActionRowBuilder<ButtonBuilder>({ components: buttons });
-}
-
-// Checks if a user ID is in the allowed participants list (empty list = everyone allowed)
-function isParticipant(userId: string, participants: UserResolvable[]): boolean {
-    if (participants.length === 0) return true;
-    return participants.some(p => {
-        if (typeof p === "string") return p === userId;
-        if (typeof p === "object" && "id" in p) return p.id === userId;
-        return false;
-    });
-}
-
-// Creates the default embed for prompts using OPTIONS values
-function createDefaultEmbed(): EmbedBuilder {
-    return new EmbedBuilder().setTitle(DEFAULT_CONFIG.promptTitle).setDescription(DEFAULT_CONFIG.promptDescription);
-}
-
-// Handles post-resolution actions on the prompt message (delete, disable, or clear components)
-async function handleResolve(
-    message: Message,
-    confirmed: boolean | null,
-    onResolve: ResolveAction[],
-    customButtons: Map<string, unknown>
-): Promise<void> {
-    if (confirmed !== null) {
-        const action = confirmed ? ResolveAction.DeleteMessageOnConfirm : ResolveAction.DeleteMessageOnReject;
-        if (onResolve.includes(action)) {
-            await handleResolveAction(message, ResolveAction.DeleteMessage);
-            return;
-        }
-    }
-
-    if (onResolve.includes(ResolveAction.ClearComponents)) {
-        await handleResolveAction(message, ResolveAction.ClearComponents);
-    } else if (onResolve.includes(ResolveAction.DisableComponents)) {
-        const disableAll: Record<string, boolean> = { confirm: true, reject: true };
-        for (const id of customButtons.keys()) {
-            disableAll[id] = true;
-        }
-        const confirmBtn = new ButtonBuilder()
-            .setCustomId("btn_confirm")
-            .setLabel(DEFAULT_CONFIG.confirmLabel)
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(true);
-        const rejectBtn = new ButtonBuilder()
-            .setCustomId("btn_reject")
-            .setLabel(DEFAULT_CONFIG.rejectLabel)
-            .setStyle(ButtonStyle.Danger)
-            .setDisabled(true);
-        await message.edit({ components: [buildActionRow(confirmBtn, rejectBtn, new Map(), disableAll)] }).catch(() => {});
-    }
-}
+} as const;
 
 /**
- * Sends a prompt message with Confirm/Reject buttons and awaits a response.
- *
- * @param handler The send handler,
- * @param options Prompt options,
- * @param sendOptions Additional options passed to dynaSend,
+ * Sends a confirmation prompt and waits for confirm or reject.
+ * @param handler Discord target used to send the prompt
+ * @param options Prompt options
+ * @param sendOptions Additional options passed to dynaSend
  */
 export async function promptMessage(
     handler: SendHandler,
-    options?: PromptMessageOptions,
+    options: PromptMessageOptions,
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
-    // Extract options with defaults
-    const timeout = options?.timeout ?? DEFAULT_CONFIG.timeout;
-    const participants = options?.participants ?? [];
-    const onResolve = options?.onResolve ?? [ResolveAction.DeleteMessageOnConfirm, ResolveAction.DeleteMessageOnReject];
+    const onResolve = options.onResolve ?? [ResolveAction.DeleteMessageOnConfirm, ResolveAction.DeleteMessageOnReject];
+    const additionalButtons = options.additionalButtons ?? [];
 
-    // Build confirm/reject buttons with custom overrides
-    const confirmBtn = buildButton(
-        options?.buttons?.confirm,
-        "btn_confirm",
-        DEFAULT_CONFIG.confirmLabel,
-        ButtonStyle.Success
+    // --- Buttons ---
+    const confirmButton = createPromptButton(
+        DEFAULT_CONFIG.buttons.confirm,
+        PROMPT_CUSTOM_IDS.confirm,
+        options.buttons?.confirm
     );
-    const rejectBtn = buildButton(options?.buttons?.reject, "btn_reject", DEFAULT_CONFIG.rejectLabel, ButtonStyle.Danger);
+    const rejectButton = createPromptButton(
+        DEFAULT_CONFIG.buttons.reject,
+        PROMPT_CUSTOM_IDS.reject,
+        options.buttons?.reject
+    );
 
-    // Build custom buttons map from options
-    const customButtons = new Map<string, { button: ButtonBuilder; handler?: AdditionalButton["handler"]; index: number }>();
-    if (options?.additionalButtons) {
-        for (const [id, { builder, handler, index = 2 }] of Object.entries(options.additionalButtons)) {
-            const btn = typeof builder === "function" ? builder(new ButtonBuilder()) : builder;
-            customButtons.set(id, { button: btn, handler, index });
-        }
+    for (const button of additionalButtons) {
+        if (!getButtonCustomId(button)) throw new Error("[Prompt] Additional buttons must have a customId");
     }
 
-    // Create embed (custom or default)
-    const embed = options?.embed ?? createDefaultEmbed();
-
-    // Build send data for dynaSend
-    const sendData: DynaSendOptions = {
+    // --- Message ---
+    const message = await dynaSend(handler, {
         ...sendOptions,
-        embeds: [embed],
-        content: options?.content,
-        components: [buildActionRow(confirmBtn, rejectBtn, customButtons)]
-    };
+        content: options.content ?? sendOptions?.content,
+        embeds: [
+            options.embed ??
+                new EmbedBuilder().setTitle(DEFAULT_CONFIG.promptTitle).setDescription(DEFAULT_CONFIG.promptDescription)
+        ],
+        components: [buildPromptRow(confirmButton, rejectButton, additionalButtons)]
+    } satisfies RequiredDynaSendOptions);
 
-    // Send the prompt message
-    const message = await dynaSend(handler, sendData as RequiredDynaSendOptions);
-    if (!message) {
-        return { replied: false, confirmed: false, denied: false };
-    }
+    if (!message) return { replied: false, confirmed: false, denied: false };
 
-    // Set up valid custom IDs for the collector filter
-    const validCustomIds = ["btn_confirm", "btn_reject", ...customButtons.keys()];
-
-    // Create result tracker
-    let result: { confirmed: boolean; denied: boolean } = { confirmed: false, denied: false };
-    let interactionResolved = false;
-
-    // Set up BetterCollector with sequential mode to process one button at a time
+    // --- Collector ---
+    const result = { replied: false, confirmed: false, denied: false };
     const collector = new BetterCollector(message, {
         type: ComponentType.Button,
-        participants: participants as string[],
-        timeout,
+        participants: options.participants,
+        timeout: options.timeout,
+        idle: options.timeout,
         mode: CollectorMode.Sequential,
-        max: 1,
         onResolve: ResolveAction.DoNothing
     });
 
-    // Register listener for confirm button
-    collector.on("btn_confirm", async () => {
-        result = { confirmed: true, denied: false };
-        interactionResolved = true;
+    collector.on(
+        PROMPT_CUSTOM_IDS.confirm,
+        async () => {
+            result.replied = true;
+            result.confirmed = true;
+            collector.stop("confirmed");
+        },
+        { defer: { update: true } }
+    );
+
+    collector.on(
+        PROMPT_CUSTOM_IDS.reject,
+        async () => {
+            result.replied = true;
+            result.denied = true;
+            collector.stop("rejected");
+        },
+        { defer: { update: true } }
+    );
+
+    await options.onCollector?.(collector);
+
+    const endReason = await new Promise<string>(resolve => {
+        collector.onEnd((_collected, reason) => resolve(reason));
     });
 
-    // Register listener for reject button
-    collector.on("btn_reject", async () => {
-        result = { confirmed: false, denied: true };
-        interactionResolved = true;
-    });
-
-    // Register custom button handlers
-    for (const [id, { handler }] of customButtons) {
-        if (handler) {
-            collector.on(id, async interaction => {
-                await handler(interaction);
-                interactionResolved = true;
-            });
-        }
+    if (!result.replied && (endReason === "time" || endReason === "idle")) {
+        result.denied = true;
     }
 
-    // Await the collector to finish
-    await new Promise<void>(resolve => {
-        collector.onEnd(() => {
-            resolve();
-        });
-    });
-
-    // Handle post-resolution actions
-    if (interactionResolved) {
-        await handleResolve(message, result.confirmed, onResolve, customButtons);
-    } else {
-        await handleResolve(message, null, onResolve, customButtons);
-    }
-
-    return {
+    // --- Resolution ---
+    await handlePromptResolve(
         message,
-        replied: interactionResolved,
-        confirmed: result.confirmed,
-        denied: result.denied
-    };
+        result.confirmed ? true : result.denied ? false : null,
+        onResolve,
+        options.highlightSelectedButton ?? false
+    );
+
+    return { message, ...result };
 }
 
 /**
- * Prompts the user with a modal containing a text input asking a yes/no question.
- * Input is case-insensitive and accepts "yes", "y", "no", "n".
- *
- * @param interaction The interaction to show the modal on (must not have been replied to yet).
- * @param question The question to display in the modal input.
- * @param options Modal prompt options.
+ * Prompts for a yes/no answer in a modal.
+ * @param interaction Interaction used to show the modal
+ * @param question Question to display as the modal title
+ * @param options Modal prompt options
  */
 export async function promptModal(
     interaction: CommandInteraction,
     question: string,
-    options?: PromptModalOptions
+    options: PromptModalOptions
 ): Promise<PromptModalResult> {
-    const {
-        timeout = DEFAULT_CONFIG.timeout,
-        inputLabel = DEFAULT_CONFIG.inputLabel,
-        inputPlaceholder = DEFAULT_CONFIG.inputPlaceholder
-    } = options ?? {};
-
-    // Build the modal with a text input using BetterModal
     const modal = new BetterModal({ title: question }).addTextInput({
-        customId: "prompt_input",
-        label: inputLabel,
+        customId: PROMPT_CUSTOM_IDS.input,
+        label: options.inputLabel ?? DEFAULT_CONFIG.inputLabel,
         style: TextInputStyle.Short,
-        placeholder: inputPlaceholder,
+        placeholder: options.inputPlaceholder ?? DEFAULT_CONFIG.inputPlaceholder,
         required: true
     });
 
-    // Show and await modal submission
-    const submitResult = await modal.showAndAwait(interaction, { timeout });
-    if (!submitResult) return { valid: false, replied: false, confirmed: false, denied: false };
+    const submitResult = await modal.showAndAwait(interaction, { timeout: options.timeout });
+    if (!submitResult) return { valid: null, replied: false, confirmed: null, denied: null };
 
-    // Get and normalize the input value
-    const value = (submitResult.getField<string>("prompt_input") ?? "").trim().toLowerCase();
+    const value = (submitResult.getField<string>(PROMPT_CUSTOM_IDS.input) ?? "").trim().toLowerCase();
+    const confirmed = value === "yes" || value === "y";
+    const denied = value === "no" || value === "n";
 
-    // Validate yes/no input
-    const validYes = ["yes", "y"].includes(value);
-    const validNo = ["no", "n"].includes(value);
+    return { valid: confirmed || denied, replied: true, confirmed, denied, submitResult };
+}
 
-    return { valid: validYes || validNo, replied: true, confirmed: validYes, denied: validNo, submitResult };
+function createPromptButton(fallback: ButtonBuilder, customId: string, override?: PromptButtonResolvable): ButtonBuilder {
+    const button = typeof override === "function" ? override(new ButtonBuilder(fallback.data)) : override;
+
+    return new ButtonBuilder({ ...fallback.data, ...button?.data }).setCustomId(customId);
+}
+
+function buildPromptRow(
+    confirmButton: ButtonBuilder,
+    rejectButton: ButtonBuilder,
+    additionalButtons: ButtonBuilder[]
+): ActionRowBuilder<ButtonBuilder> {
+    const buttons = [confirmButton, rejectButton, ...additionalButtons];
+
+    if (buttons.length > 5) throw new Error("[Prompt] Prompt rows cannot contain more than 5 buttons");
+
+    return new ActionRowBuilder<ButtonBuilder>().setComponents(buttons);
+}
+
+function getButtonCustomId(button: ButtonBuilder): string | null {
+    const data = button.data as { custom_id?: unknown; customId?: unknown };
+    const customId = data.custom_id ?? data.customId;
+
+    return typeof customId === "string" ? customId : null;
+}
+
+async function handlePromptResolve(
+    message: Message,
+    confirmed: boolean | null,
+    onResolve: ResolveAction[],
+    highlightSelectedButton: boolean
+): Promise<void> {
+    for (const action of onResolve) {
+        if (action === ResolveAction.DeleteMessageOnConfirm && confirmed !== true) continue;
+        if (action === ResolveAction.DeleteMessageOnReject && confirmed !== false) continue;
+        if (action === ResolveAction.DoNothing) continue;
+
+        if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
+            await disablePromptComponents(message, confirmed);
+            continue;
+        }
+
+        await handleResolveAction(
+            message,
+            action === ResolveAction.DeleteMessageOnConfirm || action === ResolveAction.DeleteMessageOnReject
+                ? ResolveAction.DeleteMessage
+                : action
+        );
+
+        if (
+            action === ResolveAction.DeleteMessage ||
+            action === ResolveAction.DeleteMessageOnConfirm ||
+            action === ResolveAction.DeleteMessageOnReject
+        ) {
+            return;
+        }
+    }
+}
+
+async function disablePromptComponents(message: Message, confirmed: boolean | null): Promise<void> {
+    if (!message.editable) return;
+
+    try {
+        const updatedRows = message.components.map(row => {
+            const rowData = row.toJSON() as {
+                type: ComponentType;
+                components?: { custom_id?: string; disabled?: boolean; style?: ButtonStyle }[];
+            };
+
+            if (rowData.type === ComponentType.Container || !rowData.components) return rowData;
+
+            return {
+                ...rowData,
+                components: rowData.components.map(component => {
+                    const unchosenPromptButton =
+                        confirmed !== null &&
+                        ((confirmed && component.custom_id === PROMPT_CUSTOM_IDS.reject) ||
+                            (!confirmed && component.custom_id === PROMPT_CUSTOM_IDS.confirm));
+
+                    return {
+                        ...component,
+                        disabled: true,
+                        style: unchosenPromptButton ? ButtonStyle.Secondary : component.style
+                    };
+                })
+            };
+        });
+
+        await message.edit({ components: updatedRows as never });
+    } catch (err) {
+        if (err instanceof Error && !err.message.includes("Unknown Message")) {
+            console.error("[Prompt] Failed to disable components:", err);
+        }
+    }
 }
