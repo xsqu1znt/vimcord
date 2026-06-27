@@ -221,10 +221,7 @@ export class BetterEmbed {
             .replace(/(?<!\\)\$DAY\b/g, day)
             .replace(/(?<!\\)\$year\b/g, fullYear.slice(-2))
             .replace(/(?<!\\)\$month\b/g, month)
-            .replace(/(?<!\\)\$day\b/g, day)
-            .replace(/(?<!\\|<)@([0-9]+)(?!>)/g, "<@$1>")
-            .replace(/(?<!\\|<)@&([0-9]+)(?!>)/g, "<@&$1>")
-            .replace(/(?<!\\|<)#([0-9]+)(?!>)/g, "<#$1>");
+            .replace(/(?<!\\)\$day\b/g, day);
     }
 
     private resolveIcon(icon: string | boolean | null | undefined, context: FormattingContext): string | undefined {
