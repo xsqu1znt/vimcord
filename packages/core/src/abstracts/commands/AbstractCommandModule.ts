@@ -26,6 +26,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     constructor(options: CommandModuleOptions<T>) {
         super(options);
 
+        this.description = options.description;
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
