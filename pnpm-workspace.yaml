@@ -1,8 +1,11 @@
 packages:
-    - packages/*
-    - packages/plugins/*
-    - templates/*
+  - packages/*
+  - packages/plugins/*
+  - templates/*
 
 allowBuilds:
-    esbuild: true
-    unicode-animations: true
+  esbuild: true
+  unicode-animations: true
+
+minimumReleaseAgeExclude:
+  - qznt@1.0.37

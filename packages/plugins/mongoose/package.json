@@ -1,6 +1,6 @@
 {
     "name": "@vimcord/plugin-mongoose",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "",
     "author": "xsqu1znt",
     "license": "MIT",
@@ -24,7 +24,7 @@
         "@vimcord/core": "workspace:*",
         "@vimcord/internal": "workspace:*",
         "mongoose": "^9.7.1",
-        "qznt": "link:/home/xsqu1znt/Desktop/Stuff/Development/02_Personal/Modules/qznt"
+        "qznt": "^1.0.37"
     },
     "devDependencies": {
         "@types/node": "^25.8.0"
