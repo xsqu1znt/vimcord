@@ -1,7 +1,7 @@
 import type { ClientSessionOptions } from "mongoose";
 
 import mongoose from "mongoose";
-import { retry } from "qznt";
+import { retryPromise } from "qznt";
 import { Vimcord, VimcordPlugin } from "@vimcord/core";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
@@ -72,8 +72,8 @@ export class MongoosePlugin extends VimcordPlugin {
             this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
 
             try {
-                await retry(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.config }), {
-                    retries: maxRetries
+                await retryPromise(() => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.config }), {
+                    attempts: maxRetries
                 });
 
                 this.client.logger.plugin.success(this.name, "Connected to MongoDB");
