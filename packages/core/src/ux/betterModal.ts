@@ -113,11 +113,6 @@ export interface BetterModalSubmitResult {
     deferReply: (options?: InteractionDeferReplyOptions) => ReturnType<ModalSubmitInteraction["deferReply"]>;
 }
 
-// TODO: Will eventually come from global config
-const DEFAULT_CONFIG = {
-    timeout: 60_000
-} as const;
-
 export class BetterModal {
     readonly customId: string;
 

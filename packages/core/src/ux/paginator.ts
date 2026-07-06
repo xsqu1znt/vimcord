@@ -7,6 +7,7 @@ import type {
 } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 import type { Participant } from "./shared.js";
+import type { ToolEmojiConfig, ToolPaginatorButtonConfig, ToolPaginatorTimeoutAction } from "./toolConfig.js";
 
 import {
     ActionRowBuilder,
@@ -24,9 +25,24 @@ import { BetterCollector, CollectorMode } from "./betterCollector.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
 import { ResolveAction, resolveParticipantId } from "./shared.js";
+import { getGlobalToolConfig } from "./toolConfig.js";
 
 type NavButtonId = "first" | "back" | "jump" | "next" | "last";
 type SinglePageResolvable = string | EmbedResolvable | BetterEmbed | ContainerBuilder | AttachmentBuilder;
+
+export type PaginatorTimingOptions =
+    | {
+          /** Absolute time in milliseconds before pagination ends. */
+          timeout: number;
+          /** Idle time in milliseconds before pagination ends; overrides timeout when provided. */
+          idle?: number;
+      }
+    | {
+          /** Absolute time in milliseconds before pagination ends. */
+          timeout?: number;
+          /** Idle time in milliseconds before pagination ends; overrides timeout when provided. */
+          idle: number;
+      };
 
 export type PageResolvable = SinglePageResolvable | EmbedResolvable[] | BetterEmbed[];
 export type Chapter = PageResolvable[];
@@ -57,16 +73,17 @@ export interface PaginationEventMap {
     postTimeout: [message: Message];
 }
 
-export interface PaginatorOptions {
+export interface PaginatorBaseOptions {
     type?: PaginationType;
     participants?: Participant[];
     pages?: PageResolvable[];
     useReactions?: boolean;
     dynamic?: boolean;
-    timeout?: number;
     onTimeout?: PaginationTimeoutType;
     jumpSize?: number;
 }
+
+export type PaginatorOptions = PaginatorBaseOptions & PaginatorTimingOptions;
 
 export enum PaginationType {
     Short = 0,
@@ -99,35 +116,20 @@ interface PaginatorState {
     timedOut: boolean;
 }
 
+interface ResolvedPaginatorOptions extends Required<PaginatorBaseOptions> {
+    timeout: number | null;
+    idle: number | null;
+}
+
 interface ExtraButton {
     index: number;
     component: ButtonBuilder;
-}
-
-interface NavigationButtonConfig {
-    label: string;
-    emoji: string;
 }
 
 type PaginatorListener<K extends keyof PaginationEventMap> = {
     fn: (...args: PaginationEventMap[K]) => unknown;
     once: boolean;
 };
-
-const DEFAULT_CONFIG = {
-    timeout: 60_000,
-    jumpSize: 5,
-    jumpableThreshold: 5,
-    longThreshold: 4,
-    notParticipantMessage: "You are not allowed to use this.",
-    buttons: {
-        first: { label: "<<", emoji: "⏮️" },
-        back: { label: "<", emoji: "◀️" },
-        jump: { label: "Jump", emoji: "📄" },
-        next: { label: ">", emoji: "▶️" },
-        last: { label: ">>", emoji: "⏭️" }
-    } satisfies Record<NavButtonId, NavigationButtonConfig>
-} as const;
 
 const NAV_CUSTOM_IDS = {
     first: "paginator:first",
@@ -153,8 +155,13 @@ function cloneButton(button: ButtonBuilder, disabled: boolean): ButtonBuilder {
 }
 
 function createNavButton(id: NavButtonId): ButtonBuilder {
-    const data = DEFAULT_CONFIG.buttons[id];
-    return new ButtonBuilder({ customId: NAV_CUSTOM_IDS[id], label: data.label, style: ButtonStyle.Secondary });
+    const data = getGlobalToolConfig().paginator.buttons[id];
+    const button = new ButtonBuilder({ customId: NAV_CUSTOM_IDS[id], style: ButtonStyle.Secondary });
+
+    if (data.label) button.setLabel(data.label);
+    if (data.emoji) button.setEmoji(data.emoji);
+
+    return button;
 }
 
 function getNavButtonIds(type: PaginationType): NavButtonId[] {
@@ -181,10 +188,51 @@ function addComponentsV2Flag(flags: DynaSendOptions["flags"]): DynaSendOptions["
     return [flags, MessageFlags.IsComponentsV2];
 }
 
+function resolvePaginatorTimeoutAction(action: ToolPaginatorTimeoutAction): PaginationTimeoutType {
+    switch (action) {
+        case "DisableComponents":
+            return PaginationTimeoutType.DisableComponents;
+        case "DeleteMessage":
+            return PaginationTimeoutType.DeleteMessage;
+        case "DoNothing":
+            return PaginationTimeoutType.DoNothing;
+        case "ClearComponents":
+        default:
+            return PaginationTimeoutType.ClearComponents;
+    }
+}
+
+function resolveReactionEmoji(emoji: ToolEmojiConfig): string {
+    if (typeof emoji === "string") return emoji;
+    return emoji.id ?? emoji.name;
+}
+
+function matchesReactionEmoji(configured: ToolEmojiConfig, reaction: MessageReaction): boolean {
+    if (typeof configured === "string") {
+        return [reaction.emoji.name, reaction.emoji.id, reaction.emoji.identifier].includes(configured);
+    }
+
+    return configured.id ? configured.id === reaction.emoji.id : configured.name === reaction.emoji.name;
+}
+
+function createPaginatorCollectorTiming(options: ResolvedPaginatorOptions): { idle: number } | { timeout: number } {
+    if (options.idle !== null) return { idle: options.idle };
+    if (options.timeout !== null) return { timeout: options.timeout };
+
+    throw new Error("[Paginator] Either idle or timeout must be provided");
+}
+
+function createReactionCollectorTiming(options: ResolvedPaginatorOptions): { idle: number } | { time: number } {
+    if (options.idle !== null) return { idle: options.idle };
+    if (options.timeout !== null) return { time: options.timeout };
+
+    throw new Error("[Paginator] Either idle or timeout must be provided");
+}
+
 export class Paginator {
     chapters: PaginatorChapter[] = [];
 
-    private options: Required<PaginatorOptions>;
+    private options: ResolvedPaginatorOptions;
     private readonly extraButtons: ExtraButton[] = [];
     private readonly listeners: { [K in keyof PaginationEventMap]: PaginatorListener<K>[] };
     private readonly navButtons: Record<NavButtonId, ButtonBuilder> = {
@@ -209,16 +257,23 @@ export class Paginator {
         timedOut: false
     };
 
-    constructor(options: PaginatorOptions = {}) {
+    constructor(options: PaginatorOptions) {
+        if (options.idle === undefined && options.timeout === undefined) {
+            throw new Error("[Paginator] Either idle or timeout must be provided");
+        }
+
+        const config = getGlobalToolConfig().paginator;
+
         this.options = {
             type: options.type ?? PaginationType.Short,
             participants: options.participants ?? [],
             pages: options.pages ?? [],
             useReactions: options.useReactions ?? false,
             dynamic: options.dynamic ?? false,
-            timeout: options.timeout ?? DEFAULT_CONFIG.timeout,
-            onTimeout: options.onTimeout ?? PaginationTimeoutType.ClearComponents,
-            jumpSize: options.jumpSize ?? DEFAULT_CONFIG.jumpSize
+            timeout: options.idle === undefined ? (options.timeout ?? null) : null,
+            idle: options.idle ?? null,
+            onTimeout: options.onTimeout ?? resolvePaginatorTimeoutAction(config.onTimeout),
+            jumpSize: options.jumpSize ?? config.jumpSize
         };
 
         this.listeners = {
@@ -249,11 +304,12 @@ export class Paginator {
 
     private getEffectiveType(pageCount: number): PaginationType {
         if (!this.options.dynamic) return this.options.type;
+        const config = getGlobalToolConfig().paginator;
 
         const hasJump =
-            pageCount >= DEFAULT_CONFIG.jumpableThreshold &&
+            pageCount >= config.jumpableThreshold &&
             (this.options.type === PaginationType.ShortJump || this.options.type === PaginationType.LongJump);
-        const isLong = pageCount >= DEFAULT_CONFIG.longThreshold;
+        const isLong = pageCount >= config.longThreshold;
 
         if (isLong) return hasJump ? PaginationType.LongJump : PaginationType.Long;
         return hasJump ? PaginationType.ShortJump : PaginationType.Short;
@@ -317,6 +373,10 @@ export class Paginator {
         return rows;
     }
 
+    private hasComponentControls(): boolean {
+        return Boolean(this.buildRows().length);
+    }
+
     private buildSendOptions(options: DynaSendOptions = {}): RequiredDynaSendOptions {
         const page = this.getCurrentPage();
         const chapter = this.getCurrentChapter();
@@ -360,13 +420,16 @@ export class Paginator {
         this.state.timedOut = true;
 
         await this.emit("preTimeout", message);
+        const hasComponentControls = this.hasComponentControls();
 
         switch (this.options.onTimeout) {
             case PaginationTimeoutType.DisableComponents:
+                if (!hasComponentControls) break;
                 this.state.controlsDisabled = true;
                 await this.refresh().catch(Boolean);
                 break;
             case PaginationTimeoutType.ClearComponents:
+                if (!hasComponentControls) break;
                 this.state.controlsHidden = true;
                 await this.refresh().catch(Boolean);
                 break;
@@ -389,13 +452,13 @@ export class Paginator {
         if (chapter.pages.length < 2) return;
 
         for (const id of getNavButtonIds(this.getEffectiveType(chapter.pages.length))) {
-            await message.react(DEFAULT_CONFIG.buttons[id].emoji).catch(Boolean);
+            await message.react(resolveReactionEmoji(getGlobalToolConfig().paginator.buttons[id].emoji)).catch(Boolean);
         }
     }
 
     private collectComponents(): void {
         const message = this.state.message;
-        if (!message) return;
+        if (!message || !this.hasComponentControls()) return;
 
         if (this.collector) {
             this.ignoreNextCollectorEnd = true;
@@ -405,10 +468,10 @@ export class Paginator {
         const collector = new BetterCollector(message, {
             type: null,
             participants: this.options.participants,
-            timeout: this.options.timeout,
-            idle: this.options.timeout,
+            ...createPaginatorCollectorTiming(this.options),
             mode: CollectorMode.Sequential,
             onResolve: ResolveAction.DoNothing,
+            notAParticipantMessage: getGlobalToolConfig().paginator.notAParticipantMessage,
             defer: { update: true }
         });
 
@@ -462,14 +525,18 @@ export class Paginator {
     private collectReactions(): void {
         const message = this.state.message;
         if (!message || !this.options.useReactions) return;
+        if (this.getCurrentChapter().pages.length < 2) return;
 
         if (this.reactionCollector) {
             this.ignoreNextReactionEnd = true;
             this.reactionCollector.stop("refresh");
         }
 
-        const collector = message.createReactionCollector({ idle: this.options.timeout });
-        const navEntries = Object.entries(DEFAULT_CONFIG.buttons) as [NavButtonId, NavigationButtonConfig][];
+        const collector = message.createReactionCollector(createReactionCollectorTiming(this.options));
+        const navEntries = Object.entries(getGlobalToolConfig().paginator.buttons) as [
+            NavButtonId,
+            ToolPaginatorButtonConfig
+        ][];
 
         this.reactionCollector = collector;
 
@@ -484,7 +551,7 @@ export class Paginator {
                 return;
             }
 
-            const nav = navEntries.find(([, data]) => data.emoji === reaction.emoji.name);
+            const nav = navEntries.find(([, data]) => matchesReactionEmoji(data.emoji, reaction));
             if (!nav) return;
 
             await reaction.users.remove(user.id).catch(Boolean);

@@ -20,9 +20,7 @@ export enum CommandModuleType {
 }
 
 export type SlashCommandBuilderResolvable =
-    | SlashCommandBuilder
-    | SlashCommandOptionsOnlyBuilder
-    | SlashCommandSubcommandsOnlyBuilder;
+    SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder;
 
 interface CommandTypeMap {
     // Slash Command

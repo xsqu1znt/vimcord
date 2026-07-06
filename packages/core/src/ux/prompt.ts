@@ -8,9 +8,24 @@ import { BetterCollector, CollectorMode } from "./betterCollector.js";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 import { handleResolveAction, ResolveAction } from "./shared.js";
+import { getGlobalToolConfig } from "./toolConfig.js";
 
 export type PromptCollector = BetterCollector<ComponentType.Button>;
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
+
+export type PromptTimingOptions =
+    | {
+          /** Absolute time in milliseconds before the prompt ends. */
+          timeout: number;
+          /** Idle time in milliseconds before the prompt ends; overrides timeout when provided. */
+          idle?: number;
+      }
+    | {
+          /** Absolute time in milliseconds before the prompt ends. */
+          timeout?: number;
+          /** Idle time in milliseconds before the prompt ends; overrides timeout when provided. */
+          idle: number;
+      };
 
 /** User-facing confirm and reject button overrides. */
 export interface PromptMessageButtonOptions {
@@ -21,7 +36,7 @@ export interface PromptMessageButtonOptions {
 }
 
 /** Options for sending a button-based confirmation prompt. */
-export interface PromptMessageOptions {
+export interface PromptMessageBaseOptions {
     /** Users allowed to interact with the prompt. */
     participants?: Participant[];
     /** Message content sent with the prompt. */
@@ -38,9 +53,9 @@ export interface PromptMessageOptions {
     onResolve?: ResolveAction[];
     /** Whether DisableComponents should keep the selected prompt button colored. */
     highlightSelectedButton?: boolean;
-    /** Time in milliseconds before the prompt stops waiting. */
-    timeout: number;
 }
+
+export type PromptMessageOptions = PromptMessageBaseOptions & PromptTimingOptions;
 
 /** Result returned by a button-based confirmation prompt. */
 export interface PromptMessageResult {
@@ -84,25 +99,12 @@ const PROMPT_CUSTOM_IDS = {
     input: "prompt:input"
 } as const;
 
-// TODO: Will eventually come from a global config
-const DEFAULT_CONFIG = {
-    promptTitle: "Confirmation Required",
-    promptDescription: "Please confirm or reject this action.",
-    inputLabel: "Your answer",
-    inputPlaceholder: "Enter yes or no",
-    buttons: {
-        confirm: new ButtonBuilder({
-            customId: PROMPT_CUSTOM_IDS.confirm,
-            label: "Confirm",
-            style: ButtonStyle.Success
-        }),
-        reject: new ButtonBuilder({
-            customId: PROMPT_CUSTOM_IDS.reject,
-            label: "Reject",
-            style: ButtonStyle.Danger
-        })
-    }
-} as const;
+function createPromptCollectorTiming(options: PromptMessageOptions): { idle: number } | { timeout: number } {
+    if (options.idle !== undefined) return { idle: options.idle };
+    if (options.timeout !== undefined) return { timeout: options.timeout };
+
+    throw new Error("[Prompt] Either idle or timeout must be provided");
+}
 
 /**
  * Sends a confirmation prompt and waits for confirm or reject.
@@ -115,20 +117,17 @@ export async function promptMessage(
     options: PromptMessageOptions,
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
+    if (options.idle === undefined && options.timeout === undefined) {
+        throw new Error("[Prompt] Either idle or timeout must be provided");
+    }
+
+    const config = getGlobalToolConfig().prompt;
     const onResolve = options.onResolve ?? [ResolveAction.DeleteMessageOnConfirm, ResolveAction.DeleteMessageOnReject];
     const additionalButtons = options.additionalButtons ?? [];
 
     // --- Buttons ---
-    const confirmButton = createPromptButton(
-        DEFAULT_CONFIG.buttons.confirm,
-        PROMPT_CUSTOM_IDS.confirm,
-        options.buttons?.confirm
-    );
-    const rejectButton = createPromptButton(
-        DEFAULT_CONFIG.buttons.reject,
-        PROMPT_CUSTOM_IDS.reject,
-        options.buttons?.reject
-    );
+    const confirmButton = createPromptButton(config.buttons.confirm, PROMPT_CUSTOM_IDS.confirm, options.buttons?.confirm);
+    const rejectButton = createPromptButton(config.buttons.reject, PROMPT_CUSTOM_IDS.reject, options.buttons?.reject);
 
     for (const button of additionalButtons) {
         if (!getButtonCustomId(button)) throw new Error("[Prompt] Additional buttons must have a customId");
@@ -139,8 +138,7 @@ export async function promptMessage(
         ...sendOptions,
         content: options.content ?? sendOptions?.content,
         embeds: [
-            options.embed ??
-                new EmbedBuilder().setTitle(DEFAULT_CONFIG.promptTitle).setDescription(DEFAULT_CONFIG.promptDescription)
+            options.embed ?? new EmbedBuilder().setTitle(config.defaultTitle).setDescription(config.defaultDescription)
         ],
         components: [buildPromptRow(confirmButton, rejectButton, additionalButtons)]
     } satisfies RequiredDynaSendOptions);
@@ -152,8 +150,7 @@ export async function promptMessage(
     const collector = new BetterCollector(message, {
         type: ComponentType.Button,
         participants: options.participants,
-        timeout: options.timeout,
-        idle: options.timeout,
+        ...createPromptCollectorTiming(options),
         mode: CollectorMode.Sequential,
         onResolve: ResolveAction.DoNothing
     });
@@ -193,7 +190,7 @@ export async function promptMessage(
         message,
         result.confirmed ? true : result.denied ? false : null,
         onResolve,
-        options.highlightSelectedButton ?? false
+        options.highlightSelectedButton ?? config.highlightSelectedButton
     );
 
     return { message, ...result };
@@ -210,11 +207,12 @@ export async function promptModal(
     question: string,
     options: PromptModalOptions
 ): Promise<PromptModalResult> {
+    const config = getGlobalToolConfig().prompt;
     const modal = new BetterModal({ title: question }).addTextInput({
         customId: PROMPT_CUSTOM_IDS.input,
-        label: options.inputLabel ?? DEFAULT_CONFIG.inputLabel,
+        label: options.inputLabel ?? config.inputLabel,
         style: TextInputStyle.Short,
-        placeholder: options.inputPlaceholder ?? DEFAULT_CONFIG.inputPlaceholder,
+        placeholder: options.inputPlaceholder ?? config.inputPlaceholder,
         required: true
     });
 

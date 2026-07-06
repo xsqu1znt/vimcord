@@ -6,8 +6,10 @@ import type {
     MessageComponentType
 } from "discord.js";
 import type { Participant } from "./shared.js";
+import type { ToolCollectorMode } from "./toolConfig.js";
 
 import { handleResolveAction, ResolveAction, resolveParticipantId } from "./shared.js";
+import { getGlobalToolConfig } from "./toolConfig.js";
 
 type ListenerFn = (interaction: MessageComponentInteraction) => unknown;
 type CollectorEventHandler<K extends keyof CollectorEventMap> = (...args: CollectorEventMap[K]) => unknown;
@@ -26,6 +28,20 @@ interface CollectorEventMap {
     collect: [MessageComponentInteraction];
     end: [MessageComponentInteraction[], string];
 }
+
+export type CollectorTimingOptions =
+    | {
+          /** Absolute time in milliseconds before the collector ends. */
+          timeout: number;
+          /** Idle time in milliseconds before the collector ends; overrides timeout when provided. */
+          idle?: number;
+      }
+    | {
+          /** Absolute time in milliseconds before the collector ends. */
+          timeout?: number;
+          /** Idle time in milliseconds before the collector ends; overrides timeout when provided. */
+          idle: number;
+      };
 
 /**
  * Execution mode for listeners.
@@ -52,27 +68,33 @@ export interface ListenerOptions {
 /**
  * Options for configuring the BetterCollector behavior.
  */
-export interface BetterCollectorOptions<ComponentType extends MessageComponentType> {
+interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType> {
     type?: ComponentType | null;
     participants?: Participant[];
-    idle?: number;
-    timeout?: number;
     mode?: CollectorMode;
     userLock?: boolean;
+    userLockMessage?: string;
     max?: number | null;
     maxComponents?: number | null;
     maxUsers?: number | null;
     onResolve?: ResolveAction;
+    notAParticipantMessage?: string | null;
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
 }
 
-// TODO: Will eventually come from global config
-export const DEFAULT_CONFIG = {
-    timeout: 60_000,
-    idle: 30_000,
-    mode: CollectorMode.Parallel,
-    userLockMessage: "Please wait, your previous action is still processing."
-} as const;
+export type BetterCollectorOptions<ComponentType extends MessageComponentType> = BetterCollectorBaseOptions<ComponentType> &
+    CollectorTimingOptions;
+
+interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentType> extends Required<
+    BetterCollectorBaseOptions<ComponentType>
+> {
+    idle: number | null;
+    timeout: number | null;
+}
+
+function resolveCollectorMode(mode: ToolCollectorMode): CollectorMode {
+    return mode === "sequential" ? CollectorMode.Sequential : CollectorMode.Parallel;
+}
 
 /**
  * Enhanced message component collector with advanced features:
@@ -84,7 +106,7 @@ export const DEFAULT_CONFIG = {
  */
 export class BetterCollector<C extends MessageComponentType = MessageComponentType> {
     private readonly message: Message;
-    private readonly options: Required<BetterCollectorOptions<C>>;
+    private readonly options: ResolvedBetterCollectorOptions<C>;
     private readonly collector: {
         on(event: "collect", handler: CollectorEventHandler<"collect">): void;
         on(event: "end", handler: CollectorEventHandler<"end">): void;
@@ -101,19 +123,26 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
 
     constructor(message: Message | null | undefined, options: BetterCollectorOptions<C>) {
         if (!message) throw new Error("Message is null or undefined");
+        if (options.idle === undefined && options.timeout === undefined) {
+            throw new Error("[BetterCollector] Either idle or timeout must be provided");
+        }
+
         this.message = message;
+        const config = getGlobalToolConfig().collector;
 
         this.options = {
             type: options.type ?? null,
             participants: options.participants ?? [],
-            idle: options.idle ?? DEFAULT_CONFIG.idle,
-            timeout: options.timeout ?? DEFAULT_CONFIG.timeout,
-            mode: options.mode ?? DEFAULT_CONFIG.mode,
+            idle: options.idle ?? null,
+            timeout: options.idle === undefined ? (options.timeout ?? null) : null,
+            mode: options.mode ?? resolveCollectorMode(config.mode),
             userLock: options.userLock ?? false,
+            userLockMessage: options.userLockMessage ?? config.userLockMessage,
             max: options.max ?? null,
             maxComponents: options.maxComponents ?? null,
             maxUsers: options.maxUsers ?? null,
             onResolve: options.onResolve ?? ResolveAction.DoNothing,
+            notAParticipantMessage: options.notAParticipantMessage ?? config.notAParticipantMessage,
             defer: options.defer ?? false
         };
 
@@ -124,8 +153,8 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     private createCollector() {
         // Creates the underlying Discord.js message component collector
         return this.message.createMessageComponentCollector({
-            idle: this.options.idle,
-            time: this.options.timeout,
+            idle: this.options.idle ?? undefined,
+            time: this.options.timeout ?? undefined,
             componentType: this.options.type ?? undefined,
             max: this.options.max ?? undefined,
             maxComponents: this.options.maxComponents ?? undefined,
@@ -160,7 +189,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         if (this.options.userLock && this.activeUsers.has(interaction.user.id)) {
             await interaction
                 .reply({
-                    content: DEFAULT_CONFIG.userLockMessage,
+                    content: this.options.userLockMessage,
                     flags: "Ephemeral"
                 })
                 .catch(() => {});
@@ -175,11 +204,16 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
 
         // Find listeners matching this component's customId
         const targetListeners = this.getMatchingListeners(interaction.customId);
+        if (!targetListeners.length) {
+            await interaction.deferUpdate().catch(() => {});
+            return;
+        }
+
         const validListeners = await this.filterByParticipants(interaction, targetListeners);
 
-        // No valid listeners - defer update and return
+        // No valid listeners means the component exists, but this user cannot use it
         if (validListeners.length === 0) {
-            await interaction.deferUpdate().catch(() => {});
+            await this.replyNotAParticipant(interaction);
             return;
         }
 
@@ -205,6 +239,23 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         // Get listeners registered for this specific customId, plus global listeners
         const idListeners = this.listeners.byId.get(customId) ?? [];
         return [...this.listeners.global, ...idListeners];
+    }
+
+    private async replyNotAParticipant(interaction: CollectedMessageInteraction): Promise<void> {
+        const message = this.options.notAParticipantMessage;
+        if (!message) {
+            await interaction.deferUpdate().catch(() => {});
+            return;
+        }
+
+        await interaction
+            .reply({
+                content: message,
+                flags: "Ephemeral"
+            })
+            .catch(async () => {
+                await interaction.deferUpdate().catch(() => {});
+            });
     }
 
     private async filterByParticipants(

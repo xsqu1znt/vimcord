@@ -8,6 +8,8 @@ import type {
     CommandModuleOptions
 } from "./CommandModuleTypeKit.js";
 
+import { testCommandPermissions } from "@/commands/commandPermissions.js";
+import { ModuleError } from "@/errors/ModuleError.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
@@ -30,5 +32,27 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
+    }
+
+    protected override async performTests(ctx: CommandModuleHookContext<T>): Promise<boolean> {
+        const passedBaseTests = await super.performTests(ctx);
+        if (!passedBaseTests) return false;
+
+        const permissionTestResult = testCommandPermissions(ctx, this.permissions);
+        if (permissionTestResult.passed) return true;
+
+        ctx.permissionTestResult = permissionTestResult;
+
+        await this.runHook("onPermissionTestFail", ctx, async ctx => {
+            const result = ctx.permissionTestResult;
+
+            if (result && !result.passed) {
+                ctx.error ??= new ModuleError(result.reason);
+            }
+
+            await this.runHook("onError", ctx);
+        });
+
+        return false;
     }
 }

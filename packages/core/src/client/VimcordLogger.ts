@@ -1,7 +1,9 @@
 import type { Vimcord } from "./Vimcord.js";
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import ansis from "ansis";
 import { Logger, stripAnsi } from "@vimcord/internal";
 
@@ -19,27 +21,63 @@ const STARTUP_LINES = [
 
 const STARTUP_PADDING_X = 0;
 const MIN_CONSOLE_WIDTH = 80;
+const CORE_REQUIRE = createRequire(import.meta.url);
+
+function readPackageVersion(packagePath: string, packageName: string): string | null {
+    try {
+        const data = JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown; version?: unknown };
+
+        if (data.name === packageName && typeof data.version === "string") {
+            return data.version;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+function findPackageVersion(startPath: string, packageName: string): string | null {
+    let currentDir = dirname(startPath);
+
+    while (currentDir !== dirname(currentDir)) {
+        const version = readPackageVersion(join(currentDir, "package.json"), packageName);
+        if (version) return version;
+
+        currentDir = dirname(currentDir);
+    }
+
+    return null;
+}
+
+function findWorkspacePackageVersion(packageName: string, packagePath: string): string | null {
+    let currentDir = dirname(fileURLToPath(import.meta.url));
+
+    while (currentDir !== dirname(currentDir)) {
+        const version = readPackageVersion(join(currentDir, packagePath, "package.json"), packageName);
+        if (version) return version;
+
+        currentDir = dirname(currentDir);
+    }
+
+    return null;
+}
 
 function getCorePackageVersion(): string {
-    const { version } = require("../../package.json") as { version: string };
-    return version;
+    return findPackageVersion(fileURLToPath(import.meta.url), "@vimcord/core") ?? "unknown";
 }
 
 function getVimcordPackageVersion(): string {
-    const mainPath = process.argv[1];
-    const requireBases = [
-        mainPath ? (isAbsolute(mainPath) ? mainPath : join(process.cwd(), mainPath)) : null,
-        join(process.cwd(), "package.json")
-    ].filter((base): base is string => Boolean(base));
-
-    for (const base of requireBases) {
-        try {
-            const packageJson = createRequire(base)(`vimcord/package.json`) as { version?: unknown };
-            if (typeof packageJson.version === "string") return packageJson.version;
-        } catch {
-            continue;
-        }
+    try {
+        const packageEntry = CORE_REQUIRE.resolve("vimcord");
+        const version = findPackageVersion(packageEntry, "vimcord");
+        if (version) return version;
+    } catch {
+        // Fall back to core when the wrapper package is not installed, such as direct @vimcord/core usage.
     }
+
+    const workspaceVersion = findWorkspacePackageVersion("vimcord", "packages/vimcord");
+    if (workspaceVersion) return workspaceVersion;
 
     return getCorePackageVersion();
 }

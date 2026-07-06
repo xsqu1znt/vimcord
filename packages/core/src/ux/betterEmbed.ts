@@ -3,6 +3,7 @@ import type { DynaSendOptions, InteractionResolveable, RequiredDynaSendOptions, 
 
 import { EmbedBuilder, GuildMember, User } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
+import { resolveGlobalEmbedColor } from "./toolConfig.js";
 
 export interface BetterEmbedContext {
     client?: Client | null;
@@ -98,7 +99,7 @@ export class BetterEmbed {
             imageUrl: data.imageUrl ?? null,
             footer: data.footer ?? null,
             fields: data.fields ?? [],
-            color: data.color ?? null,
+            color: data.color === undefined ? resolveGlobalEmbedColor() : data.color,
             timestamp: data.timestamp ?? null,
             acf: data.acf ?? true
         };
