@@ -44,3 +44,8 @@ MongoSchemaBuilder: `upsert: true` when fetching should have the same effect as 
 Paginator: allow containers
 Vimcord: implement /home/xsqu1znt/Desktop/Stuff/Development/02_Personal/Modules/vimcord_old/src/modules/status.manager.ts
 Vimcord: implement global command hooks
+Logger: fix some terminals that don't have a space after the emoji
+MongoSchemaBuilder: fix updating by _id not working
+Vimcord: add util to client to test if a userId is a bot staff member
+PrefixCommandModule: rename `content` to `messageContent`
+Paginator: rename `PaginationTimeoutType` to `PaginationTimeout`
