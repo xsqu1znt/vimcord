@@ -9,7 +9,7 @@
   ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝
 ```
 
-**vhem-cord** — the Discord.js framework that actually respects your time
+**vhem-cord** - a small Discord.js framework for typed modules, command dispatching, and reusable UX tools.
 
 [![npm version](https://img.shields.io/npm/v/vimcord?color=%235865F2&label=vimcord&logo=npm&style=flat-square)](https://www.npmjs.com/package/vimcord)
 [![npm downloads](https://img.shields.io/npm/dm/vimcord?color=%2357F287&label=downloads&style=flat-square)](https://www.npmjs.com/package/vimcord)
@@ -25,263 +25,335 @@
 
 ## What's Vimcord?
 
-**Vimcord** (pronounced _vhem-cord_) is a lightweight, opinionated framework for **Discord.js**. Built for developers who want to go from an idea to a working command without fighting boilerplate.
+**Vimcord** wraps Discord.js with a focused module layer, typed command contexts, shared permission checks, global hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
 
-Think of it as Discord.js with the sharp edges sanded off — full TypeScript inference, automatic error boundaries, and utilities that actually make sense.
-
-> "I just wanted to build a bot, not write a command handler for the 47th time." — _You, probably_
+It does not hide Discord.js. You still use Discord.js builders, intents, events, permissions, and interactions directly where that is the right tool.
 
 ---
 
 ## Installation
 
 ```bash
-npm install vimcord discord.js
-# or
 pnpm add vimcord discord.js
-# or
-yarn add vimcord discord.js
 ```
 
-**Peer dependencies** (optional but recommended):
+Optional plugins:
 
 ```bash
-npm install mongoose  # Only if using MongoDB
+pnpm add @vimcord/plugin-dotenv
+pnpm add @vimcord/plugin-mongoose
 ```
 
 ---
 
 ## Quick Start
 
-### The Absolute Minimum
-
-```ts
-import { createClient, GatewayIntentBits } from "vimcord";
-
-const client = createClient({ intents: [GatewayIntentBits.Guilds] }, { useDefaultSlashCommandHandler: true });
-
-client.start();
-```
-
-### The "I Actually Want Features" Setup
+### Minimum Client
 
 ```ts
 import { GatewayIntentBits } from "discord.js";
-import { createClient, MongoDatabase } from "vimcord";
+import { Vimcord } from "vimcord";
 
-const client = createClient(
-    {
+const client = new Vimcord({
+    client: {
+        intents: [GatewayIntentBits.Guilds]
+    }
+});
+
+await client.login();
+```
+
+`login()` uses `TOKEN`, or `TOKEN_DEV` when `client.$devMode` is true.
+
+### Modules And Command Dispatch
+
+```ts
+import { GatewayIntentBits } from "discord.js";
+import { Vimcord } from "vimcord";
+import { DotEnvPlugin } from "@vimcord/plugin-dotenv";
+
+const client = new Vimcord({
+    client: {
         intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
     },
-    {
-        // Auto-load modules from directories
-        importModules: {
-            events: "./events",
-            slashCommands: "./commands/slash",
-            prefixCommands: "./commands/prefix",
-            contextCommands: "./commands/context"
+    globals: {
+        app: {
+            name: "My Bot"
         },
-
-        // Built-in handlers for each command type
-        useDefaultSlashCommandHandler: true,
-        useDefaultPrefixCommandHandler: true,
-        useDefaultContextCommandHandler: true,
-
-        // Catch and log unhandled errors
-        useGlobalErrorHandlers: true
-    }
-);
-
-client.start(async () => {
-    // Connect to MongoDB before login
-    await client.useDatabase(new MongoDatabase(client));
+        staff: {
+            ownerId: "123456789012345678",
+            superUsers: ["234567890123456789"]
+        }
+    },
+    connectionRefresh: {
+        interval: 60_000,
+        maxFailures: 2
+    },
+    verbose: true
 });
+
+client.use(new DotEnvPlugin());
+
+await client.modules.load({
+    slashCommands: { dir: "./src/commands/slash", suffix: ".slash" },
+    prefixCommands: { dir: "./src/commands/prefix", suffix: ".prefix" },
+    events: { dir: "./src/events", suffix: ".event" }
+});
+
+client.on("interactionCreate", interaction => {
+    void client.modules.commands.dispatchInteraction(interaction);
+});
+
+client.on("messageCreate", message => {
+    if (message.author.bot) return;
+    void client.modules.commands.dispatchMessage(message, ["!"]);
+});
+
+await client.login();
+await client.modules.commands.push();
 ```
 
 ---
 
 ## Features
 
-### Command Management That Doesn't Suck
-
-**Slash commands** with subcommand routing:
+### Slash Commands
 
 ```ts
-import { SlashCommandBuilder } from "vimcord";
+import { PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
+import { SlashCommandModule } from "vimcord";
 
-export default new SlashCommandBuilder({
+export default new SlashCommandModule({
     builder: new SlashCommandBuilder()
         .setName("manage")
         .setDescription("Server management")
-        .addSubcommand(sub => sub.setName("ban").setDescription("Ban a user")),
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+        .addSubcommand(subcommand => subcommand.setName("ban").setDescription("Ban a user")),
 
-    // Route subcommands automatically
     routes: [
         {
-            name: "ban",
-            handler: async (client, interaction) => {
-                // Handle /manage ban
+            path: "ban",
+            deferReply: { flags: "Ephemeral" },
+            async handler({ interaction }) {
+                await interaction.editReply("Ban flow started.");
             }
         }
     ],
 
-    // Permission inference — Vimcord validates before executing
     permissions: {
-        user: [PermissionFlagsBits.BanMembers],
-        bot: [PermissionFlagsBits.BanMembers]
+        client: [PermissionFlagsBits.BanMembers]
     }
 });
 ```
 
-**Prefix commands** with the same DX:
+### Prefix Commands
 
 ```ts
-import { PrefixCommandBuilder } from "vimcord";
+import { PrefixCommandModule } from "vimcord";
 
-export default new PrefixCommandBuilder({
+export default new PrefixCommandModule({
     name: "ping",
     aliases: ["p"],
-    execute: async (client, message, args) => {
-        await message.reply("Pong!");
+    async execute({ message, messageContent, splitContent }) {
+        const args = splitContent({ lowercase: true });
+        await message.reply(`Pong. You sent ${args.length} arg${args.length === 1 ? "" : "s"}.`);
     }
 });
 ```
 
-### BetterEmbed: Stop Writing Boilerplate
+### Event Modules
 
 ```ts
-import { BetterEmbed } from "vimcord";
+import { Events } from "discord.js";
+import { EventModule } from "vimcord";
 
-const embed = new BetterEmbed({
-    context: { interaction }, // Auto-context for tokens
-    title: "Welcome, $USER!",
-    description: ["Your avatar: $USER_AVATAR", "Today is $MONTH/$DAY/$YEAR"],
-    color: "#5865F2"
+export default new EventModule({
+    name: "logMessages",
+    event: Events.MessageCreate,
+    async execute({ args: [message] }) {
+        if (message.author.bot) return;
+        console.log(`${message.author.tag}: ${message.content}`);
+    }
+});
+```
+
+### Global Command Hooks
+
+```ts
+import { defineGlobalCommandHooks } from "vimcord";
+
+defineGlobalCommandHooks({
+    slash: {
+        async onError({ interaction, error }) {
+            const content = `Something went wrong: ${error?.message ?? "Unknown error"}`;
+
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp({ content, flags: "Ephemeral" });
+                return;
+            }
+
+            await interaction.reply({ content, flags: "Ephemeral" });
+        }
+    }
+});
+```
+
+Command-local hooks override `client.globals.hooks`, and `client.globals.hooks` override `defineGlobalCommandHooks()`.
+
+### BetterEmbed
+
+```ts
+import { BetterEmbed, defineGlobalToolConfig } from "vimcord";
+
+defineGlobalToolConfig({
+    embedColor: "#5865F2",
+    embedColorDev: "#FF9D00"
 });
 
-// ACF (Auto Context Formatting) tokens available:
-// $USER, $USER_NAME, $DISPLAY_NAME, $USER_AVATAR
-// $BOT_AVATAR, $YEAR, $MONTH, $DAY, $INVIS
+const embed = new BetterEmbed({
+    context: { interaction },
+    title: "Welcome, $USER_NAME",
+    description: ["Your avatar: $USER_AVATAR", "Today is $MONTH/$DAY/$YEAR"],
+    timestamp: true
+});
 
 await embed.send(interaction);
 ```
 
-### The Paginator: Multi-Page Made Simple
+### BetterContainer And Components V2
 
 ```ts
-import { Paginator, PaginationType } from "vimcord";
+import { ButtonStyle } from "discord.js";
+import { BetterContainer } from "vimcord";
+
+const container = new BetterContainer({ color: "#5865F2" })
+    .addText("## Account linked")
+    .addText(["Your Discord account is connected.", "Use the dashboard button to manage settings."])
+    .addSection({
+        text: "Open your dashboard.",
+        button: {
+            customId: "dashboard:open",
+            label: "Dashboard",
+            style: ButtonStyle.Primary
+        }
+    });
+
+await container.send(interaction);
+```
+
+### Paginator
+
+```ts
+import { BetterContainer, Paginator, PaginationTimeout, PaginationType } from "vimcord";
+
+const intro = new BetterContainer().addText("## Help").addText("Choose a page below.");
+const moderation = new BetterContainer().addText("## Moderation").addText("Ban, kick, and timeout commands.");
 
 const paginator = new Paginator({
-    type: PaginationType.LongJump, // first | back | jump | next | last
-    timeout: 60000
+    type: PaginationType.LongJump,
+    idle: 60_000,
+    onTimeout: PaginationTimeout.DisableComponents
 });
 
-// Add chapters (groups of pages)
 paginator
-    .addChapter([helpPage1, helpPage2, helpPage3], { label: "General Help", emoji: "📖" })
-    .addChapter([modPage1, modPage2], { label: "Moderation", emoji: "🛡️" });
+    .addChapter([intro, "Use `/help command` for command-specific help."], { label: "General", emoji: "📖" })
+    .addChapter([moderation], { label: "Moderation", emoji: "🛡️" });
 
-// Send it anywhere
-const message = await paginator.send(interaction);
-
-// Events for custom logic
-paginator.on("pageChange", (page, index) => {
-    console.log(`User viewing page ${index.nested} of chapter ${index.chapter}`);
+paginator.on("pageChange", (_page, index) => {
+    console.log(`Viewing chapter ${index.chapter}, page ${index.nested}`);
 });
+
+await paginator.send(interaction);
 ```
 
-### Prompt: Confirmation Dialogs
+### Prompt
 
 ```ts
-import { Prompt } from "vimcord";
+import { BetterEmbed, promptMessage, ResolveAction } from "vimcord";
 
-const prompt = new Prompt({
+const result = await promptMessage(interaction, {
     embed: new BetterEmbed({
+        context: { interaction },
         title: "Delete this message?",
-        description: "This action cannot be undone.",
-        context: { interaction }
+        description: "This action cannot be undone."
     }),
-    timeout: 30000
+    participants: [interaction.user],
+    timeout: 30_000,
+    onResolve: [ResolveAction.DisableComponents],
+    highlightSelectedButton: true
 });
-
-await prompt.send(interaction);
-const result = await prompt.awaitResponse();
 
 if (result.confirmed) {
-    await message.delete();
+    await targetMessage.delete();
 }
 ```
 
-### BetterModal: V2 Components Done Right
+### BetterModal
 
 ```ts
+import { TextInputStyle } from "discord.js";
 import { BetterModal } from "vimcord";
 
-const modal = new BetterModal({
-    title: "Create Ticket",
-    components: [
-        {
-            textInput: {
-                label: "Subject",
-                custom_id: "subject",
-                style: TextInputStyle.Short,
-                required: true
-            }
-        },
-        {
-            textInput: {
-                label: "Description",
-                custom_id: "description",
-                style: TextInputStyle.Paragraph
-            }
-        }
-    ]
-});
-
-// Show and await in one call
-const result = await modal.showAndAwait(interaction);
-
-if (result) {
-    const subject = result.getField("subject");
-    await result.reply({
-        content: `Ticket created: ${subject}`,
-        flags: "Ephemeral"
+const modal = new BetterModal({ title: "Create Ticket" })
+    .addTextInput({
+        customId: "subject",
+        label: "Subject",
+        style: TextInputStyle.Short,
+        required: true
+    })
+    .addTextInput({
+        customId: "description",
+        label: "Description",
+        style: TextInputStyle.Paragraph,
+        required: false
     });
-}
-```
 
-### DynaSend: One Method, Every Context
+const result = await modal.showAndAwait(interaction, { timeout: 60_000 });
+if (!result) return;
 
-```ts
-import { dynaSend } from "vimcord";
+const subject = result.getField<string>("subject", true);
 
-// Works with: interactions, channels, messages, users
-// Automatically decides: reply? editReply? followUp? channel.send?
-await dynaSend(interaction, {
-    content: "Hello!",
-    embeds: [myEmbed],
-    components: [actionRow]
+await result.reply({
+    content: `Ticket created: ${subject}`,
+    flags: "Ephemeral"
 });
 ```
 
-### Database: MongoDB Without the Pain
+### DynaSend
 
 ```ts
-import { createMongoSchema, MongoDatabase } from "vimcord";
+import { dynaSend, SendMethod } from "vimcord";
 
-// Define a schema with retry logic built-in
-const UserSchema = createMongoSchema("Users", {
+await dynaSend(interaction, {
+    sendMethod: interaction.deferred || interaction.replied ? SendMethod.EditReply : SendMethod.Reply,
+    content: "Hello from one send helper.",
+    embeds: [embed]
+});
+```
+
+### MongoDB Plugin
+
+```ts
+import { createMongoPlugin, createMongoSchema, MongoosePlugin } from "@vimcord/plugin-mongoose";
+
+client.use(
+    new MongoosePlugin({
+        connectionRefresh: {
+            interval: 60_000,
+            maxFailures: 2
+        }
+    })
+);
+
+const Users = createMongoSchema("Users", {
     userId: { type: String, required: true, unique: true },
-    username: String,
     balance: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now }
 });
 
-// CRUD operations with automatic retries
-const user = await UserSchema.fetch({ userId: "123" });
-await UserSchema.upsert({ userId: "123" }, { $inc: { balance: 100 } });
+const user = await Users.fetch({ userId: "123" }, undefined, { required: true });
+await Users.upsert({ userId: "123" }, { $inc: { balance: 100 } });
 
-// Create plugins for reusable logic
 const SoftDeletePlugin = createMongoPlugin(builder => {
     builder.schema.add({ deletedAt: { type: Date, default: null } });
     builder.extend({
@@ -291,73 +363,105 @@ const SoftDeletePlugin = createMongoPlugin(builder => {
     });
 });
 
-UserSchema.use(SoftDeletePlugin);
+Users.use(SoftDeletePlugin);
 ```
 
-### Logger: Terminal Output That Doesn't Suck
+### Client Logger
 
 ```ts
-import { Logger } from "vimcord";
+client.logger.success("Startup complete");
 
-const logger = new Logger({
-    prefix: "Economy",
-    prefixEmoji: "💰",
-    colors: { primary: "#57F287" }
-});
-
-logger.success("User purchased item");
-logger.table("Stats", { users: 150, revenue: "$420.69" });
-
-// Loader for async operations
-const stopLoader = logger.loader("Connecting to database...");
-await connectToDB();
-stopLoader("Connected!");
+const stopLoader = client.logger.loader("Syncing commands...");
+await client.modules.commands.push();
+stopLoader("Commands synced");
 ```
 
 ---
 
 ## API Reference
 
-### Client Creation
+### Core Exports
 
-| Export                                        | Description                   |
-| --------------------------------------------- | ----------------------------- |
-| `createClient(options, features?, config?)`   | Create a new Vimcord instance |
-| `Vimcord.create(options, features?, config?)` | Same as above                 |
-| `Vimcord.getInstance(id?)`                    | Get existing instance by ID   |
-| `Vimcord.getReadyInstance(id?, timeout?)`     | Wait for ready instance       |
+| Export | Description |
+| --- | --- |
+| `Vimcord` | Discord.js client subclass with modules, plugins, globals, status, and logging |
+| `SlashCommandModule` | Slash command module with optional subcommand routes |
+| `PrefixCommandModule` | Prefix command module with aliases and parsed message content |
+| `MessageContextCommandModule` | Message context menu command module |
+| `UserContextCommandModule` | User context menu command module |
+| `EventModule` | Typed Discord event module |
+| `BetterEmbed` | Embed helper with context formatting |
+| `BetterContainer` | Components V2 container helper |
+| `Paginator` | Component-based paginator |
+| `BetterModal` | Modal helper with V2 component support |
+| `promptMessage`, `promptModal` | Confirmation prompt helpers |
+| `dynaSend` | Send helper for interactions, channels, messages, members, and users |
+| `defineGlobalToolConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
+| `defineGlobalCommandHooks` | Global command hooks used when modules do not define local hooks |
 
-### Feature Flags
+### Client Options
 
 ```ts
-{
-    useDefaultSlashCommandHandler: boolean;   // Auto-handle slash commands
-    useDefaultPrefixCommandHandler: boolean;  // Auto-handle prefix commands
-    useDefaultContextCommandHandler: boolean; // Auto-handle context commands
-    useGlobalErrorHandlers: boolean;          // Catch unhandled errors
-    importModules: {
-        events?: string | string[] | ModuleImportOptions;
-        slashCommands?: string | string[] | ModuleImportOptions;
-        prefixCommands?: string | string[] | ModuleImportOptions;
-        contextCommands?: string | string[] | ModuleImportOptions;
-    };
-    maxLoginAttempts?: number;  // Retry login on failure (default: 3)
-}
+const client = new Vimcord({
+    customId: "main",
+    client: {
+        intents: [GatewayIntentBits.Guilds]
+    },
+    globals: {
+        app: {
+            name: "My Bot",
+            devMode: false,
+            verbose: false,
+            disableBanner: false
+        },
+        staff: {
+            ownerId: "123456789012345678",
+            superUsers: [],
+            superUserRoles: []
+        }
+    },
+    connectionRefresh: {
+        interval: 60_000,
+        requestTimeout: 10_000,
+        maxFailures: 2,
+        maxRefreshAttempts: 3
+    },
+    logLevel: "debug",
+    verbose: false
+});
 ```
 
-### Configuration
+### Module Loading
 
 ```ts
-client.configure("app", {
-    name: "MyBot", // Display name
-    version: "1.0.0", // Version string
-    devMode: false, // Use TOKEN_DEV env var
-    verbose: false // Extra logging
+await client.modules.load({
+    slashCommands: { dir: "./src/commands/slash", suffix: ".slash" },
+    prefixCommands: { dir: "./src/commands/prefix", suffix: ".prefix" },
+    messageContextCommands: { dir: "./src/commands/message-context", suffix: ".mctx" },
+    userContextCommands: { dir: "./src/commands/user-context", suffix: ".uctx" },
+    events: { dir: "./src/events", suffix: ".event" }
 });
+```
 
-client.configure("staff", {
-    ownerId: "123456", // Bot owner
-    staffRoleIds: ["..."] // Staff roles
+### Runtime Configuration
+
+```ts
+client.configure({
+    app: {
+        name: "My Bot",
+        devMode: true
+    },
+    staff: {
+        ownerId: "123456789012345678",
+        superUserRoles: ["987654321098765432"]
+    },
+    hooks: {
+        prefix: {
+            async onError({ message, error }) {
+                await message.reply(`Command failed: ${error?.message ?? "Unknown error"}`);
+            }
+        }
+    }
 });
 ```
 
@@ -367,45 +471,62 @@ client.configure("staff", {
 
 ### Status Rotation
 
-```ts
-client.status.setRotation(
-    [
-        { name: "with commands", type: ActivityType.Playing },
-        { name: "over {guilds} servers", type: ActivityType.Watching }
-    ],
-    { interval: 30000 }
-); // Rotate every 30s
-```
-
-### Event Handler
+Status config is user-owned. Vimcord does not provide a default status rotation.
 
 ```ts
-import { EventBuilder } from "vimcord";
+import { ActivityType } from "discord.js";
 
-export default new EventBuilder({
-    event: Events.MessageCreate,
-    execute: async (client, message) => {
-        if (message.author.bot) return;
-        // Handle message
+await client.status.set({
+    production: {
+        interval: 30_000,
+        randomize: true,
+        activity: [
+            { name: "$GUILD_COUNT servers", type: ActivityType.Watching, status: "online" },
+            { name: "Need help? Use /help", type: ActivityType.Custom, status: "online" }
+        ]
+    },
+    development: {
+        activity: { name: "In development", type: ActivityType.Custom, status: "dnd" }
     }
 });
 ```
 
-### Error Handling
+### Command Dispatch Events
 
 ```ts
-// Vimcord automatically catches command errors and sends user-friendly messages
-// Configure what happens on error:
+import { Events } from "discord.js";
+import { EventModule } from "vimcord";
 
-client.configure("slashCommands", {
-    errorMessage: "❌ Something went wrong! Our team has been notified.",
-    logErrors: true
+export default new EventModule({
+    name: "dispatchInteractions",
+    event: Events.InteractionCreate,
+    async execute({ client, args: [interaction] }) {
+        await client.modules.commands.dispatchInteraction(interaction);
+    }
 });
+```
 
-// Or handle specific errors:
-process.on("unhandledRejection", error => {
-    client.logger.error("Unhandled rejection", error as Error);
+```ts
+import { Events } from "discord.js";
+import { EventModule } from "vimcord";
+
+export default new EventModule({
+    name: "dispatchPrefixCommands",
+    event: Events.MessageCreate,
+    async execute({ client, args: [message] }) {
+        if (message.author.bot) return;
+        await client.modules.commands.dispatchMessage(message, ["!", "?"]);
+    }
 });
+```
+
+### Bot Staff Checks
+
+```ts
+const isStaff = await client.isBotStaff(interaction.user.id);
+if (!isStaff) {
+    await interaction.reply({ content: "This is staff-only.", flags: "Ephemeral" });
+}
 ```
 
 ---
@@ -413,12 +534,11 @@ process.on("unhandledRejection", error => {
 ## Environment Variables
 
 ```bash
-# Required
 TOKEN=your_production_bot_token
-TOKEN_DEV=your_development_bot_token  # Used when devMode: true
+TOKEN_DEV=your_development_bot_token
 
-# MongoDB (optional)
 MONGO_URI=mongodb://localhost:27017/discord-bot
+MONGO_URI_DEV=mongodb://localhost:27017/discord-bot-dev
 ```
 
 ---
@@ -435,7 +555,7 @@ Built on top of [qznt](https://github.com/xsqu1znt/qznt) for that extra bit of u
 
 <div align="center">
 
-Built with 💜 for the Discord.js community
+Built with love for the Discord.js community
 
 Found a bug? [Open an issue](https://github.com/xsqu1znt/vimcord/issues)
 

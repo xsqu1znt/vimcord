@@ -113,6 +113,14 @@ export class BetterContainer {
     }
 
     /**
+     * Returns the underlying Discord.js container builder.
+     */
+    toBuilder(): ContainerBuilder {
+        this.build();
+        return this.container;
+    }
+
+    /**
      * Sets the container accent color.
      * @param color Color, random color choices, or null to clear it
      */

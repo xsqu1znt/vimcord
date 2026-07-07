@@ -240,6 +240,11 @@ export abstract class AbstractModule<
         return `${this.moduleType}:${this.name}`;
     }
 
+    /** Returns the hook implementation for this module. */
+    protected getHook<K extends keyof Hooks>(hook: K): Hooks[K] | undefined {
+        return this.hooks[hook];
+    }
+
     /** Runs a hook with relevant context and an optional fallback. */
     async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
         hook: K,
@@ -247,7 +252,7 @@ export abstract class AbstractModule<
         fallback?: (ctx: HookContext) => Promise<void>
     ): Promise<void> {
         if (!(await this.checkInjection())) return;
-        const hookFn = this.hooks[hook] as ((ctx: HookContext) => Promise<void>) | undefined;
+        const hookFn = this.getHook(hook) as ((ctx: HookContext) => Promise<void>) | undefined;
 
         try {
             if (hookFn) {
@@ -289,10 +294,12 @@ export abstract class AbstractModule<
             const passed = await this.performTests(hookCTX);
             if (!passed) return;
 
-            if (this.hooks.preExecute) {
+            const preExecute = this.getHook("preExecute" as keyof Hooks) as
+                ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
+            if (preExecute) {
                 let next = false;
                 const debug_preExecute_start = Date.now();
-                await this.hooks.preExecute(hookCTX, () => (next = true));
+                await preExecute(hookCTX, () => (next = true));
                 const debug_preExecute_end = Date.now();
                 this.client?.logger.debugVerbose(
                     `[Module] Ran hook 'preExecute' for '${this.buildName()}' in ${debug_preExecute_end - debug_preExecute_start}ms`
@@ -311,9 +318,11 @@ export abstract class AbstractModule<
                 `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
             );
 
-            if (this.hooks.postExecute) {
+            const postExecute = this.getHook("postExecute" as keyof Hooks) as
+                ((ctx: HookCTX, executeResponse: unknown) => Promise<void>) | undefined;
+            if (postExecute) {
                 const debug_postExecute_start = Date.now();
-                await this.hooks.postExecute(hookCTX, executeResponse);
+                await postExecute(hookCTX, executeResponse);
                 const debug_postExecute_end = Date.now();
                 this.client?.logger.debugVerbose(
                     `[Module] Ran hook 'postExecute' for '${this.buildName()}' in ${debug_postExecute_end - debug_postExecute_start}ms`

@@ -1,4 +1,4 @@
-import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
+import type { GlobalCommandHooks } from "@/commands/index.js";
 
 import { getDevMode, getPackageJson } from "@vimcord/internal";
 
@@ -9,11 +9,7 @@ export interface VimcordGlobals {
     staff: StaffGlobals;
 
     /** Command hook globals. */
-    hooks?: {
-        prefix?: CommandModuleHooks<CommandModuleType.Prefix>;
-        slash?: CommandModuleHooks<CommandModuleType.Slash>;
-        context?: CommandModuleHooks<CommandModuleType.MessageContext | CommandModuleType.UserContext>;
-    };
+    hooks?: GlobalCommandHooks;
 }
 
 export interface AppGlobals {
@@ -23,7 +19,7 @@ export interface AppGlobals {
     name: string;
     /** The current version of the bot displayed in logs and startup banner.
      * @accessible via `client.$version` for version commands or update notifications.
-     * @defaultValue Extracted from your `package.json` version field. If not found, defaults to `1.0.0`.
+     * @default Extracted from your `package.json` version field. If not found, defaults to `1.0.0`.
      */
     version: string;
 
@@ -56,17 +52,17 @@ export interface AppGlobals {
 
     /** Enables verbose console logging with additional debug information.
      * @accessible via `client.$verboseMode`
-     * @defaultValue false
+     * @default false
      */
     verbose: boolean;
 
     /** Enables the Vimcord CLI.
-     * @defaultValue false
+     * @default false
      */
     enableCLI: boolean;
 
     /** Disables the Vimcord ASCII art banner on startup.
-     * @defaultValue false
+     * @default false
      */
     disableBanner: boolean;
 }

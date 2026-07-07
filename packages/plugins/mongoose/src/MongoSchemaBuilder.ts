@@ -32,6 +32,51 @@ type DistinctValue<Value> = Value extends readonly (infer Item)[] ? NonNullable<
 type CreateDocument<Definition> = Parameters<Model<Definition>["create"]>[0];
 type BulkWriteOperations<Definition> = Parameters<Model<Definition>["bulkWrite"]>[0];
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function normalizeObjectIdValue(value: unknown): unknown {
+    if (typeof value === "string" && mongoose.Types.ObjectId.isValid(value)) {
+        return new mongoose.Types.ObjectId(value);
+    }
+
+    if (Array.isArray(value)) return value.map(item => normalizeObjectIdValue(item));
+
+    if (isPlainRecord(value)) {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeObjectIdValue(item)]));
+    }
+
+    return value;
+}
+
+function normalizeObjectIdFilter<Definition>(filter: QueryFilter<Definition>): QueryFilter<Definition>;
+function normalizeObjectIdFilter<Definition>(
+    filter: QueryFilter<Definition> | undefined
+): QueryFilter<Definition> | undefined;
+function normalizeObjectIdFilter<Definition>(
+    filter: QueryFilter<Definition> | undefined
+): QueryFilter<Definition> | undefined {
+    if (!filter) return filter;
+
+    const normalizeFilterBranch = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(item => normalizeFilterBranch(item));
+        if (!isPlainRecord(value)) return value;
+
+        return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => {
+                // Mongoose casts valid ObjectId strings, but normalizing keeps every builder helper consistent.
+                if (key === "_id") return [key, normalizeObjectIdValue(item)];
+                if (key === "$and" || key === "$or" || key === "$nor") return [key, normalizeFilterBranch(item)];
+                return [key, item];
+            })
+        );
+    };
+
+    return normalizeFilterBranch(filter) as QueryFilter<Definition>;
+}
+
 export interface MongoSchemaBuilderOptions<Definition = any> extends SchemaOptions<Definition> {
     /** The Vimcord client ID to attach to. Leave blank to use the default. */
     clientId?: string;
@@ -229,7 +274,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: mongo.CountOptions & MongooseBaseQueryOptions<Definition> & mongo.Abortable
     ): Promise<number> {
         const { model } = this.compileModel();
-        return await model.countDocuments(filter, options);
+        return await model.countDocuments(normalizeObjectIdFilter(filter), options);
     }
 
     /**
@@ -239,7 +284,7 @@ export class MongoSchemaBuilder<Definition> {
      */
     async exists(filter: QueryFilter<Definition>): Promise<boolean> {
         const { model } = this.compileModel();
-        return !!(await model.exists(filter));
+        return !!(await model.exists(normalizeObjectIdFilter(filter)));
     }
 
     /**
@@ -255,10 +300,11 @@ export class MongoSchemaBuilder<Definition> {
 
     /**
      * Updates the first matching document, or creates it when no document matches.
+     * Returns the document after the update because `returnDocument` defaults to `"after"`.
      *
      * @param filter The filter used to match the document
      * @param update The update to apply when a document exists, or create from when it does not
-     * @param options The query options to pass to Mongoose
+     * @param options The query options to pass to Mongoose; `returnDocument` is fixed to `"after"`
      */
     async upsert<Options extends Omit<QueryOptions<Definition>, "new" | "returnDocument" | "upsert">>(
         filter: QueryFilter<Definition>,
@@ -266,7 +312,11 @@ export class MongoSchemaBuilder<Definition> {
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options>> {
         const { model } = this.compileModel();
-        const result = await model.findOneAndUpdate(filter, update, { returnDocument: "after", ...options, upsert: true });
+        const result = await model.findOneAndUpdate(normalizeObjectIdFilter(filter), update, {
+            returnDocument: "after",
+            ...options,
+            upsert: true
+        });
 
         return result as LeanOrHydratedDocument<Definition, Options>;
     }
@@ -282,7 +332,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>
     ): Promise<mongo.DeleteResult> {
         const { model } = this.compileModel();
-        return await model.deleteOne(filter, options);
+        return await model.deleteOne(normalizeObjectIdFilter(filter), options);
     }
 
     /**
@@ -296,7 +346,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: mongo.DeleteOptions & MongooseBaseQueryOptions<Definition>
     ): Promise<mongo.DeleteResult> {
         const { model } = this.compileModel();
-        return await model.deleteMany(filter, options);
+        return await model.deleteMany(normalizeObjectIdFilter(filter), options);
     }
 
     /**
@@ -312,7 +362,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: QueryOptions<Definition>
     ): Promise<DistinctValue<Require_id<Definition>[Path]>[]> {
         const { model } = this.compileModel();
-        const values = await model.distinct(path, filter, options);
+        const values = await model.distinct(path, normalizeObjectIdFilter(filter), options);
 
         return values as DistinctValue<Require_id<Definition>[Path]>[];
     }
@@ -321,6 +371,7 @@ export class MongoSchemaBuilder<Definition> {
      * Fetches the first document that matches a filter.
      *
      * Queries are lean by default. Pass `{ lean: false }` when a hydrated Mongoose document is needed.
+     * Passing `{ required: true }` throws when no document is found and removes `null` from the return type.
      *
      * @param filter The filter used to match the document
      * @param projection The fields to include or exclude
@@ -342,7 +393,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: Options & {
             /**
              * Throws when no document is found and removes `null` from the return type
-             * @defaultValue false
+             * @default false
              */
             required?: boolean;
         }
@@ -352,7 +403,10 @@ export class MongoSchemaBuilder<Definition> {
             required?: boolean;
         };
 
-        const result = await model.findOne(filter, projection, { ...queryOptions, lean: queryOptions.lean ?? true });
+        const result = await model.findOne(normalizeObjectIdFilter(filter), projection, {
+            ...queryOptions,
+            lean: queryOptions.lean ?? true
+        });
         if (required && !result) throw new MongoosePluginError(`Document not found`);
 
         return result as LeanOrHydratedDocument<Definition, Options> | null;
@@ -373,7 +427,10 @@ export class MongoSchemaBuilder<Definition> {
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options>[]> {
         const { model } = this.compileModel();
-        const results = await model.find(filter, projection, { ...options, lean: options?.lean ?? true });
+        const results = await model.find(normalizeObjectIdFilter(filter), projection, {
+            ...options,
+            lean: options?.lean ?? true
+        });
 
         return results as LeanOrHydratedDocument<Definition, Options>[];
     }
@@ -393,7 +450,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null> {
         const { model } = this.compileModel();
-        const result = await model.findOne(filter, projection, {
+        const result = await model.findOne(normalizeObjectIdFilter(filter), projection, {
             ...options,
             lean: options?.lean ?? true,
             sort: { createdAt: -1 }
@@ -406,10 +463,11 @@ export class MongoSchemaBuilder<Definition> {
      * Updates the first document that matches a filter and returns the updated document.
      *
      * Queries are lean by default. Pass `{ lean: false }` when a hydrated Mongoose document is needed.
+     * Returns the document after the update because `returnDocument` defaults to `"after"`.
      *
      * @param filter The filter used to match the document
      * @param update The update to apply
-     * @param options The query options to pass to Mongoose
+     * @param options The query options to pass to Mongoose; `returnDocument` is fixed to `"after"`
      */
     async update<Options extends QueryOptions<Definition>>(
         filter: QueryFilter<Definition>,
@@ -417,7 +475,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: Options
     ): Promise<LeanOrHydratedDocument<Definition, Options> | null> {
         const { model } = this.compileModel();
-        const result = await model.findOneAndUpdate(filter, update, {
+        const result = await model.findOneAndUpdate(normalizeObjectIdFilter(filter), update, {
             ...options,
             lean: options?.lean ?? true,
             returnDocument: "after"
@@ -439,7 +497,7 @@ export class MongoSchemaBuilder<Definition> {
         options?: mongo.UpdateOptions & MongooseUpdateQueryOptions<Definition>
     ): Promise<mongo.UpdateResult> {
         const { model } = this.compileModel();
-        return await model.updateMany(filter, update, options);
+        return await model.updateMany(normalizeObjectIdFilter(filter), update, options);
     }
 
     /**

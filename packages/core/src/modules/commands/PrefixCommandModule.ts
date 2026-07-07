@@ -57,17 +57,18 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
         return {
             client,
             message,
-            content: strippedContent,
+            messageContent: strippedContent,
             prefix: args[1],
             trigger: args[2],
             splitContent: (options = {}) => {
                 const { separator = /\s+/, lowercase = false, uppercase = false } = options;
 
-                let normalizedContent = strippedContent;
-                if (lowercase) normalizedContent.toLowerCase();
-                if (uppercase) normalizedContent.toUpperCase();
-
-                const rawParts = strippedContent ? strippedContent.split(separator).filter(Boolean) : [];
+                const normalizedContent = uppercase
+                    ? strippedContent.toUpperCase()
+                    : lowercase
+                      ? strippedContent.toLowerCase()
+                      : strippedContent;
+                const rawParts = normalizedContent ? normalizedContent.split(separator).filter(Boolean) : [];
                 return rawParts;
             }
         };

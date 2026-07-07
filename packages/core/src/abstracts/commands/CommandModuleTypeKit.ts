@@ -49,7 +49,7 @@ interface CommandTypeMap {
         };
         contextExtras: {
             message: Message;
-            content: string;
+            messageContent: string;
             prefix: string;
             trigger: string;
             splitContent: (options?: { separator?: string; lowercase?: boolean; uppercase?: boolean }) => string[];

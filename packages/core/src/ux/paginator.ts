@@ -1,13 +1,11 @@
 import type {
     MessageActionRowComponentBuilder,
     MessageComponentInteraction,
-    MessageReaction,
-    ReactionCollector,
     SelectMenuComponentOptionData
 } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 import type { Participant } from "./shared.js";
-import type { ToolEmojiConfig, ToolPaginatorButtonConfig, ToolPaginatorTimeoutAction } from "./toolConfig.js";
+import type { ToolPaginatorTimeoutAction } from "./toolConfig.js";
 
 import {
     ActionRowBuilder,
@@ -18,17 +16,17 @@ import {
     Message,
     MessageFlags,
     StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder,
-    User
+    StringSelectMenuOptionBuilder
 } from "discord.js";
 import { BetterCollector, CollectorMode } from "./betterCollector.js";
+import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
-import { ResolveAction, resolveParticipantId } from "./shared.js";
+import { ResolveAction } from "./shared.js";
 import { getGlobalToolConfig } from "./toolConfig.js";
 
 type NavButtonId = "first" | "back" | "jump" | "next" | "last";
-type SinglePageResolvable = string | EmbedResolvable | BetterEmbed | ContainerBuilder | AttachmentBuilder;
+type SinglePageResolvable = string | EmbedResolvable | BetterEmbed | BetterContainer | ContainerBuilder | AttachmentBuilder;
 
 export type PaginatorTimingOptions =
     | {
@@ -68,7 +66,6 @@ export interface PaginationEventMap {
     next: [page: PageResolvable, index: PageIndex];
     last: [page: PageResolvable, index: PageIndex];
     collect: [interaction: MessageComponentInteraction, page: PageResolvable, index: PageIndex];
-    react: [reaction: MessageReaction, user: User, page: PageResolvable, index: PageIndex];
     preTimeout: [message: Message];
     postTimeout: [message: Message];
 }
@@ -77,9 +74,8 @@ export interface PaginatorBaseOptions {
     type?: PaginationType;
     participants?: Participant[];
     pages?: PageResolvable[];
-    useReactions?: boolean;
     dynamic?: boolean;
-    onTimeout?: PaginationTimeoutType;
+    onTimeout?: PaginationTimeout;
     jumpSize?: number;
 }
 
@@ -92,7 +88,7 @@ export enum PaginationType {
     LongJump = 3
 }
 
-export enum PaginationTimeoutType {
+export enum PaginationTimeout {
     DisableComponents = 0,
     ClearComponents = 1,
     DeleteMessage = 2,
@@ -188,43 +184,23 @@ function addComponentsV2Flag(flags: DynaSendOptions["flags"]): DynaSendOptions["
     return [flags, MessageFlags.IsComponentsV2];
 }
 
-function resolvePaginatorTimeoutAction(action: ToolPaginatorTimeoutAction): PaginationTimeoutType {
+function resolvePaginatorTimeoutAction(action: ToolPaginatorTimeoutAction): PaginationTimeout {
     switch (action) {
         case "DisableComponents":
-            return PaginationTimeoutType.DisableComponents;
+            return PaginationTimeout.DisableComponents;
         case "DeleteMessage":
-            return PaginationTimeoutType.DeleteMessage;
+            return PaginationTimeout.DeleteMessage;
         case "DoNothing":
-            return PaginationTimeoutType.DoNothing;
+            return PaginationTimeout.DoNothing;
         case "ClearComponents":
         default:
-            return PaginationTimeoutType.ClearComponents;
+            return PaginationTimeout.ClearComponents;
     }
-}
-
-function resolveReactionEmoji(emoji: ToolEmojiConfig): string {
-    if (typeof emoji === "string") return emoji;
-    return emoji.id ?? emoji.name;
-}
-
-function matchesReactionEmoji(configured: ToolEmojiConfig, reaction: MessageReaction): boolean {
-    if (typeof configured === "string") {
-        return [reaction.emoji.name, reaction.emoji.id, reaction.emoji.identifier].includes(configured);
-    }
-
-    return configured.id ? configured.id === reaction.emoji.id : configured.name === reaction.emoji.name;
 }
 
 function createPaginatorCollectorTiming(options: ResolvedPaginatorOptions): { idle: number } | { timeout: number } {
     if (options.idle !== null) return { idle: options.idle };
     if (options.timeout !== null) return { timeout: options.timeout };
-
-    throw new Error("[Paginator] Either idle or timeout must be provided");
-}
-
-function createReactionCollectorTiming(options: ResolvedPaginatorOptions): { idle: number } | { time: number } {
-    if (options.idle !== null) return { idle: options.idle };
-    if (options.timeout !== null) return { time: options.timeout };
 
     throw new Error("[Paginator] Either idle or timeout must be provided");
 }
@@ -244,9 +220,7 @@ export class Paginator {
     };
 
     private collector: BetterCollector | null = null;
-    private reactionCollector: ReactionCollector | null = null;
     private ignoreNextCollectorEnd = false;
-    private ignoreNextReactionEnd = false;
     private state: PaginatorState = {
         message: null,
         sendOptions: undefined,
@@ -268,7 +242,6 @@ export class Paginator {
             type: options.type ?? PaginationType.Short,
             participants: options.participants ?? [],
             pages: options.pages ?? [],
-            useReactions: options.useReactions ?? false,
             dynamic: options.dynamic ?? false,
             timeout: options.idle === undefined ? (options.timeout ?? null) : null,
             idle: options.idle ?? null,
@@ -287,7 +260,6 @@ export class Paginator {
             next: [],
             last: [],
             collect: [],
-            react: [],
             preTimeout: [],
             postTimeout: []
         };
@@ -355,7 +327,7 @@ export class Paginator {
         }
 
         // --- Navigation ---
-        if ((navigationRequired && !this.options.useReactions) || this.extraButtons.length) {
+        if (navigationRequired || this.extraButtons.length) {
             const buttons = navigationRequired
                 ? getNavButtonIds(this.getEffectiveType(pageCount)).map(id =>
                       cloneButton(this.navButtons[id], this.state.controlsDisabled)
@@ -402,8 +374,8 @@ export class Paginator {
             pageData.content = page;
         } else if (page instanceof AttachmentBuilder) {
             files.push(page);
-        } else if (page instanceof ContainerBuilder) {
-            components.push(page);
+        } else if (page instanceof BetterContainer || page instanceof ContainerBuilder) {
+            components.push(page instanceof BetterContainer ? page.toBuilder() : page);
             pageData.flags = addComponentsV2Flag(pageData.flags);
         } else {
             embeds.push(page);
@@ -423,37 +395,24 @@ export class Paginator {
         const hasComponentControls = this.hasComponentControls();
 
         switch (this.options.onTimeout) {
-            case PaginationTimeoutType.DisableComponents:
+            case PaginationTimeout.DisableComponents:
                 if (!hasComponentControls) break;
                 this.state.controlsDisabled = true;
                 await this.refresh().catch(Boolean);
                 break;
-            case PaginationTimeoutType.ClearComponents:
+            case PaginationTimeout.ClearComponents:
                 if (!hasComponentControls) break;
                 this.state.controlsHidden = true;
                 await this.refresh().catch(Boolean);
                 break;
-            case PaginationTimeoutType.DeleteMessage:
+            case PaginationTimeout.DeleteMessage:
                 if (message.deletable) await message.delete().catch(Boolean);
                 break;
-            case PaginationTimeoutType.DoNothing:
+            case PaginationTimeout.DoNothing:
                 break;
         }
 
-        if (this.options.useReactions) await message.reactions.removeAll().catch(Boolean);
         await this.emit("postTimeout", message);
-    }
-
-    private async addReactions(): Promise<void> {
-        const message = this.state.message;
-        if (!message || !this.options.useReactions || this.state.controlsHidden) return;
-
-        const chapter = this.getCurrentChapter();
-        if (chapter.pages.length < 2) return;
-
-        for (const id of getNavButtonIds(this.getEffectiveType(chapter.pages.length))) {
-            await message.react(resolveReactionEmoji(getGlobalToolConfig().paginator.buttons[id].emoji)).catch(Boolean);
-        }
     }
 
     private collectComponents(): void {
@@ -518,71 +477,6 @@ export class Paginator {
             }
 
             this.collector = null;
-            await this.refreshControlsAfterTimeout();
-        });
-    }
-
-    private collectReactions(): void {
-        const message = this.state.message;
-        if (!message || !this.options.useReactions) return;
-        if (this.getCurrentChapter().pages.length < 2) return;
-
-        if (this.reactionCollector) {
-            this.ignoreNextReactionEnd = true;
-            this.reactionCollector.stop("refresh");
-        }
-
-        const collector = message.createReactionCollector(createReactionCollectorTiming(this.options));
-        const navEntries = Object.entries(getGlobalToolConfig().paginator.buttons) as [
-            NavButtonId,
-            ToolPaginatorButtonConfig
-        ][];
-
-        this.reactionCollector = collector;
-
-        collector.on("collect", async (reaction, user) => {
-            if (user.bot) return;
-
-            const allowed =
-                !this.options.participants.length ||
-                this.options.participants.some(p => resolveParticipantId(p) === user.id);
-            if (!allowed) {
-                await reaction.users.remove(user.id).catch(Boolean);
-                return;
-            }
-
-            const nav = navEntries.find(([, data]) => matchesReactionEmoji(data.emoji, reaction));
-            if (!nav) return;
-
-            await reaction.users.remove(user.id).catch(Boolean);
-            await this.emit("react", reaction, user, this.getCurrentPage(), { ...this.state.index });
-
-            switch (nav[0]) {
-                case "first":
-                    await this.navigate("first", 0);
-                    break;
-                case "back":
-                    await this.navigate("back", this.state.index.nested - 1);
-                    break;
-                case "jump":
-                    await this.navigate("jump", this.state.index.nested + this.options.jumpSize);
-                    break;
-                case "next":
-                    await this.navigate("next", this.state.index.nested + 1);
-                    break;
-                case "last":
-                    await this.navigate("last", this.getCurrentChapter().pages.length - 1);
-                    break;
-            }
-        });
-
-        collector.on("end", async () => {
-            if (this.ignoreNextReactionEnd) {
-                this.ignoreNextReactionEnd = false;
-                return;
-            }
-
-            this.reactionCollector = null;
             await this.refreshControlsAfterTimeout();
         });
     }
@@ -776,8 +670,6 @@ export class Paginator {
         if (!this.state.message) return null;
 
         this.collectComponents();
-        await this.addReactions();
-        this.collectReactions();
 
         return this.state.message;
     }
@@ -788,6 +680,5 @@ export class Paginator {
      */
     stop(reason = "manual"): void {
         this.collector?.stop(reason);
-        this.reactionCollector?.stop(reason);
     }
 }

@@ -112,7 +112,7 @@ export class Logger {
     private formatPrefix(): string {
         const { prefixEmoji, prefix, colors } = this.options;
         if (!prefix) return "";
-        const emoji = prefixEmoji ? `${prefixEmoji} ` : "";
+        const emoji = prefixEmoji ? `${prefixEmoji.trimEnd()} ` : "";
         return ansis.bold.hex(colors.primary)(`${emoji}${prefix}`);
     }
 

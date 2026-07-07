@@ -16,7 +16,7 @@ export interface VimcordFeatures {
      * ``` */
     enableCommandErrorMessage?: boolean | CommandErrorMessageOptions;
 
-    /** The maximum number of attempts to log into Discord @defaultValue `3` */
+    /** The maximum number of attempts to log into Discord @default `3` */
     maxLoginAttempts?: number;
 }
 
@@ -24,13 +24,13 @@ export interface CommandErrorMessageOptions {
     // TODO: Reimplement this when tools are added
     /** Use a custom embed. */
     // embed?: (embed: EmbedResolvable, error: Error, guild: Guild | null | undefined) => EmbedResolvable;
-    /** @defaultValue config.staff.mainServer.inviteUrl */
+    /** @default config.staff.mainServer.inviteUrl */
     inviteUrl?: string;
-    /** The support server invite button label. @defaultValue "Support Server" */
+    /** The support server invite button label. @default "Support Server" */
     inviteButtonLabel?: string;
-    /** The error details button label. @defaultValue "Details" */
+    /** The error details button label. @default "Details" */
     detailButtonLabel?: string;
-    /** @defaultValue 30_000 // 30 seconds */
+    /** @default 30_000 // 30 seconds */
     detailButtonIdleTimeout?: number;
     /** Should the message be ephemeral? */
     ephemeral?: boolean;

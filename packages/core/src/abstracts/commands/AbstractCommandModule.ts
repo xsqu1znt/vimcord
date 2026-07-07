@@ -1,3 +1,4 @@
+import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
 import type { ModuleMetadata } from "../AbstractModule.js";
 import type {
@@ -8,10 +9,28 @@ import type {
     CommandModuleOptions
 } from "./CommandModuleTypeKit.js";
 
+import { getGlobalCommandHooks } from "@/commands/commandHooks.js";
 import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
+
+function getCommandHooks<T extends CommandModuleType>(
+    type: T,
+    hooks: GlobalCommandHooks | undefined
+): CommandModuleHooks<T> | undefined {
+    if (!hooks) return undefined;
+
+    switch (type) {
+        case CommandModuleType.Prefix:
+            return hooks.prefix as CommandModuleHooks<T> | undefined;
+        case CommandModuleType.Slash:
+            return hooks.slash as CommandModuleHooks<T> | undefined;
+        case CommandModuleType.MessageContext:
+        case CommandModuleType.UserContext:
+            return hooks.context as CommandModuleHooks<T> | undefined;
+    }
+}
 
 export abstract class AbstractCommandModule<T extends CommandModuleType> extends AbstractModule<
     CommandModuleArgs<T>,
@@ -32,6 +51,17 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
+    }
+
+    /** Returns command-local hooks before falling back to client and package-level global hooks. */
+    protected override getHook<K extends keyof CommandModuleHooks<T>>(hook: K): CommandModuleHooks<T>[K] | undefined {
+        const localHook = this.hooks[hook];
+        if (localHook) return localHook;
+
+        const clientHook = getCommandHooks(this.type, this.client?.globals.hooks)?.[hook];
+        if (clientHook) return clientHook;
+
+        return getCommandHooks(this.type, getGlobalCommandHooks())?.[hook];
     }
 
     protected override async performTests(ctx: CommandModuleHookContext<T>): Promise<boolean> {

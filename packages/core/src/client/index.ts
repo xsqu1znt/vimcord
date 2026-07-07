@@ -5,3 +5,4 @@ export * from "./managers/BaseCommandManager.js";
 export * from "./managers/CommandManager.js";
 export * from "./managers/EventManager.js";
 export * from "./managers/ModuleManager.js";
+export * from "./StatusManager.js";

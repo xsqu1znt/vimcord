@@ -3,7 +3,6 @@ import type { Vimcord } from "./Vimcord.js";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import ansis from "ansis";
 import { Logger, stripAnsi } from "@vimcord/internal";
 
@@ -21,7 +20,7 @@ const STARTUP_LINES = [
 
 const STARTUP_PADDING_X = 0;
 const MIN_CONSOLE_WIDTH = 80;
-const CORE_REQUIRE = createRequire(import.meta.url);
+const PACKAGE_REQUIRE = createRequire(join(process.cwd(), "package.json"));
 
 function readPackageVersion(packagePath: string, packageName: string): string | null {
     try {
@@ -38,38 +37,41 @@ function readPackageVersion(packagePath: string, packageName: string): string | 
 }
 
 function findPackageVersion(startPath: string, packageName: string): string | null {
-    let currentDir = dirname(startPath);
+    const currentDir = dirname(startPath);
+    const parentDir = dirname(currentDir);
+    const version = readPackageVersion(join(currentDir, "package.json"), packageName);
 
-    while (currentDir !== dirname(currentDir)) {
-        const version = readPackageVersion(join(currentDir, "package.json"), packageName);
-        if (version) return version;
+    if (version) return version;
+    if (currentDir === parentDir) return null;
 
-        currentDir = dirname(currentDir);
-    }
-
-    return null;
+    return findPackageVersion(currentDir, packageName);
 }
 
-function findWorkspacePackageVersion(packageName: string, packagePath: string): string | null {
-    let currentDir = dirname(fileURLToPath(import.meta.url));
+function findWorkspacePackageVersion(packageName: string, packagePath: string, currentDir = process.cwd()): string | null {
+    const version = readPackageVersion(join(currentDir, packagePath, "package.json"), packageName);
+    const parentDir = dirname(currentDir);
 
-    while (currentDir !== dirname(currentDir)) {
-        const version = readPackageVersion(join(currentDir, packagePath, "package.json"), packageName);
-        if (version) return version;
+    if (version) return version;
+    if (currentDir === parentDir) return null;
 
-        currentDir = dirname(currentDir);
-    }
-
-    return null;
+    return findWorkspacePackageVersion(packageName, packagePath, parentDir);
 }
 
 function getCorePackageVersion(): string {
-    return findPackageVersion(fileURLToPath(import.meta.url), "@vimcord/core") ?? "unknown";
+    try {
+        const packageEntry = PACKAGE_REQUIRE.resolve("@vimcord/core");
+        const version = findPackageVersion(packageEntry, "@vimcord/core");
+        if (version) return version;
+    } catch {
+        // Fall back to workspace lookup when @vimcord/core is running from this monorepo.
+    }
+
+    return findWorkspacePackageVersion("@vimcord/core", "packages/core") ?? "unknown";
 }
 
 function getVimcordPackageVersion(): string {
     try {
-        const packageEntry = CORE_REQUIRE.resolve("vimcord");
+        const packageEntry = PACKAGE_REQUIRE.resolve("vimcord");
         const version = findPackageVersion(packageEntry, "vimcord");
         if (version) return version;
     } catch {
