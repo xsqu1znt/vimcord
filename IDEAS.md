@@ -19,3 +19,6 @@ Vimcord-CLI: get info about a guild by id or name
 Vimcord-CLI: be able to launch a separated instance of the CLI and still interact with the available clients
 
 Paginator: fix jump being different than what it was, while keeping the new jump behavior, just under a different name
+
+MongoSchemaBuilder: inject new jsdoc for `returnDocument` to show it defaults to "after"
+

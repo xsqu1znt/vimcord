@@ -430,7 +430,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     /**
      * Checks whether a user is configured as bot staff.
-     * @param userId Discord user ID to test
+     * @param userId The ID of the user to test
      */
     async isBotStaff(userId: string): Promise<boolean> {
         const staff = this.globals.staff;
