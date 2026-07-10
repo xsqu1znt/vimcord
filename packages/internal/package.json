@@ -1,6 +1,6 @@
 {
     "name": "@vimcord/internal",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Shared internal types and utilities for the vimcord framework.",
     "author": "xsqu1znt",
     "license": "MIT",
