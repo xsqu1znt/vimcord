@@ -2,7 +2,7 @@
  * Deep partial type utility - recursively makes all properties optional.
  * Preserves function types to maintain their signatures.
  */
-export type PartialDeep<T> = T extends (...args: unknown[]) => unknown
+export type PartialDeep<T> = T extends (...args: never[]) => unknown
     ? T
     : T extends object
       ? T extends ReadonlyArray<infer U>

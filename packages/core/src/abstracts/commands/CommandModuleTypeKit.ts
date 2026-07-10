@@ -91,7 +91,10 @@ export type CommandModuleHookContext<T extends CommandModuleType> = CommandModul
         permissionTestResult?: PermissionTestResult;
     } & CommandTypeMap[T]["hookContextExtras"];
 
-export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<CommandModuleArgs<T>> & {
+export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
+    CommandModuleArgs<T>,
+    CommandModuleHookContext<T>
+> & {
     /** @defaultBehavior Alias for `onError`. */
     onUsedWhenDisabled?(ctx: CommandModuleHookContext<T>): Promise<void>;
     /** @defaultBehavior Alias for `onError`. */

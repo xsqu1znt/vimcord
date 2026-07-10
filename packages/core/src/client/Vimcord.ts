@@ -8,6 +8,7 @@ import EventEmitter from "node:events";
 import { Client, Status as GatewayStatus, Routes } from "discord.js";
 import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
+import { defineGlobalCommandHooks } from "@/commands/commandHooks.js";
 import { PluginManager } from "@/plugins/index.js";
 import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
