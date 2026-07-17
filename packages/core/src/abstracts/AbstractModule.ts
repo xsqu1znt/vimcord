@@ -1,12 +1,19 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 
-import { createHumanId } from "@vimcord/internal";
 import { ModuleError } from "@/errors/ModuleError.js";
+import { createHumanId } from "@/utils/str.js";
 
 export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends true
     ? { passed: true }
     : { passed: false; reason: string; error?: Error };
 export type ModuleConditionFn<CTX = ModuleHookContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
+
+export interface ModuleRunResult {
+    /** Whether the module's main execute function was reached. */
+    executed: boolean;
+    /** Value returned by the module's main execute function. */
+    response: unknown;
+}
 
 // - - - - - - - - - - - - - - -
 
@@ -259,14 +266,14 @@ export abstract class AbstractModule<
                 const debug_hook_start = Date.now();
                 await hookFn(ctx);
                 const debug_hook_end = Date.now();
-                this.client?.logger.debugVerbose(
+                this.client?.logger.debug(
                     `[Module] Ran hook '${String(hook)}' for '${this.buildName()}' in ${debug_hook_end - debug_hook_start}ms`
                 );
             } else if (fallback) {
                 const debug_fallback_start = Date.now();
                 await fallback(ctx);
                 const debug_fallback_end = Date.now();
-                this.client?.logger.debugVerbose(
+                this.client?.logger.debug(
                     `[Module] Ran fallback hook '${String(hook)}' for '${this.buildName()}' in ${debug_fallback_end - debug_fallback_start}ms`
                 );
             }
@@ -282,17 +289,27 @@ export abstract class AbstractModule<
      *
      * catch:`hook:onError`
      */
-    async run(...args: Args) {
-        if (!(await this.checkInjection())) return;
+    async run(...args: Args): Promise<unknown> {
+        const result = await this.runWithResult(...args);
+        return result.response;
+    }
+
+    /**
+     * Runs the module and reports whether its main execute function was reached.
+     * @param args Arguments passed to the module
+     */
+    async runWithResult(...args: Args): Promise<ModuleRunResult> {
+        let executed = false;
+        if (!(await this.checkInjection())) return { executed, response: undefined };
         const moduleCTX = this.createModuleCTX(args);
         const hookCTX = this.createHookCTX(args);
 
         try {
             const valid = this.validate();
-            if (!valid) return;
+            if (!valid) return { executed, response: undefined };
 
             const passed = await this.performTests(hookCTX);
-            if (!passed) return;
+            if (!passed) return { executed, response: undefined };
 
             const preExecute = this.getHook("preExecute" as keyof Hooks) as
                 ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
@@ -301,20 +318,21 @@ export abstract class AbstractModule<
                 const debug_preExecute_start = Date.now();
                 await preExecute(hookCTX, () => (next = true));
                 const debug_preExecute_end = Date.now();
-                this.client?.logger.debugVerbose(
+                this.client?.logger.debug(
                     `[Module] Ran hook 'preExecute' for '${this.buildName()}' in ${debug_preExecute_end - debug_preExecute_start}ms`
                 );
 
                 if (!next) {
-                    this.client?.logger.debugVerbose(`[Module] preExecute halted execution for '${this.buildName()}'`);
-                    return;
+                    this.client?.logger.debug(`[Module] preExecute halted execution for '${this.buildName()}'`);
+                    return { executed, response: undefined };
                 }
             }
 
+            executed = true;
             const debug_execute_start = Date.now();
             const executeResponse = await this.execute(moduleCTX);
             const debug_execute_end = Date.now();
-            this.client?.logger.debugVerbose(
+            this.client?.logger.debug(
                 `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
             );
 
@@ -324,17 +342,18 @@ export abstract class AbstractModule<
                 const debug_postExecute_start = Date.now();
                 await postExecute(hookCTX, executeResponse);
                 const debug_postExecute_end = Date.now();
-                this.client?.logger.debugVerbose(
+                this.client?.logger.debug(
                     `[Module] Ran hook 'postExecute' for '${this.buildName()}' in ${debug_postExecute_end - debug_postExecute_start}ms`
                 );
             }
 
-            return executeResponse;
+            return { executed, response: executeResponse };
         } catch (err) {
             hookCTX.error = err as Error;
             await this.runHook("onError", hookCTX, async () =>
                 this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
             );
+            return { executed, response: undefined };
         }
     }
 

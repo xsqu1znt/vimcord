@@ -68,7 +68,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         const passedBaseTests = await super.performTests(ctx);
         if (!passedBaseTests) return false;
 
-        const permissionTestResult = testCommandPermissions(ctx, this.permissions);
+        const permissionTestResult = await testCommandPermissions(ctx, this.permissions);
         if (permissionTestResult.passed) return true;
 
         ctx.permissionTestResult = permissionTestResult;

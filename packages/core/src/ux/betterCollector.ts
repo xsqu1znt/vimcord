@@ -6,10 +6,10 @@ import type {
     MessageComponentType
 } from "discord.js";
 import type { Participant } from "./shared.js";
-import type { ToolCollectorMode } from "./toolConfig.js";
+import type { UxCollectorMode } from "./uxConfig.js";
 
 import { handleResolveAction, ResolveAction, resolveParticipantId } from "./shared.js";
-import { getGlobalToolConfig } from "./toolConfig.js";
+import { getGlobalUxConfig } from "./uxConfig.js";
 
 type ListenerFn = (interaction: MessageComponentInteraction) => unknown;
 type CollectorEventHandler<K extends keyof CollectorEventMap> = (...args: CollectorEventMap[K]) => unknown;
@@ -92,7 +92,7 @@ interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentT
     timeout: number | null;
 }
 
-function resolveCollectorMode(mode: ToolCollectorMode): CollectorMode {
+function resolveCollectorMode(mode: UxCollectorMode): CollectorMode {
     return mode === "sequential" ? CollectorMode.Sequential : CollectorMode.Parallel;
 }
 
@@ -128,7 +128,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         }
 
         this.message = message;
-        const config = getGlobalToolConfig().collector;
+        const config = getGlobalUxConfig().collector;
 
         this.options = {
             type: options.type ?? null,
@@ -156,10 +156,32 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             idle: this.options.idle ?? undefined,
             time: this.options.timeout ?? undefined,
             componentType: this.options.type ?? undefined,
+            filter: interaction => this.filterInteraction(interaction),
             max: this.options.max ?? undefined,
             maxComponents: this.options.maxComponents ?? undefined,
             maxUsers: this.options.maxUsers ?? undefined
         });
+    }
+
+    private async filterInteraction(interaction: CollectedMessageInteraction): Promise<boolean> {
+        if (!this.options.userLock) return true;
+
+        // Acquire the lock before Discord.js records the interaction so rejected clicks do not affect limits or idle time.
+        if (!this.activeUsers.has(interaction.user.id)) {
+            this.activeUsers.add(interaction.user.id);
+            return true;
+        }
+
+        await interaction
+            .reply({
+                content: this.options.userLockMessage,
+                flags: "Ephemeral"
+            })
+            .catch(async () => {
+                await interaction.deferUpdate().catch(() => {});
+            });
+
+        return false;
     }
 
     private setupCollector(): void {
@@ -185,39 +207,22 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     }
 
     private async handleCollect(interaction: CollectedMessageInteraction): Promise<void> {
-        // Check if user has a pending action (user lock)
-        if (this.options.userLock && this.activeUsers.has(interaction.user.id)) {
-            await interaction
-                .reply({
-                    content: this.options.userLockMessage,
-                    flags: "Ephemeral"
-                })
-                .catch(() => {});
-
-            return;
-        }
-
-        // Track active user for lock
-        if (this.options.userLock) {
-            this.activeUsers.add(interaction.user.id);
-        }
-
-        // Find listeners matching this component's customId
-        const targetListeners = this.getMatchingListeners(interaction.customId);
-        if (!targetListeners.length) {
-            await interaction.deferUpdate().catch(() => {});
-            return;
-        }
-
-        const validListeners = await this.filterByParticipants(interaction, targetListeners);
-
-        // No valid listeners means the component exists, but this user cannot use it
-        if (validListeners.length === 0) {
-            await this.replyNotAParticipant(interaction);
-            return;
-        }
-
         try {
+            // Find listeners matching this component's customId
+            const targetListeners = this.getMatchingListeners(interaction.customId);
+            if (!targetListeners.length) {
+                await interaction.deferUpdate().catch(() => {});
+                return;
+            }
+
+            const validListeners = await this.filterByParticipants(interaction, targetListeners);
+
+            // No valid listeners means the component exists, but this user cannot use it
+            if (validListeners.length === 0) {
+                await this.replyNotAParticipant(interaction);
+                return;
+            }
+
             // Optionally defer the interaction before executing listeners
             await this.maybeDefer(interaction, validListeners);
 

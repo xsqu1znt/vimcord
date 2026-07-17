@@ -5,7 +5,7 @@ import type {
 } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 import type { Participant } from "./shared.js";
-import type { ToolPaginatorTimeoutAction } from "./toolConfig.js";
+import type { UxPaginatorTimeoutAction } from "./uxConfig.js";
 
 import {
     ActionRowBuilder,
@@ -16,16 +16,18 @@ import {
     Message,
     MessageFlags,
     StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder
+    StringSelectMenuOptionBuilder,
+    TextInputStyle
 } from "discord.js";
 import { BetterCollector, CollectorMode } from "./betterCollector.js";
 import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
+import { BetterModal } from "./betterModal.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
 import { ResolveAction } from "./shared.js";
-import { getGlobalToolConfig } from "./toolConfig.js";
+import { getGlobalUxConfig } from "./uxConfig.js";
 
-type NavButtonId = "first" | "back" | "jump" | "next" | "last";
+type NavButtonId = "first" | "skipBack" | "back" | "jump" | "next" | "skipNext" | "last";
 type SinglePageResolvable = string | EmbedResolvable | BetterEmbed | BetterContainer | ContainerBuilder | AttachmentBuilder;
 
 export type PaginatorTimingOptions =
@@ -61,9 +63,14 @@ export interface PaginationEventMap {
     beforePageChange: [nestedIndex: number];
     pageChange: [page: PageResolvable, index: PageIndex];
     first: [page: PageResolvable, index: PageIndex];
+    /** Emitted before moving backward by `skipSize`. */
+    skipBack: [page: PageResolvable, index: PageIndex];
     back: [page: PageResolvable, index: PageIndex];
+    /** Emitted before jumping to a page selected through the modal. */
     jump: [page: PageResolvable, index: PageIndex];
     next: [page: PageResolvable, index: PageIndex];
+    /** Emitted before moving forward by `skipSize`. */
+    skipNext: [page: PageResolvable, index: PageIndex];
     last: [page: PageResolvable, index: PageIndex];
     collect: [interaction: MessageComponentInteraction, page: PageResolvable, index: PageIndex];
     preTimeout: [message: Message];
@@ -76,16 +83,22 @@ export interface PaginatorBaseOptions {
     pages?: PageResolvable[];
     dynamic?: boolean;
     onTimeout?: PaginationTimeout;
-    jumpSize?: number;
+    /** Number of pages moved by the skip back and skip forward buttons. */
+    skipSize?: number;
 }
 
 export type PaginatorOptions = PaginatorBaseOptions & PaginatorTimingOptions;
 
+/** Navigation controls shown by a paginator. */
 export enum PaginationType {
+    /** Previous and next page controls. */
     Short = 0,
-    ShortJump = 1,
+    /** Previous, next, skip-back, and skip-forward controls. */
+    ShortSkip = 1,
+    /** First, previous, next, and last page controls. */
     Long = 2,
-    LongJump = 3
+    /** Long controls with skip-back and skip-forward controls. */
+    LongSkip = 3
 }
 
 export enum PaginationTimeout {
@@ -129,12 +142,16 @@ type PaginatorListener<K extends keyof PaginationEventMap> = {
 
 const NAV_CUSTOM_IDS = {
     first: "paginator:first",
+    skipBack: "paginator:skip-back",
     back: "paginator:back",
     jump: "paginator:jump",
     next: "paginator:next",
+    skipNext: "paginator:skip-next",
     last: "paginator:last",
     chapterSelect: "paginator:chapter"
 } as const;
+
+const JUMP_PAGE_CUSTOM_ID = "paginator:jump:page";
 
 function wrapIndex(value: number, max: number): number {
     if (max < 0) return 0;
@@ -151,7 +168,7 @@ function cloneButton(button: ButtonBuilder, disabled: boolean): ButtonBuilder {
 }
 
 function createNavButton(id: NavButtonId): ButtonBuilder {
-    const data = getGlobalToolConfig().paginator.buttons[id];
+    const data = getGlobalUxConfig().paginator.buttons[id];
     const button = new ButtonBuilder({ customId: NAV_CUSTOM_IDS[id], style: ButtonStyle.Secondary });
 
     if (data.label) button.setLabel(data.label);
@@ -160,17 +177,29 @@ function createNavButton(id: NavButtonId): ButtonBuilder {
     return button;
 }
 
-function getNavButtonIds(type: PaginationType): NavButtonId[] {
+function getNavButtonIds(type: PaginationType, pageCount: number): NavButtonId[] {
+    let ids: NavButtonId[];
+
     switch (type) {
         case PaginationType.Short:
-            return ["back", "next"];
-        case PaginationType.ShortJump:
-            return ["back", "jump", "next"];
+            ids = ["back", "next"];
+            break;
+        case PaginationType.ShortSkip:
+            ids = ["skipBack", "back", "next", "skipNext"];
+            break;
         case PaginationType.Long:
-            return ["first", "back", "next", "last"];
-        case PaginationType.LongJump:
-            return ["first", "back", "jump", "next", "last"];
+            ids = ["first", "back", "next", "last"];
+            break;
+        case PaginationType.LongSkip:
+            ids = ["first", "skipBack", "back", "next", "skipNext", "last"];
+            break;
     }
+
+    if (pageCount >= getGlobalUxConfig().paginator.jumpableThreshold) {
+        ids.splice(ids.indexOf("next"), 0, "jump");
+    }
+
+    return ids;
 }
 
 function addComponentsV2Flag(flags: DynaSendOptions["flags"]): DynaSendOptions["flags"] {
@@ -184,7 +213,7 @@ function addComponentsV2Flag(flags: DynaSendOptions["flags"]): DynaSendOptions["
     return [flags, MessageFlags.IsComponentsV2];
 }
 
-function resolvePaginatorTimeoutAction(action: ToolPaginatorTimeoutAction): PaginationTimeout {
+function resolvePaginatorTimeoutAction(action: UxPaginatorTimeoutAction): PaginationTimeout {
     switch (action) {
         case "DisableComponents":
             return PaginationTimeout.DisableComponents;
@@ -213,9 +242,11 @@ export class Paginator {
     private readonly listeners: { [K in keyof PaginationEventMap]: PaginatorListener<K>[] };
     private readonly navButtons: Record<NavButtonId, ButtonBuilder> = {
         first: createNavButton("first"),
+        skipBack: createNavButton("skipBack"),
         back: createNavButton("back"),
         jump: createNavButton("jump"),
         next: createNavButton("next"),
+        skipNext: createNavButton("skipNext"),
         last: createNavButton("last")
     };
 
@@ -236,7 +267,7 @@ export class Paginator {
             throw new Error("[Paginator] Either idle or timeout must be provided");
         }
 
-        const config = getGlobalToolConfig().paginator;
+        const config = getGlobalUxConfig().paginator;
 
         this.options = {
             type: options.type ?? PaginationType.Short,
@@ -246,7 +277,7 @@ export class Paginator {
             timeout: options.idle === undefined ? (options.timeout ?? null) : null,
             idle: options.idle ?? null,
             onTimeout: options.onTimeout ?? resolvePaginatorTimeoutAction(config.onTimeout),
-            jumpSize: options.jumpSize ?? config.jumpSize
+            skipSize: options.skipSize ?? config.skipSize
         };
 
         this.listeners = {
@@ -255,9 +286,11 @@ export class Paginator {
             beforePageChange: [],
             pageChange: [],
             first: [],
+            skipBack: [],
             back: [],
             jump: [],
             next: [],
+            skipNext: [],
             last: [],
             collect: [],
             preTimeout: [],
@@ -276,15 +309,15 @@ export class Paginator {
 
     private getEffectiveType(pageCount: number): PaginationType {
         if (!this.options.dynamic) return this.options.type;
-        const config = getGlobalToolConfig().paginator;
+        const config = getGlobalUxConfig().paginator;
 
-        const hasJump =
-            pageCount >= config.jumpableThreshold &&
-            (this.options.type === PaginationType.ShortJump || this.options.type === PaginationType.LongJump);
+        const hasSkip =
+            pageCount > this.options.skipSize &&
+            (this.options.type === PaginationType.ShortSkip || this.options.type === PaginationType.LongSkip);
         const isLong = pageCount >= config.longThreshold;
 
-        if (isLong) return hasJump ? PaginationType.LongJump : PaginationType.Long;
-        return hasJump ? PaginationType.ShortJump : PaginationType.Short;
+        if (isLong) return hasSkip ? PaginationType.LongSkip : PaginationType.Long;
+        return hasSkip ? PaginationType.ShortSkip : PaginationType.Short;
     }
 
     private getCurrentChapter(): PaginatorChapter {
@@ -329,7 +362,7 @@ export class Paginator {
         // --- Navigation ---
         if (navigationRequired || this.extraButtons.length) {
             const buttons = navigationRequired
-                ? getNavButtonIds(this.getEffectiveType(pageCount)).map(id =>
+                ? getNavButtonIds(this.getEffectiveType(pageCount), pageCount).map(id =>
                       cloneButton(this.navButtons[id], this.state.controlsDisabled)
                   )
                 : [];
@@ -338,8 +371,17 @@ export class Paginator {
                 buttons.splice(extra.index, 0, cloneButton(extra.component, this.state.controlsDisabled));
             }
 
-            if (buttons.length > 5) throw new Error("[Paginator] Navigation row cannot contain more than 5 buttons");
-            if (buttons.length) rows.push(new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(buttons));
+            // Discord allows five action rows and five buttons per row; reserve one row for chapter selection when used.
+            const maxNavigationRows = this.chapters.length > 1 ? 4 : 5;
+            if (buttons.length > maxNavigationRows * 5) {
+                throw new Error(`[Paginator] Navigation cannot contain more than ${maxNavigationRows * 5} buttons`);
+            }
+
+            for (let index = 0; index < buttons.length; index += 5) {
+                rows.push(
+                    new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(buttons.slice(index, index + 5))
+                );
+            }
         }
 
         return rows;
@@ -430,13 +472,16 @@ export class Paginator {
             ...createPaginatorCollectorTiming(this.options),
             mode: CollectorMode.Sequential,
             onResolve: ResolveAction.DoNothing,
-            notAParticipantMessage: getGlobalToolConfig().paginator.notAParticipantMessage,
-            defer: { update: true }
+            notAParticipantMessage: getGlobalUxConfig().paginator.notAParticipantMessage
         });
 
         this.collector = collector;
 
         collector.on(async interaction => {
+            // Jump must remain unacknowledged so it can open a modal; every other control updates the current message.
+            if (interaction.customId !== NAV_CUSTOM_IDS.jump) {
+                await interaction.deferUpdate().catch(Boolean);
+            }
             await this.emit("collect", interaction, this.getCurrentPage(), { ...this.state.index });
         });
 
@@ -454,16 +499,24 @@ export class Paginator {
             await this.navigate("first", 0);
         });
 
+        collector.on(NAV_CUSTOM_IDS.skipBack, async () => {
+            await this.navigate("skipBack", this.state.index.nested - this.options.skipSize);
+        });
+
         collector.on(NAV_CUSTOM_IDS.back, async () => {
             await this.navigate("back", this.state.index.nested - 1);
         });
 
-        collector.on(NAV_CUSTOM_IDS.jump, async () => {
-            await this.navigate("jump", this.state.index.nested + this.options.jumpSize);
+        collector.on(NAV_CUSTOM_IDS.jump, async interaction => {
+            await this.showJumpModal(interaction);
         });
 
         collector.on(NAV_CUSTOM_IDS.next, async () => {
             await this.navigate("next", this.state.index.nested + 1);
+        });
+
+        collector.on(NAV_CUSTOM_IDS.skipNext, async () => {
+            await this.navigate("skipNext", this.state.index.nested + this.options.skipSize);
         });
 
         collector.on(NAV_CUSTOM_IDS.last, async () => {
@@ -479,6 +532,38 @@ export class Paginator {
             this.collector = null;
             await this.refreshControlsAfterTimeout();
         });
+    }
+
+    private async showJumpModal(interaction: MessageComponentInteraction): Promise<void> {
+        const config = getGlobalUxConfig().paginator.jumpModal;
+        const pageCount = this.getCurrentChapter().pages.length;
+        const currentPage = this.state.index.nested + 1;
+        const formatText = (text: string): string =>
+            text.replaceAll("$CURRENT_PAGE", currentPage.toString()).replaceAll("$MAX_PAGE", pageCount.toString());
+        const modal = new BetterModal({ title: formatText(config.title) }).addTextInput({
+            customId: JUMP_PAGE_CUSTOM_ID,
+            label: formatText(config.label),
+            description: formatText(config.description),
+            placeholder: formatText(config.placeholder),
+            style: TextInputStyle.Short,
+            minLength: 1,
+            maxLength: pageCount.toString().length,
+            required: true
+        });
+        const result = await modal.showAndAwait(interaction, { timeout: config.timeout });
+        if (!result) return;
+
+        const submittedPage = Number(result.getField<string>(JUMP_PAGE_CUSTOM_ID, true).trim());
+        if (!Number.isInteger(submittedPage) || submittedPage < 1 || submittedPage > pageCount) {
+            await result.reply({
+                content: formatText(config.invalidPageMessage),
+                flags: "Ephemeral"
+            });
+            return;
+        }
+
+        await result.deferUpdate();
+        await this.navigate("jump", submittedPage - 1);
     }
 
     private async navigate(event: NavButtonId, nestedIndex: number): Promise<void> {

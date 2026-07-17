@@ -1,19 +1,22 @@
 import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
-import type { LogLevel, PartialDeep } from "@vimcord/internal";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
+import type { PartialDeep } from "@/types/helpers.js";
 import type { VimcordFeatures } from "./features.js";
 import type { VimcordGlobals } from "./globals.js";
+import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
 
 import EventEmitter from "node:events";
 import { Client, Status as GatewayStatus, Routes } from "discord.js";
-import { createHumanId, mergeDeep, VimcordError } from "@vimcord/internal";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { defineGlobalCommandHooks } from "@/commands/commandHooks.js";
+import { VimcordError } from "@/errors/VimcordError.js";
 import { PluginManager } from "@/plugins/index.js";
 import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
+import { mergeDeep } from "@/utils/obj.js";
+import { createHumanId } from "@/utils/str.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { StatusManager } from "./StatusManager.js";
-import { VimcordLogger, vimcordLogger } from "./VimcordLogger.js";
+import { VimcordLogger } from "./VimcordLogger.js";
 
 export type VimcordEvents = {
     /** Returns the new Vimcord instance. */
@@ -74,10 +77,11 @@ export interface VimcordClientOptions {
     /** Automatic Discord connection health checks and relogin refresh behavior. @default true */
     connectionRefresh?: boolean | Partial<VimcordConnectionRefreshOptions>;
 
+    /** Custom logger instance. A new `VimcordLogger` is created by default. */
+    logger?: VimcordLogger;
+
     // --- Debugging ---
-    /** Minimum console logging level. */
-    logLevel?: LogLevel;
-    /** Enable verbose logging. */
+    /** Enables diagnostic `debug()` logging. */
     verbose?: boolean;
 }
 
@@ -99,7 +103,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     readonly id: string;
-    readonly logger: VimcordLogger = vimcordLogger;
+    readonly logger: VimcordLogger;
 
     private client: ClientOptions;
     readonly features: VimcordFeatures;
@@ -110,7 +114,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly status: StatusManager;
 
     private awaitReadyPromise: Promise<boolean> | null | undefined;
-    private resolveStartupBanner: (() => void) | undefined;
+    private startupBannerHandle: VimcordStartupBannerHandle | undefined;
     private connectionRefresh: VimcordConnectionRefreshOptions;
     private connectionRefreshFailures = 0;
     private connectionRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -125,10 +129,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             features = {},
             globals,
             connectionRefresh,
+            logger,
 
             // --- Debugging ---
-            logLevel = "debug",
-            verbose = false
+            verbose
         } = options;
 
         super(client);
@@ -144,9 +148,9 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             hooks: globals?.hooks ? mergeDeep({}, globals.hooks) : undefined
         };
 
-        this.$verboseMode = verbose;
-        this.logger.setLevel(logLevel);
-        this.logger.setVerbose(this.$verboseMode);
+        const verboseMode = verbose ?? globals?.app?.verbose ?? logger?.options.verbose ?? false;
+        this.logger = logger ?? new VimcordLogger({ verbose: verboseMode });
+        this.$verboseMode = verboseMode;
 
         this.plugins = new PluginManager(this);
         this.modules = new ModuleManager(this);
@@ -157,8 +161,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
         this.once("clientReady", () => {
             Vimcord.$events.emit("ready", this);
-            this.resolveStartupBanner?.();
-            this.resolveStartupBanner = undefined;
+            this.startupBannerHandle?.complete();
+            this.startupBannerHandle = undefined;
             this.logger.clientReady(this as Vimcord<true>);
         });
     }
@@ -193,6 +197,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
     set $verboseMode(mode: boolean) {
         this.globals.app.verbose = mode;
+        this.logger.setVerbose(mode);
     }
 
     /**
@@ -212,6 +217,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.globals.app = mergeDeep(this.globals.app, globals.app);
         this.globals.staff = mergeDeep(this.globals.staff, globals.staff);
         this.globals.hooks = mergeDeep(this.globals.hooks ?? {}, globals.hooks);
+        this.logger.setVerbose(this.globals.app.verbose);
         return this;
     }
 
@@ -225,7 +231,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             globals: this.globals,
             connectionRefresh: this.connectionRefresh,
 
-            logLevel: this.logger.options.minLevel,
             verbose: this.logger.options.verbose
         };
     }
@@ -247,7 +252,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             this.connectionRefresh.interval
         );
         this.connectionRefreshTimer.unref?.();
-        this.logger.debugVerbose("[Connection] Started Discord connection health monitor");
+        this.logger.debug("[Connection] Started Discord connection health monitor");
     }
 
     private stopConnectionRefreshMonitor(): void {
@@ -255,7 +260,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
         clearInterval(this.connectionRefreshTimer);
         this.connectionRefreshTimer = null;
-        this.logger.debugVerbose("[Connection] Stopped Discord connection health monitor");
+        this.logger.debug("[Connection] Stopped Discord connection health monitor");
     }
 
     private async testDiscordConnection(): Promise<boolean> {
@@ -344,8 +349,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      */
     override async login(token?: string): Promise<string> {
         try {
-            const resolveBanner = this.logger.startupBanner(this);
-            this.resolveStartupBanner = resolveBanner;
+            if (!this.globals.app.disableBanner) this.startupBannerHandle = this.logger.startupBanner(this);
 
             if (this.plugins.getAll().length) {
                 this.logger.log("Loading plugins...");
@@ -366,14 +370,16 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
             return result;
         } catch (err) {
-            this.resolveStartupBanner?.();
-            this.resolveStartupBanner = undefined;
+            this.startupBannerHandle?.clear();
+            this.startupBannerHandle = undefined;
             throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");
         }
     }
 
     /** Unloads modules and plugins then destroys the client. */
     override async destroy(): Promise<void> {
+        this.startupBannerHandle?.clear();
+        this.startupBannerHandle = undefined;
         this.stopConnectionRefreshMonitor();
         await this.status.destroy();
         this.modules.unload();

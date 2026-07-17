@@ -71,7 +71,7 @@ export abstract class BaseCommandManager<
 
         this.reindex();
         commands.forEach(command =>
-            this.client.logger.debugVerbose(`[${COMMAND_MANAGER_LOGGER}] Registered '${command.name}' (${command.id})`)
+            this.client.logger.debug(`[${COMMAND_MANAGER_LOGGER}] Registered '${command.name}' (${command.id})`)
         );
     }
 
@@ -82,7 +82,7 @@ export abstract class BaseCommandManager<
         commands.forEach(command => this.modules.delete(command.id));
         this.reindex();
         commands.forEach(command =>
-            this.client.logger.debugVerbose(`[${COMMAND_MANAGER_LOGGER}] Unregistered '${command.name}' (${command.id})`)
+            this.client.logger.debug(`[${COMMAND_MANAGER_LOGGER}] Unregistered '${command.name}' (${command.id})`)
         );
     }
 }

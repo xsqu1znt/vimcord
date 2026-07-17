@@ -5,4 +5,6 @@ export * from "./errors/index.js";
 export * from "./events/index.js";
 export * from "./modules/index.js";
 export * from "./plugins/index.js";
+export * from "./types/index.js";
 export * from "./ux/index.js";
+export * from "./utils/index.js";

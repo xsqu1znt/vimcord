@@ -10,6 +10,7 @@ import type {
     InteractionDeferUpdateOptions,
     MentionableSelectMenuComponentData,
     MessageComponentInteraction,
+    ModalSubmitFields,
     RoleSelectMenuComponentData,
     ShowModalOptions,
     StringSelectMenuComponentData,
@@ -22,6 +23,7 @@ import {
     ChannelSelectMenuBuilder,
     CheckboxBuilder,
     CheckboxGroupBuilder,
+    ComponentType,
     FileUploadBuilder,
     LabelBuilder,
     MentionableSelectMenuBuilder,
@@ -35,7 +37,7 @@ import {
     TextInputStyle,
     UserSelectMenuBuilder
 } from "discord.js";
-import { createRandomId } from "@vimcord/internal";
+import { createRandomId } from "@/utils/str.js";
 import { dynaSend } from "./dynaSend.js";
 
 interface LabelComponentOptions {
@@ -102,15 +104,120 @@ export interface AwaitModalSubmitOptions {
     deferUpdate?: boolean;
 }
 
+/** Discord.js modal field getters supported by the dynamic `getField` helper. */
+export type BetterModalFieldGetter =
+    | "getTextInputValue"
+    | "getStringSelectValues"
+    | "getSelectedUsers"
+    | "getSelectedMembers"
+    | "getSelectedChannels"
+    | "getSelectedRoles"
+    | "getSelectedMentionables"
+    | "getUploadedFiles"
+    | "getRadioGroup"
+    | "getCheckboxGroup"
+    | "getCheckbox";
+
+/** Simplified values returned for each supported modal component type. */
+export interface BetterModalFieldValueMap {
+    /** Text input value. */
+    [ComponentType.TextInput]: ReturnType<ModalSubmitFields["getTextInputValue"]>;
+    /** Selected string values. */
+    [ComponentType.StringSelect]: ReturnType<ModalSubmitFields["getStringSelectValues"]>;
+    /** Selected users. */
+    [ComponentType.UserSelect]: ReturnType<ModalSubmitFields["getSelectedUsers"]>;
+    /** Selected roles. */
+    [ComponentType.RoleSelect]: ReturnType<ModalSubmitFields["getSelectedRoles"]>;
+    /** Selected channels. */
+    [ComponentType.ChannelSelect]: ReturnType<ModalSubmitFields["getSelectedChannels"]>;
+    /** Selected users, members, and roles. */
+    [ComponentType.MentionableSelect]: ReturnType<ModalSubmitFields["getSelectedMentionables"]>;
+    /** Uploaded files. */
+    [ComponentType.FileUpload]: ReturnType<ModalSubmitFields["getUploadedFiles"]>;
+    /** Selected radio value. */
+    [ComponentType.RadioGroup]: ReturnType<ModalSubmitFields["getRadioGroup"]>;
+    /** Selected checkbox-group values. */
+    [ComponentType.CheckboxGroup]: ReturnType<ModalSubmitFields["getCheckboxGroup"]>;
+    /** Checkbox state. */
+    [ComponentType.Checkbox]: ReturnType<ModalSubmitFields["getCheckbox"]>;
+}
+
+/** Modal component types supported by the simplified field helper. */
+export type BetterModalFieldType = keyof BetterModalFieldValueMap;
+
+type ModalFieldGetterArgs<Getter extends BetterModalFieldGetter> = ModalSubmitFields[Getter] extends (
+    customId: string,
+    ...args: infer Args
+) => unknown
+    ? Args
+    : never;
+
+/** Helpers and parsed values returned after a BetterModal submission. */
 export interface BetterModalSubmitResult {
+    /** Simplified values for every component in insertion order. */
     values: unknown[];
+    /** The original Discord.js modal submission interaction. */
     interaction: ModalSubmitInteraction;
+    /** Gets a simplified field value and optionally requires a non-empty result. */
     getField<T = unknown>(customId: string, required: true): T;
     getField<T = unknown>(customId: string, required?: boolean): T | undefined;
+    /** Gets a simplified value while validating the Discord component type. */
+    getField<Type extends BetterModalFieldType>(
+        customId: string,
+        type: Type,
+        required: true
+    ): NonNullable<BetterModalFieldValueMap[Type]>;
+    getField<Type extends BetterModalFieldType>(
+        customId: string,
+        type: Type,
+        required?: boolean
+    ): BetterModalFieldValueMap[Type];
+    /** Calls one of Discord.js's typed modal field getters without accessing `interaction.fields` directly. */
+    getField<Getter extends BetterModalFieldGetter>(
+        customId: string,
+        getter: Getter,
+        ...args: ModalFieldGetterArgs<Getter>
+    ): ReturnType<ModalSubmitFields[Getter]>;
+    /** Replies to the modal submission. */
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
+    /** Sends a follow-up to the modal submission. */
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
+    /** Defers an update response to the modal submission. */
     deferUpdate: (options?: InteractionDeferUpdateOptions) => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
+    /** Defers a reply to the modal submission. */
     deferReply: (options?: InteractionDeferReplyOptions) => ReturnType<ModalSubmitInteraction["deferReply"]>;
+}
+
+function getSimplifiedFieldValue(
+    fields: ModalSubmitFields,
+    customId: string,
+    type?: BetterModalFieldType,
+    required: boolean = false
+): unknown {
+    const field = fields.getField(customId, type);
+
+    switch (field.type) {
+        case ComponentType.TextInput:
+            return fields.getTextInputValue(customId);
+        case ComponentType.StringSelect:
+            return fields.getStringSelectValues(customId);
+        case ComponentType.UserSelect:
+            return fields.getSelectedUsers(customId, required);
+        case ComponentType.RoleSelect:
+            return fields.getSelectedRoles(customId, required);
+        case ComponentType.ChannelSelect:
+            return fields.getSelectedChannels(customId, required);
+        case ComponentType.MentionableSelect:
+            return fields.getSelectedMentionables(customId, required);
+        case ComponentType.FileUpload:
+            return fields.getUploadedFiles(customId, required);
+        case ComponentType.RadioGroup:
+            return fields.getRadioGroup(customId, required);
+        case ComponentType.CheckboxGroup:
+            return fields.getCheckboxGroup(customId);
+        case ComponentType.Checkbox:
+            return fields.getCheckbox(customId);
+    }
 }
 
 export class BetterModal {
@@ -396,33 +503,30 @@ export class BetterModal {
                 await modalSubmit.deferUpdate();
             }
 
-            const fields = new Map<string, unknown>();
+            const getField = ((
+                customId: string,
+                selector?: boolean | BetterModalFieldType | BetterModalFieldGetter,
+                ...args: unknown[]
+            ): unknown => {
+                if (typeof selector === "string") {
+                    const getter = modalSubmit.fields[selector] as unknown as (...getterArgs: unknown[]) => unknown;
+                    return getter.call(modalSubmit.fields, customId, ...args);
+                }
+
+                const type = typeof selector === "number" ? selector : undefined;
+                const required = typeof selector === "boolean" ? selector : args[0] === true;
+                return getSimplifiedFieldValue(modalSubmit.fields, customId, type, required);
+            }) as BetterModalSubmitResult["getField"];
             const values: unknown[] = [];
 
             for (const customId of this.components.keys()) {
-                let value: unknown = null;
-
-                try {
-                    value = modalSubmit.fields.getTextInputValue(customId);
-                } catch {
-                    try {
-                        const field = modalSubmit.fields.fields.get(customId);
-                        if (field && "values" in field) {
-                            value = field.values;
-                        }
-                    } catch {
-                        // NOTE: Field not found, leave as null
-                    }
-                }
-
-                fields.set(customId, value);
-                values.push(value);
+                values.push(getField(customId));
             }
 
             return {
-                values: values,
+                values,
                 interaction: modalSubmit,
-                getField: customId => fields.get(customId),
+                getField,
                 reply: async options => dynaSend(modalSubmit, options),
                 followUp: async options => dynaSend(modalSubmit, options),
                 deferUpdate: async options => modalSubmit.deferUpdate(options),

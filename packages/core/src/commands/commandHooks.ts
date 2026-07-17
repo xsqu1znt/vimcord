@@ -1,7 +1,7 @@
-import type { PartialDeep } from "@vimcord/internal";
 import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
+import type { PartialDeep } from "@/types/helpers.js";
 
-import { mergeDeep } from "@vimcord/internal";
+import { mergeDeep } from "@/utils/obj.js";
 
 export interface GlobalCommandHooks {
     /** Global hooks for prefix commands. */

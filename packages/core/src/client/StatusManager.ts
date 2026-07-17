@@ -19,24 +19,38 @@ export interface VimcordStatusProfile {
     activity: VimcordStatusActivity | VimcordStatusActivity[];
 }
 
-export interface VimcordStatusConfig {
+/** Optional environment-specific status profiles. At least one profile is required by `VimcordStatusConfig`. */
+export interface VimcordEnvironmentStatusConfig {
     /** Status profile used when `client.$devMode` is false. */
-    production: VimcordStatusProfile;
+    production?: VimcordStatusProfile;
     /** Status profile used when `client.$devMode` is true. */
-    development: VimcordStatusProfile;
+    development?: VimcordStatusProfile;
 }
 
+/** A shared status profile or one or more environment-specific profiles. */
+export type VimcordStatusConfig =
+    | VimcordStatusProfile
+    | (VimcordEnvironmentStatusConfig & ({ production: VimcordStatusProfile } | { development: VimcordStatusProfile }));
+
+/** Events emitted during status lifecycle changes. */
 export interface StatusManagerEvents {
+    /** Emitted after an activity is applied. */
     changed: [activity: VimcordStatusActivity];
+    /** Emitted after the active status is cleared. */
     cleared: [];
+    /** Emitted after a rotation applies its next activity. */
     rotation: [activity: VimcordStatusActivity];
+    /** Emitted after activity rotation is paused. */
     paused: [];
+    /** Emitted after activity rotation starts. */
     started: [];
+    /** Emitted after the manager is destroyed. */
     destroyed: [];
 }
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
 
+/** Manages Discord presence profiles and activity rotation for a Vimcord client. */
 export class StatusManager {
     /** Emits status lifecycle events. */
     readonly emitter = new EventEmitter<StatusManagerEvents>();
@@ -50,15 +64,16 @@ export class StatusManager {
         if (this.currentProfile) void this.applyProfile(this.currentProfile);
     };
 
+    /** Creates a status manager attached to a Vimcord client. */
     constructor(private readonly client: Vimcord) {
         this.client.on("clientReady", this.handleReady);
 
         this.emitter.on("changed", activity => {
-            this.client.logger.debugVerbose(`[StatusManager] Status changed to '${activity.name}'`);
+            this.client.logger.debug(`[StatusManager] Status changed to '${activity.name}'`);
         });
 
         this.emitter.on("cleared", () => {
-            this.client.logger.debugVerbose("[StatusManager] Status cleared");
+            this.client.logger.debug("[StatusManager] Status cleared");
         });
     }
 
@@ -148,6 +163,13 @@ export class StatusManager {
         if (profile.interval && activities.length > 1) this.start();
     }
 
+    private resolveProfile(status: VimcordStatusConfig): VimcordStatusProfile | null {
+        if ("activity" in status) return status;
+
+        // Environment profiles are intentionally exact; an omitted current profile leaves the presence blank.
+        return (this.client.$devMode ? status.development : status.production) ?? null;
+    }
+
     /** Starts activity rotation if the current profile has a rotation interval. */
     start(): this {
         if (this.rotationTimer || !this.currentProfile?.interval) return this;
@@ -172,12 +194,12 @@ export class StatusManager {
         return this;
     }
 
-    /**
-     * Sets the active status config for the current dev or production mode.
-     * @param status Production and development status config
-     */
+    /** Sets a shared or current-environment profile, clearing the activity when that environment is omitted. */
     async set(status: VimcordStatusConfig): Promise<this> {
-        this.currentProfile = this.client.$devMode ? status.development : status.production;
+        const profile = this.resolveProfile(status);
+        if (!profile) return this.clear();
+
+        this.currentProfile = profile;
 
         if (!this.client.isReady()) return this;
 

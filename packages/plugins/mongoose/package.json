@@ -22,7 +22,6 @@
     },
     "dependencies": {
         "@vimcord/core": "workspace:*",
-        "@vimcord/internal": "workspace:*",
         "mongoose": "^9.7.1",
         "qznt": "^2.0.0"
     },

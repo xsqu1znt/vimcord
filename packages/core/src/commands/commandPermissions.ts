@@ -1,4 +1,5 @@
 import type {
+    APIInteractionGuildMember,
     Guild,
     GuildMember,
     GuildResolvable,
@@ -11,8 +12,11 @@ import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
 import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
 import type { StaffGlobals } from "@/client/globals.js";
 
+import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
+
 export enum MissingPermissionReason {
     User = "User",
+    UserNotWhitelisted = "UserNotWhitelisted",
     UserBlacklisted = "UserBlacklisted",
 
     Role = "Role",
@@ -22,6 +26,7 @@ export enum MissingPermissionReason {
     IsBot = "IsBot",
 
     GuildBlacklisted = "GuildBlacklisted",
+    GuildNotWhitelisted = "GuildNotWhitelisted",
     NotInGuild = "NotInGuild",
 
     NotGuildOwner = "NotGuildOwner",
@@ -30,15 +35,15 @@ export enum MissingPermissionReason {
 }
 
 export interface CommandModulePermissions {
-    /** Permissions the user is required to have to use this command.
+    /** Guild permissions that grant access to this command.
      * @remarks If this is a slash command, use the builder's `setDefaultMemberPermissions` option instead. */
     user?: PermissionResolvable[];
-    /** Only allow these users to use this command. */
+    /** Users granted access to this command. */
     userWhitelist?: UserResolvable[];
     /** Don't allow these users to use this command. */
     userBlacklist?: UserResolvable[];
 
-    /** Only allow these roles to use this command. */
+    /** Roles that grant access to this command. */
     roles?: RoleResolvable[];
     /** Don't allow these roles to use this command. */
     roleBlacklist?: RoleResolvable[];
@@ -58,11 +63,11 @@ export interface CommandModulePermissions {
      */
     guildOnly?: boolean;
 
-    /** Only the owner of the guild can use this command. */
+    /** Grant access to the owner of the guild. */
     guildOwnerOnly?: boolean;
-    /** Only allow the bot owner to use this command. */
+    /** Grant access to the bot owner. */
     botOwnerOnly?: boolean;
-    /** Only allow the bot staff, including the bot owner, to use this command. */
+    /** Grant access to bot staff, including the bot owner. */
     botStaffOnly?: boolean;
 }
 
@@ -75,15 +80,65 @@ export type PermissionTestResult =
           missingRoles?: RoleResolvable[];
       });
 
-export function testCommandPermissions<K extends CommandModuleType>(
+type CommandMember = GuildMember | APIInteractionGuildMember | null;
+
+function resolveUserId(user: UserResolvable): string {
+    if (typeof user === "string") return user;
+    if ("author" in user) return user.author.id;
+    return user.id;
+}
+
+function resolveRoleId(role: RoleResolvable): string {
+    return typeof role === "string" ? role : role.id;
+}
+
+function resolveGuildId(guild: GuildResolvable): string | null {
+    if (typeof guild === "string") return guild;
+    if ("guild" in guild) return guild.guild?.id ?? null;
+    return guild.id;
+}
+
+function getMemberRoleIds(member: CommandMember): string[] {
+    if (!member) return [];
+    return Array.isArray(member.roles) ? member.roles : member.roles.cache.map(role => role.id);
+}
+
+function isCommandBypasser(staff: StaffGlobals, commandName: string, userId: string): boolean {
+    const normalizedCommandName = commandName.trim().toLowerCase();
+    return staff.bypassers.some(
+        entry => entry.commandName.trim().toLowerCase() === normalizedCommandName && entry.userIds.includes(userId)
+    );
+}
+
+function requiresAdministrator(requiredPermissions: PermissionResolvable[] | undefined): boolean {
+    return Boolean(
+        requiredPermissions?.some(
+            permission =>
+                (PermissionsBitField.resolve(permission) & PermissionFlagsBits.Administrator) ===
+                PermissionFlagsBits.Administrator
+        )
+    );
+}
+
+function canBypassAdministrator(staff: StaffGlobals, userId: string, isBotStaff: boolean, isBypasser: boolean): boolean {
+    const bypasses = staff.bypassesGuildAdmin;
+    if (bypasses.allBotStaff && isBotStaff) return true;
+    if (bypasses.botOwner && staff.ownerId === userId) return true;
+    if (bypasses.superUsers && staff.superUsers.includes(userId)) return true;
+    return bypasses.bypassers && isBypasser;
+}
+
+export async function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleHookContext<K>,
     permissions: CommandModulePermissions
-): PermissionTestResult {
+): Promise<PermissionTestResult> {
     const source = "message" in ctx ? ctx.message : ctx.interaction;
     const guild = source.guild;
-    const member = source.member as GuildMember | null;
+    const member = source.member as CommandMember;
     const user = "author" in source ? source.author : source.user;
+    const staff = ctx.client.globals.staff;
 
+    // --- Hard restrictions ---
     let result = testGuildContext(
         guild,
         permissions.guildOnly ?? false,
@@ -95,42 +150,77 @@ export function testCommandPermissions<K extends CommandModuleType>(
     result = testBotPresence(user, permissions.allowBots ?? false);
     if (!result.passed) return result;
 
-    result = testUserWhitelist(user.id, permissions.userWhitelist);
-    if (!result.passed) return result;
-
     result = testUserBlacklist(user.id, permissions.userBlacklist);
     if (!result.passed) return result;
 
-    result = testGuildOwnership(guild, user.id, permissions.guildOwnerOnly ?? false);
-    if (!result.passed) return result;
-
-    result = testBotOwnership(ctx.client.globals.staff.ownerId, user.id, permissions.botOwnerOnly ?? false);
-    if (!result.passed) return result;
-
-    result = testBotStaff(ctx.client.globals.staff, user.id, member, permissions.botStaffOnly ?? false);
-    if (!result.passed) return result;
-
-    result = testRoles(member, permissions.roles, permissions.roleBlacklist);
-    if (!result.passed) return result;
-
-    result = testUserPermissions(member, permissions.user);
+    result = testRoles(member, undefined, permissions.roleBlacklist);
     if (!result.passed) return result;
 
     result = testClientPermissions(guild, permissions.client);
     if (!result.passed) return result;
 
-    return { passed: true };
-}
+    // --- Additive access grants ---
+    const isBypasser = isCommandBypasser(staff, ctx.module.name, user.id);
+    const administratorRequired = requiresAdministrator(permissions.user);
+    const needsBotStaff =
+        Boolean(permissions.botStaffOnly) || (administratorRequired && staff.bypassesGuildAdmin.allBotStaff);
+    const isBotStaff = needsBotStaff ? await ctx.client.isBotStaff(user.id) : false;
+    const bypassAdministrator = administratorRequired && canBypassAdministrator(staff, user.id, isBotStaff, isBypasser);
+    const accessTests: PermissionTestResult[] = [];
 
-export function testUserPermissions(
-    member: GuildMember | null,
-    requiredPermissions: PermissionResolvable[] | undefined
-): PermissionTestResult {
-    if (!requiredPermissions?.length || !member || !("guild" in member)) {
+    if (permissions.user?.length) {
+        accessTests.push(testUserPermissions(member, permissions.user, bypassAdministrator));
+    }
+
+    if (permissions.userWhitelist?.length) {
+        accessTests.push(testUserWhitelist(user.id, permissions.userWhitelist));
+    }
+
+    if (permissions.roles?.length) {
+        accessTests.push(testRoles(member, permissions.roles));
+    }
+
+    if (permissions.guildOwnerOnly) {
+        accessTests.push(testGuildOwnership(guild, user.id, true));
+    }
+
+    if (permissions.botOwnerOnly) {
+        accessTests.push(testBotOwnership(staff.ownerId, user.id, true));
+    }
+
+    if (permissions.botStaffOnly) {
+        accessTests.push(testBotStaff(staff, user.id, member, true, isBotStaff));
+    }
+
+    if (isBypasser) {
+        accessTests.push({ passed: true });
+    }
+
+    if (!accessTests.length || accessTests.some(test => test.passed)) {
         return { passed: true };
     }
 
-    const missing = requiredPermissions.filter(p => !member.permissions.has(p));
+    return accessTests[0] ?? { passed: true };
+}
+
+export function testUserPermissions(
+    member: CommandMember,
+    requiredPermissions: PermissionResolvable[] | undefined,
+    bypassAdministrator: boolean = false
+): PermissionTestResult {
+    if (!requiredPermissions?.length) return { passed: true };
+    if (!member) return { passed: false, reason: MissingPermissionReason.NotInGuild };
+
+    const memberPermissions = new PermissionsBitField(
+        typeof member.permissions === "string" ? BigInt(member.permissions) : member.permissions
+    );
+    // Administrator bypasses remove only that bit; every other permission in the grant must still be present.
+    const effectiveRequiredPermissions = bypassAdministrator
+        ? requiredPermissions
+              .map(permission => PermissionsBitField.resolve(permission) & ~PermissionFlagsBits.Administrator)
+              .filter(permission => permission !== 0n)
+        : requiredPermissions;
+    const missing = effectiveRequiredPermissions.filter(permission => !memberPermissions.has(permission));
     if (missing.length) {
         return { passed: false, reason: MissingPermissionReason.User, missingUserPermissions: missing };
     }
@@ -143,9 +233,9 @@ export function testUserWhitelist(userId: string, userWhitelist: UserResolvable[
         return { passed: true };
     }
 
-    const whitelistedIds = userWhitelist.map(u => u.toString());
+    const whitelistedIds = userWhitelist.map(resolveUserId);
     if (!whitelistedIds.includes(userId)) {
-        return { passed: false, reason: MissingPermissionReason.UserBlacklisted };
+        return { passed: false, reason: MissingPermissionReason.UserNotWhitelisted };
     }
 
     return { passed: true };
@@ -156,7 +246,7 @@ export function testUserBlacklist(userId: string, userBlacklist: UserResolvable[
         return { passed: true };
     }
 
-    const blacklistedIds = userBlacklist.map(u => u.toString());
+    const blacklistedIds = userBlacklist.map(resolveUserId);
     if (blacklistedIds.includes(userId)) {
         return { passed: false, reason: MissingPermissionReason.UserBlacklisted };
     }
@@ -165,30 +255,22 @@ export function testUserBlacklist(userId: string, userBlacklist: UserResolvable[
 }
 
 export function testRoles(
-    member: GuildMember | null,
+    member: CommandMember,
     allowedRoles: RoleResolvable[] | undefined,
-    blockedRoles: RoleResolvable[] | undefined
+    blockedRoles: RoleResolvable[] | undefined = undefined
 ): PermissionTestResult {
-    if (!member || !("roles" in member)) {
-        return { passed: true };
+    const allowedIds = allowedRoles?.map(resolveRoleId) ?? [];
+    const blockedIds = blockedRoles?.map(resolveRoleId) ?? [];
+    const memberRoleIds = getMemberRoleIds(member);
+
+    if (blockedIds.some(id => memberRoleIds.includes(id))) {
+        return { passed: false, reason: MissingPermissionReason.RoleBlacklisted };
     }
 
-    const allowedIds = allowedRoles?.map(r => r.toString()) ?? [];
-    const blockedIds = blockedRoles?.map(r => r.toString()) ?? [];
-
     if (allowedIds.length) {
-        const memberRoleIds = member.roles.cache.map(r => r.id);
         const hasAllowed = allowedIds.some(id => memberRoleIds.includes(id));
         if (!hasAllowed) {
             return { passed: false, reason: MissingPermissionReason.Role, missingRoles: allowedRoles };
-        }
-    }
-
-    if (blockedIds.length) {
-        const memberRoleIds = member.roles.cache.map(r => r.id);
-        const hasBlocked = blockedIds.some(id => memberRoleIds.includes(id));
-        if (hasBlocked) {
-            return { passed: false, reason: MissingPermissionReason.RoleBlacklisted };
         }
     }
 
@@ -199,12 +281,16 @@ export function testClientPermissions(
     guild: Guild | null,
     requiredPermissions: PermissionResolvable[] | undefined
 ): PermissionTestResult {
-    if (!requiredPermissions?.length || !guild?.members.me) {
-        return { passed: true };
-    }
+    if (!requiredPermissions?.length || !guild) return { passed: true };
 
     const clientMember = guild.members.me;
-    if (!clientMember) return { passed: true };
+    if (!clientMember) {
+        return {
+            passed: false,
+            reason: MissingPermissionReason.Client,
+            missingClientPermissions: requiredPermissions
+        };
+    }
 
     const missing = requiredPermissions.filter(p => !clientMember.permissions.has(p));
     if (missing.length) {
@@ -225,16 +311,20 @@ export function testGuildContext(
     }
 
     if (guildBlacklist?.length && guild) {
-        const blacklistIds = guildBlacklist.map(g => g.toString());
+        const blacklistIds = guildBlacklist.map(resolveGuildId);
         if (blacklistIds.includes(guild.id)) {
             return { passed: false, reason: MissingPermissionReason.GuildBlacklisted };
         }
     }
 
+    if (guildWhitelist?.length && !guild) {
+        return { passed: false, reason: MissingPermissionReason.NotInGuild };
+    }
+
     if (guildWhitelist?.length && guild) {
-        const whitelistIds = guildWhitelist.map(g => g.toString());
+        const whitelistIds = guildWhitelist.map(resolveGuildId);
         if (!whitelistIds.includes(guild.id)) {
-            return { passed: false, reason: MissingPermissionReason.GuildBlacklisted };
+            return { passed: false, reason: MissingPermissionReason.GuildNotWhitelisted };
         }
     }
 
@@ -250,9 +340,8 @@ export function testBotPresence(user: User, allowBots: boolean): PermissionTestR
 }
 
 export function testGuildOwnership(guild: Guild | null, userId: string, guildOwnerOnly: boolean): PermissionTestResult {
-    if (!guildOwnerOnly || !guild) {
-        return { passed: true };
-    }
+    if (!guildOwnerOnly) return { passed: true };
+    if (!guild) return { passed: false, reason: MissingPermissionReason.NotInGuild };
 
     if (guild.ownerId !== userId) {
         return { passed: false, reason: MissingPermissionReason.NotGuildOwner };
@@ -276,18 +365,24 @@ export function testBotOwnership(ownerId: string | null, userId: string, botOwne
 export function testBotStaff(
     staff: StaffGlobals,
     userId: string,
-    member: GuildMember | null,
-    botStaffOnly: boolean
+    member: CommandMember,
+    botStaffOnly: boolean,
+    resolvedBotStaff?: boolean
 ): PermissionTestResult {
     if (!botStaffOnly) {
         return { passed: true };
+    }
+
+    // A resolved result comes from the configured staff guild and is authoritative over the invoking guild member.
+    if (resolvedBotStaff !== undefined) {
+        return resolvedBotStaff ? { passed: true } : { passed: false, reason: MissingPermissionReason.NotBotStaff };
     }
 
     if (staff.ownerId === userId || staff.superUsers.includes(userId)) {
         return { passed: true };
     }
 
-    const memberRoleIds = member?.roles.cache.map(r => r.id) ?? [];
+    const memberRoleIds = getMemberRoleIds(member);
     const hasStaffRole = staff.superUserRoles.some(id => memberRoleIds.includes(id));
     if (hasStaffRole) {
         return { passed: true };

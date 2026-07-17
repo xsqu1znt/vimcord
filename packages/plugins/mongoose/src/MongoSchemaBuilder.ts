@@ -28,6 +28,14 @@ export type LeanOrHydratedDocument<Definition, Options extends QueryOptions<Defi
     ? HydratedDocument<Definition>
     : Definition;
 
+/** Query options for helpers that always return the document after an update. */
+export type AfterQueryOptions<Definition> = Omit<QueryOptions<Definition>, "returnDocument"> & {
+    /** Whether to return the document before or after the update.
+     * @default "after"
+     */
+    returnDocument?: "after";
+};
+
 type DistinctValue<Value> = Value extends readonly (infer Item)[] ? NonNullable<Item> : NonNullable<Value>;
 type CreateDocument<Definition> = Parameters<Model<Definition>["create"]>[0];
 type BulkWriteOperations<Definition> = Parameters<Model<Definition>["bulkWrite"]>[0];
@@ -146,7 +154,7 @@ export class MongoSchemaBuilder<Definition> {
 
         // Compile model on the plugin's mongoose instance
         this.model = this.plugin.mongoose.model<Definition>(this.collection, this.schema, this.collection);
-        this.client.logger.plugin.successVerbose(PLUGIN_NAME, `[${this.collection}] Compiled!`);
+        this.client.logger.plugin.debug(PLUGIN_NAME, `[${this.collection}] Compiled!`);
 
         return { client: this.client, plugin: this.plugin, model: this.model };
     }
@@ -300,13 +308,12 @@ export class MongoSchemaBuilder<Definition> {
 
     /**
      * Updates the first matching document, or creates it when no document matches.
-     * Returns the document after the update because `returnDocument` defaults to `"after"`.
      *
      * @param filter The filter used to match the document
      * @param update The update to apply when a document exists, or create from when it does not
-     * @param options The query options to pass to Mongoose; `returnDocument` is fixed to `"after"`
+     * @param options The query options to pass to Mongoose
      */
-    async upsert<Options extends Omit<QueryOptions<Definition>, "new" | "returnDocument" | "upsert">>(
+    async upsert<Options extends Omit<AfterQueryOptions<Definition>, "new" | "upsert">>(
         filter: QueryFilter<Definition>,
         update: UpdateQuery<Definition>,
         options?: Options
@@ -463,13 +470,12 @@ export class MongoSchemaBuilder<Definition> {
      * Updates the first document that matches a filter and returns the updated document.
      *
      * Queries are lean by default. Pass `{ lean: false }` when a hydrated Mongoose document is needed.
-     * Returns the document after the update because `returnDocument` defaults to `"after"`.
      *
      * @param filter The filter used to match the document
      * @param update The update to apply
-     * @param options The query options to pass to Mongoose; `returnDocument` is fixed to `"after"`
+     * @param options The query options to pass to Mongoose
      */
-    async update<Options extends QueryOptions<Definition>>(
+    async update<Options extends AfterQueryOptions<Definition>>(
         filter: QueryFilter<Definition>,
         update: UpdateQuery<Definition>,
         options?: Options

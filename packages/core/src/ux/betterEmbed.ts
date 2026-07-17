@@ -3,7 +3,7 @@ import type { DynaSendOptions, InteractionResolveable, RequiredDynaSendOptions, 
 
 import { EmbedBuilder, GuildMember, User } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
-import { resolveGlobalEmbedColor } from "./toolConfig.js";
+import { resolveGlobalEmbedColor } from "./uxConfig.js";
 
 export interface BetterEmbedContext {
     client?: Client | null;
@@ -29,12 +29,15 @@ export interface BetterEmbedFooter {
     icon?: string | boolean | null;
 }
 
+/** A description line or a falsey conditional value that should be omitted. */
+export type BetterEmbedDescriptionLine = string | false | 0 | 0n | null | undefined;
+
 export interface BetterEmbedData {
     context?: BetterEmbedContext | null;
     author?: string | BetterEmbedAuthor | null;
     title?: string | BetterEmbedTitle | null;
     thumbnailUrl?: string | null;
-    description?: string | (string | null | undefined)[] | null;
+    description?: string | BetterEmbedDescriptionLine[] | null;
     imageUrl?: string | null;
     footer?: string | BetterEmbedFooter | null;
     fields?: (APIEmbedField | null | undefined)[];
@@ -48,7 +51,7 @@ interface BetterEmbedState {
     author: string | BetterEmbedAuthor | null;
     title: string | BetterEmbedTitle | null;
     thumbnailUrl: string | null;
-    description: string | (string | null | undefined)[] | null;
+    description: string | BetterEmbedDescriptionLine[] | null;
     imageUrl: string | null;
     footer: string | BetterEmbedFooter | null;
     fields: (APIEmbedField | null | undefined)[];
@@ -81,7 +84,8 @@ function normalizeFooter(footer: string | BetterEmbedFooter | null): BetterEmbed
 }
 
 function normalizeDescription(description: BetterEmbedState["description"]): string | null {
-    if (Array.isArray(description)) return description.filter(Boolean).join("\n") || null;
+    // Keep empty strings as intentional blank lines while removing conditional falsey values.
+    if (Array.isArray(description)) return description.filter(line => typeof line === "string").join("\n") || null;
     return description;
 }
 

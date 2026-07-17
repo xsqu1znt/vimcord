@@ -117,7 +117,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         });
         this.reindex();
         events.forEach(e =>
-            this.client.logger.debugVerbose(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+            this.client.logger.debug(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
         new Set(events.map(e => e.event)).forEach(event => {
             this.unmount(event);
@@ -133,7 +133,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
         events.forEach(e =>
-            this.client.logger.debugVerbose(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+            this.client.logger.debug(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
         mountedEvents.forEach(event => {
             this.unmount(event);
@@ -154,7 +154,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
             const listener: EventListener<typeof event> = (...args) => void this.executeEvents(event, ...args);
             this.mountedListeners.set(event, listener);
             this.client.on(event, listener);
-            this.client.logger.debugVerbose(
+            this.client.logger.debug(
                 `[EventManager] Mounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
             );
         }
@@ -171,7 +171,7 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
             const size = this.getByEvent(event).length;
             this.client.off(event, listener);
             this.mountedListeners.delete(event);
-            this.client.logger.debugVerbose(
+            this.client.logger.debug(
                 `[EventManager] Unmounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
             );
         }

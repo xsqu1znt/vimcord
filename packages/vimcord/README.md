@@ -203,9 +203,9 @@ Command-local hooks override `client.globals.hooks`, and `client.globals.hooks` 
 ### BetterEmbed
 
 ```ts
-import { BetterEmbed, defineGlobalToolConfig } from "vimcord";
+import { BetterEmbed, defineGlobalUxConfig } from "vimcord";
 
-defineGlobalToolConfig({
+defineGlobalUxConfig({
     embedColor: "#5865F2",
     embedColorDev: "#FF9D00"
 });
@@ -213,7 +213,7 @@ defineGlobalToolConfig({
 const embed = new BetterEmbed({
     context: { interaction },
     title: "Welcome, $USER_NAME",
-    description: ["Your avatar: $USER_AVATAR", "Today is $MONTH/$DAY/$YEAR"],
+    description: [showAvatar && "Your avatar: $USER_AVATAR", "", "Today is $MONTH/$DAY/$YEAR"],
     timestamp: true
 });
 
@@ -250,7 +250,8 @@ const intro = new BetterContainer().addText("## Help").addText("Choose a page be
 const moderation = new BetterContainer().addText("## Moderation").addText("Ban, kick, and timeout commands.");
 
 const paginator = new Paginator({
-    type: PaginationType.LongJump,
+    type: PaginationType.LongSkip,
+    skipSize: 5,
     idle: 60_000,
     onTimeout: PaginationTimeout.DisableComponents
 });
@@ -279,7 +280,9 @@ const result = await promptMessage(interaction, {
     }),
     participants: [interaction.user],
     timeout: 30_000,
-    onResolve: [ResolveAction.DisableComponents],
+    onConfirm: ResolveAction.DisableComponents,
+    onReject: ResolveAction.DisableComponents,
+    onTimeout: ResolveAction.DeleteMessage,
     highlightSelectedButton: true
 });
 
@@ -306,12 +309,19 @@ const modal = new BetterModal({ title: "Create Ticket" })
         label: "Description",
         style: TextInputStyle.Paragraph,
         required: false
+    })
+    .addUserSelect({
+        customId: "assignees",
+        label: "Assignees",
+        maxValues: 3,
+        required: false
     });
 
 const result = await modal.showAndAwait(interaction, { timeout: 60_000 });
 if (!result) return;
 
 const subject = result.getField<string>("subject", true);
+const assignees = result.getField("assignees", "getSelectedUsers");
 
 await result.reply({
     content: `Ticket created: ${subject}`,
@@ -370,10 +380,11 @@ Users.use(SoftDeletePlugin);
 
 ```ts
 client.logger.success("Startup complete");
+client.logger.debug("Only shown when verbose mode is enabled");
 
-const stopLoader = client.logger.loader("Syncing commands...");
+const loader = client.logger.loader("Syncing commands...");
 await client.modules.commands.push();
-stopLoader("Commands synced");
+loader.succeed("Commands synced");
 ```
 
 ---
@@ -396,7 +407,7 @@ stopLoader("Commands synced");
 | `BetterModal` | Modal helper with V2 component support |
 | `promptMessage`, `promptModal` | Confirmation prompt helpers |
 | `dynaSend` | Send helper for interactions, channels, messages, members, and users |
-| `defineGlobalToolConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
+| `defineGlobalUxConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
 | `defineGlobalCommandHooks` | Global command hooks used when modules do not define local hooks |
 
 ### Client Options
@@ -411,7 +422,7 @@ const client = new Vimcord({
         app: {
             name: "My Bot",
             devMode: false,
-            verbose: false,
+            enableCLI: false,
             disableBanner: false
         },
         staff: {
@@ -426,7 +437,6 @@ const client = new Vimcord({
         maxFailures: 2,
         maxRefreshAttempts: 3
     },
-    logLevel: "debug",
     verbose: false
 });
 ```
@@ -471,25 +481,24 @@ client.configure({
 
 ### Status Rotation
 
-Status config is user-owned. Vimcord does not provide a default status rotation.
+Status config is user-owned. Vimcord does not provide a default status rotation, and a single profile applies in both
+development and production.
 
 ```ts
 import { ActivityType } from "discord.js";
 
 await client.status.set({
-    production: {
-        interval: 30_000,
-        randomize: true,
-        activity: [
-            { name: "$GUILD_COUNT servers", type: ActivityType.Watching, status: "online" },
-            { name: "Need help? Use /help", type: ActivityType.Custom, status: "online" }
-        ]
-    },
-    development: {
-        activity: { name: "In development", type: ActivityType.Custom, status: "dnd" }
-    }
+    interval: 30_000,
+    randomize: true,
+    activity: [
+        { name: "$GUILD_COUNT servers", type: ActivityType.Watching, status: "online" },
+        { name: "Need help? Use /help", type: ActivityType.Custom, status: "online" }
+    ]
 });
 ```
+
+Pass `production` and/or `development` profiles when their statuses differ. An omitted profile leaves that environment's
+status blank; profiles do not fall back across environments.
 
 ### Command Dispatch Events
 

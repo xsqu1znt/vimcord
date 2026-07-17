@@ -18,9 +18,7 @@ export class PluginManager {
         }
 
         if (installedCount) {
-            this.client.logger.debugVerbose(
-                `[PluginManager] Loaded ${installedCount} plugin${installedCount === 1 ? "" : "s"}`
-            );
+            this.client.logger.debug(`[PluginManager] Loaded ${installedCount} plugin${installedCount === 1 ? "" : "s"}`);
         }
     }
 

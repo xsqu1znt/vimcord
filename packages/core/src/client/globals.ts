@@ -1,6 +1,6 @@
 import type { GlobalCommandHooks } from "@/commands/index.js";
 
-import { getDevMode, getPackageJson } from "@vimcord/internal";
+import { getDevMode, getPackageJson } from "@/utils/process.js";
 
 export interface VimcordGlobals {
     /** App globals. */

@@ -152,7 +152,7 @@ export class MongoosePlugin extends VimcordPlugin {
             this.connectionRefresh.interval
         );
         this.connectionRefreshTimer.unref?.();
-        this.client.logger.plugin.debugVerbose(this.name, "Started MongoDB connection health monitor");
+        this.client.logger.plugin.debug(this.name, "Started MongoDB connection health monitor");
     }
 
     private stopConnectionRefreshMonitor(): void {
@@ -160,7 +160,7 @@ export class MongoosePlugin extends VimcordPlugin {
 
         clearInterval(this.connectionRefreshTimer);
         this.connectionRefreshTimer = null;
-        this.client?.logger.plugin.debugVerbose(this.name, "Stopped MongoDB connection health monitor");
+        this.client?.logger.plugin.debug(this.name, "Stopped MongoDB connection health monitor");
     }
 
     private async testMongoConnection(): Promise<boolean> {

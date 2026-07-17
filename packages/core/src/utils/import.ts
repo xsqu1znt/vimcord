@@ -2,17 +2,20 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-interface ImportedModule<T> {
+/** A dynamically imported module and its source path. */
+export interface ImportedModule<T> {
     module: T;
     path: string;
 }
 
+/** Returns the directory containing the process entrypoint. */
 export function getProcessDir(): string {
     const mainPath = process.argv[1];
     if (!mainPath) return "";
     return path.dirname(mainPath);
 }
 
+/** Checks whether a filename is a TypeScript or JavaScript module with an optional suffix. */
 export function isTSOrJS(filename: string, suffix?: string | string[]): boolean {
     if (!suffix) return filename.endsWith(".ts") || filename.endsWith(".js");
     if (Array.isArray(suffix)) {
@@ -22,6 +25,7 @@ export function isTSOrJS(filename: string, suffix?: string | string[]): boolean 
     }
 }
 
+/** Recursively imports matching TypeScript or JavaScript modules from a process-relative directory. */
 export async function importModulesFromDir<T>(dir: string, suffix?: string | string[]): Promise<ImportedModule<T>[]> {
     const cwd = getProcessDir();
     const MODULE_RELATIVE_PATH = path.join(cwd, dir);

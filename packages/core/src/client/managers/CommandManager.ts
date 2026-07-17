@@ -256,14 +256,16 @@ export class CommandManager {
         if (!command) return false;
 
         try {
-            await command.run(message, prefix, trigger);
-            if (command.metadata.logUsage ?? true) {
-                this.client.logger.commandUsed(
-                    command.name,
-                    message.author.username,
-                    message.guild?.name,
-                    message.guild?.id
-                );
+            const startedAt = performance.now();
+            const result = await command.runWithResult(message, prefix, trigger);
+            if (result.executed && (command.metadata.logUsage ?? true)) {
+                this.client.logger.commandUsed({
+                    commandName: command.name,
+                    userName: message.author.username,
+                    guildName: message.guild?.name,
+                    guildId: message.guild?.id,
+                    durationMs: performance.now() - startedAt
+                });
             }
         } catch (err) {
             throw err;
@@ -277,14 +279,16 @@ export class CommandManager {
         if (!command) return false;
 
         try {
-            await command.run(interaction);
-            if (command.metadata.logUsage ?? true) {
-                this.client.logger.commandUsed(
-                    command.name,
-                    interaction.user.username,
-                    interaction.guild?.name,
-                    interaction.guild?.id
-                );
+            const startedAt = performance.now();
+            const result = await command.runWithResult(interaction);
+            if (result.executed && (command.metadata.logUsage ?? true)) {
+                this.client.logger.commandUsed({
+                    commandName: command.name,
+                    userName: interaction.user.username,
+                    guildName: interaction.guild?.name,
+                    guildId: interaction.guild?.id,
+                    durationMs: performance.now() - startedAt
+                });
             }
         } catch (err) {
             throw err;
@@ -300,27 +304,31 @@ export class CommandManager {
 
         try {
             if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
-                await messageContextCommand.run(interaction);
-                if (messageContextCommand.metadata.logUsage ?? true) {
-                    this.client.logger.commandUsed(
-                        messageContextCommand.name,
-                        interaction.user.username,
-                        interaction.guild?.name,
-                        interaction.guild?.id
-                    );
+                const startedAt = performance.now();
+                const result = await messageContextCommand.runWithResult(interaction);
+                if (result.executed && (messageContextCommand.metadata.logUsage ?? true)) {
+                    this.client.logger.commandUsed({
+                        commandName: messageContextCommand.name,
+                        userName: interaction.user.username,
+                        guildName: interaction.guild?.name,
+                        guildId: interaction.guild?.id,
+                        durationMs: performance.now() - startedAt
+                    });
                 }
                 return false;
             }
 
             if (userContextCommand && interaction.isUserContextMenuCommand()) {
-                await userContextCommand.run(interaction);
-                if (userContextCommand.metadata.logUsage ?? true) {
-                    this.client.logger.commandUsed(
-                        userContextCommand.name,
-                        interaction.user.username,
-                        interaction.guild?.name,
-                        interaction.guild?.id
-                    );
+                const startedAt = performance.now();
+                const result = await userContextCommand.runWithResult(interaction);
+                if (result.executed && (userContextCommand.metadata.logUsage ?? true)) {
+                    this.client.logger.commandUsed({
+                        commandName: userContextCommand.name,
+                        userName: interaction.user.username,
+                        guildName: interaction.guild?.name,
+                        guildId: interaction.guild?.id,
+                        durationMs: performance.now() - startedAt
+                    });
                 }
                 return false;
             }

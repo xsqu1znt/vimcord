@@ -8,10 +8,12 @@ import { BetterCollector, CollectorMode } from "./betterCollector.js";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 import { handleResolveAction, ResolveAction } from "./shared.js";
-import { getGlobalToolConfig } from "./toolConfig.js";
+import { getGlobalUxConfig } from "./uxConfig.js";
 
 export type PromptCollector = BetterCollector<ComponentType.Button>;
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
+/** One prompt resolution action or an ordered list of actions. */
+export type PromptResolveAction = ResolveAction | ResolveAction[];
 
 export type PromptTimingOptions =
     | {
@@ -49,8 +51,18 @@ export interface PromptMessageBaseOptions {
     additionalButtons?: ButtonBuilder[];
     /** Receives the internal collector before waiting so extra button listeners can be registered. */
     onCollector?: (collector: PromptCollector) => void | Promise<void>;
-    /** Resolve actions applied after confirm, reject, or timeout. */
-    onResolve?: ResolveAction[];
+    /** Resolve actions applied after confirmation.
+     * @default ResolveAction.DeleteMessage
+     */
+    onConfirm?: PromptResolveAction;
+    /** Resolve actions applied after rejection.
+     * @default ResolveAction.DeleteMessage
+     */
+    onReject?: PromptResolveAction;
+    /** Resolve actions applied after the prompt times out.
+     * @default ResolveAction.DeleteMessage
+     */
+    onTimeout?: PromptResolveAction;
     /** Whether DisableComponents should keep the selected prompt button colored. */
     highlightSelectedButton?: boolean;
 }
@@ -121,8 +133,7 @@ export async function promptMessage(
         throw new Error("[Prompt] Either idle or timeout must be provided");
     }
 
-    const config = getGlobalToolConfig().prompt;
-    const onResolve = options.onResolve ?? [ResolveAction.DeleteMessageOnConfirm, ResolveAction.DeleteMessageOnReject];
+    const config = getGlobalUxConfig().prompt;
     const additionalButtons = options.additionalButtons ?? [];
 
     // --- Buttons ---
@@ -186,10 +197,18 @@ export async function promptMessage(
     }
 
     // --- Resolution ---
+    const confirmed = result.confirmed ? true : result.replied && result.denied ? false : null;
+    const resolveActions =
+        confirmed === true
+            ? resolvePromptActions(options.onConfirm, ResolveAction.DeleteMessage)
+            : confirmed === false
+              ? resolvePromptActions(options.onReject, ResolveAction.DeleteMessage)
+              : resolvePromptActions(options.onTimeout, ResolveAction.DeleteMessage);
+
     await handlePromptResolve(
         message,
-        result.confirmed ? true : result.denied ? false : null,
-        onResolve,
+        confirmed,
+        resolveActions,
         options.highlightSelectedButton ?? config.highlightSelectedButton
     );
 
@@ -207,7 +226,7 @@ export async function promptModal(
     question: string,
     options: PromptModalOptions
 ): Promise<PromptModalResult> {
-    const config = getGlobalToolConfig().prompt;
+    const config = getGlobalUxConfig().prompt;
     const modal = new BetterModal({ title: question }).addTextInput({
         customId: PROMPT_CUSTOM_IDS.input,
         label: options.inputLabel ?? config.inputLabel,
@@ -249,6 +268,11 @@ function getButtonCustomId(button: ButtonBuilder): string | null {
     const customId = data.custom_id ?? data.customId;
 
     return typeof customId === "string" ? customId : null;
+}
+
+function resolvePromptActions(actions: PromptResolveAction | undefined, fallback: ResolveAction): ResolveAction[] {
+    if (!actions) return [fallback];
+    return Array.isArray(actions) ? actions : [actions];
 }
 
 async function handlePromptResolve(

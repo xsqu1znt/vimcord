@@ -11,7 +11,7 @@ import type { DynaSendOptions, RequiredDynaSendOptions, SendHandler } from "./dy
 
 import { ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, resolveColor, ThumbnailBuilder } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
-import { resolveGlobalEmbedColor } from "./toolConfig.js";
+import { resolveGlobalEmbedColor } from "./uxConfig.js";
 
 export interface BetterContainerOptions {
     /** Accent color, random color choices, or null to clear it. */

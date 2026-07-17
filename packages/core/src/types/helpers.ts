@@ -14,5 +14,5 @@ export type PartialDeep<T> = T extends (...args: never[]) => unknown
               }
       : T;
 
-/** A function used for indexing something. */
+/** Resolves one or more index keys for a module. */
 export type IndexFn<T> = (module: T) => string | string[] | undefined;

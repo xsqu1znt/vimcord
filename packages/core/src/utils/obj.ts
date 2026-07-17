@@ -1,4 +1,4 @@
-import type { PartialDeep } from "@/types/helpers.js";
+import type { PartialDeep } from "../types/helpers.js";
 
 /** Check if value is a plain object */
 function isPlainObject(value: unknown): value is Record<string, unknown> {

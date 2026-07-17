@@ -1,7 +1,7 @@
-import type { IndexFn } from "@vimcord/internal";
 import type { Vimcord } from "@/client/Vimcord.js";
+import type { IndexFn } from "@/types/helpers.js";
 
-import { importModulesFromDir } from "@vimcord/internal";
+import { importModulesFromDir } from "@/utils/import.js";
 
 export type ModuleIndex<T> =
     | {
@@ -93,7 +93,7 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
                 this.modules.set(key, module);
             }
 
-            this.client.logger.debugVerbose(
+            this.client.logger.debug(
                 `[ModuleImporter] Imported ${results.length} ${results.length === 1 ? "module" : "modules"} from '${_dir}'`
             );
         }
