@@ -1,7 +1,8 @@
 import type { DotenvConfigOptions } from "dotenv";
+import type { VimcordPluginContext } from "@vimcord/core";
 
 import { configDotenv } from "dotenv";
-import { Vimcord, VimcordPlugin } from "@vimcord/core";
+import { VimcordPlugin } from "@vimcord/core";
 
 export const PLUGIN_NAME = "dotenv";
 export const PLUGIN_DESCRIPTION = "Configures dotEnv to inject environment variables.";
@@ -16,14 +17,12 @@ export class DotEnvPlugin extends VimcordPlugin {
         super();
     }
 
-    override install(client: Vimcord): void {
+    override install({ client }: VimcordPluginContext): void {
         configDotenv({ quiet: true, ...this.config });
         client.logger.plugin.success("dotenv", "Environment variables injected");
-        this.installed = true;
     }
 
     override uninstall(): void {
         // noop
-        this.installed = false;
     }
 }

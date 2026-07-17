@@ -42,4 +42,8 @@ Rules:
 - [x] VimcordLogger: prevent clients from sharing mutable logger state
   - Every client owns a configurable logger instance, and runtime verbose changes stay synchronized.
 - [x] VimcordLogger: honor CLI and banner settings
-  - CLI guidance only renders when `globals.app.enableCLI` is true, both flags default off as configured, and failed startup clears without a success footer.
+  - CLI guidance only renders for clients attached to an initialized CLI, `enableCLI` defaults on as a per-client participation switch, and failed startup clears without a success footer.
+- [x] CLI: add a process-wide, promptless stdin command interface
+  - `setupCLI()` owns the single runtime while each client can opt out through `enableCLI`.
+  - Added target-aware output, configurable loaders, help and target management, ping/stats/guild/user information, and guarded global/guild command registration.
+  - Plugins can contribute client-scoped CLI commands and health probes; Mongoose contributes measured MongoDB latency.

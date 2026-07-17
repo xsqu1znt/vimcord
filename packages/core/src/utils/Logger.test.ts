@@ -1,11 +1,13 @@
 import type { Vimcord } from "../client/Vimcord.js";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getCLI, setupCLI } from "../cli/setupCLI.js";
 import { Vimcord as VimcordClient } from "../client/Vimcord.js";
 import { VimcordLogger } from "../client/VimcordLogger.js";
 import { Logger } from "./Logger.js";
 
 afterEach(() => {
+    getCLI()?.stop();
     vi.restoreAllMocks();
     VimcordClient.$instances.clear();
 });
@@ -54,6 +56,21 @@ describe("Logger", () => {
         expect(output).toHaveBeenCalledTimes(2);
         expect(output.mock.calls.flat().join(" ")).toContain("Connection closed");
     });
+
+    it("coordinates animated loaders across separate logger instances", () => {
+        const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+        const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const cliLogger = new Logger({ prefix: "CLI", loaders: "always" });
+        const clientLogger = new Logger({ prefix: "client" });
+
+        const loader = cliLogger.loader("Registering commands");
+        clientLogger.info("Gateway event received");
+        loader.succeed("Commands registered");
+
+        expect(output).toHaveBeenCalledTimes(1);
+        expect(stdout.mock.calls.flat().join(" ")).toContain("Registering commands");
+        expect(stdout.mock.calls.flat().join(" ")).toContain("Commands registered");
+    });
 });
 
 describe("VimcordLogger", () => {
@@ -73,32 +90,26 @@ describe("VimcordLogger", () => {
         expect(quiet.logger.options.verbose).toBe(false);
     });
 
-    it("only renders CLI guidance when enableCLI is true", () => {
+    it("only renders CLI guidance for clients participating in an initialized CLI", () => {
         const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
         const logger = new VimcordLogger();
+        const enabled = new VimcordClient({ customId: "enabled", client: { intents: [] } });
+        const disabled = new VimcordClient({
+            customId: "disabled",
+            client: { intents: [] },
+            globals: { app: { enableCLI: false } }
+        });
 
-        const createClient = (enableCLI: boolean) =>
-            ({
-                $devMode: false,
-                $name: "Test Bot",
-                $version: "1.0.0",
-                globals: { app: { enableCLI } },
-                plugins: { getAll: () => [] },
-                modules: {
-                    events: { getAll: () => [] },
-                    commands: {
-                        slash: { getAll: () => [] },
-                        prefix: { getAll: () => [] },
-                        getAllContextCommands: () => []
-                    }
-                }
-            }) as unknown as Vimcord;
+        logger.startupBanner(enabled).complete();
+        expect(output.mock.calls.flat().join(" ")).not.toContain("Type /help");
 
-        logger.startupBanner(createClient(false)).complete();
+        setupCLI({ loaders: "never" });
+        output.mockClear();
+        logger.startupBanner(disabled).complete();
         expect(output.mock.calls.flat().join(" ")).not.toContain("Type /help");
 
         output.mockClear();
-        logger.startupBanner(createClient(true)).complete();
+        logger.startupBanner(enabled).complete();
         expect(output.mock.calls.flat().join(" ")).toContain("Type /help");
     });
 });

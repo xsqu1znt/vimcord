@@ -26,9 +26,14 @@ export interface LoggerOptions {
     prefix?: string | null;
     /** Enables diagnostic `debug()` output. @default false */
     verbose?: boolean;
+    /** Controls animated loader rendering. @default "auto" */
+    loaders?: LoaderMode;
     /** Color overrides. */
     colors?: Partial<ColorScheme>;
 }
+
+/** Controls when loaders use in-place terminal animation. */
+export type LoaderMode = "auto" | "always" | "never";
 
 /** Optional automatic message cycling for a loader. */
 export interface LoaderOptions {
@@ -51,6 +56,7 @@ export interface LoaderHandle {
 }
 
 type LoaderEntry = {
+    animated: boolean;
     cycle?: () => string;
     cycleInterval: number;
     lastCycleAt: number;
@@ -91,16 +97,19 @@ export class Logger {
     /** Active logger configuration. */
     readonly options: Required<Omit<LoggerOptions, "colors">> & { colors: ColorScheme };
 
+    private static readonly loaderLoggers = new Set<Logger>();
+    private static renderInterval: ReturnType<typeof setInterval> | null = null;
+    private static frameIndex = 0;
+
     private readonly activeLoaders = new Map<number, LoaderEntry>();
     private nextLoaderId = 0;
-    private renderInterval: ReturnType<typeof setInterval> | null = null;
-    private frameIndex = 0;
 
     /** Creates a logger with optional prefix, verbosity, and color overrides. */
     constructor(options: LoggerOptions = {}) {
         this.options = {
             prefix: null,
             verbose: false,
+            loaders: "auto",
             ...options,
             colors: { ...DEFAULT_COLORS, ...options.colors }
         };
@@ -129,8 +138,14 @@ export class Logger {
     }
 
     private formatLoaderLine(loader: LoaderEntry): string {
-        const frame = ansis.hex(this.options.colors.muted)(SPINNER_FRAMES[this.frameIndex]!);
+        const frame = ansis.hex(this.options.colors.muted)(SPINNER_FRAMES[Logger.frameIndex]!);
         return `${this.timestamp()} ${this.formatPrefix()} ${frame} ${loader.message}`;
+    }
+
+    private shouldAnimateLoaders(): boolean {
+        if (this.options.loaders === "always") return true;
+        if (this.options.loaders === "never") return false;
+        return process.stdout.isTTY === true;
     }
 
     private updateLoaderMessages(now = Date.now()): void {
@@ -142,40 +157,64 @@ export class Logger {
         }
     }
 
-    private clearLoaderLines(count = this.activeLoaders.size): void {
-        if (process.stdout.isTTY === true && count > 0) process.stdout.write(`\x1b[${count}A\x1b[J`);
+    private static get animatedLoaderCount(): number {
+        let count = 0;
+        for (const logger of Logger.loaderLoggers) {
+            count += Array.from(logger.activeLoaders.values()).filter(loader => loader.animated).length;
+        }
+
+        return count;
+    }
+
+    private static clearLoaderLines(): void {
+        if (Logger.animatedLoaderCount > 0) process.stdout.write(`\x1b[${Logger.animatedLoaderCount}A\x1b[J`);
+    }
+
+    private static renderLoaders(): void {
+        const now = Date.now();
+        for (const logger of Logger.loaderLoggers) {
+            logger.updateLoaderMessages(now);
+            for (const loader of logger.activeLoaders.values()) {
+                if (loader.animated) process.stdout.write(`${logger.formatLoaderLine(loader)}\n`);
+            }
+        }
+    }
+
+    private clearLoaderLines(): void {
+        Logger.clearLoaderLines();
     }
 
     private renderLoaders(): void {
-        if (process.stdout.isTTY !== true || !this.activeLoaders.size) return;
-
-        this.updateLoaderMessages();
-        for (const loader of this.activeLoaders.values()) process.stdout.write(`${this.formatLoaderLine(loader)}\n`);
+        Logger.renderLoaders();
     }
 
     private startLoaderRenderer(): void {
-        if (this.renderInterval) return;
+        Logger.loaderLoggers.add(this);
+        if (Logger.renderInterval) return;
 
-        this.renderInterval = setInterval(() => {
-            if (!this.activeLoaders.size) return;
+        Logger.renderInterval = setInterval(() => {
+            if (!Logger.animatedLoaderCount) return;
 
-            this.clearLoaderLines();
-            this.frameIndex = (this.frameIndex + 1) % SPINNER_FRAMES.length;
-            this.renderLoaders();
+            Logger.clearLoaderLines();
+            Logger.frameIndex = (Logger.frameIndex + 1) % SPINNER_FRAMES.length;
+            Logger.renderLoaders();
         }, SPINNER_INTERVAL);
-        this.renderInterval.unref?.();
+        Logger.renderInterval.unref?.();
     }
 
     private stopLoaderRenderer(): void {
-        if (this.activeLoaders.size || !this.renderInterval) return;
+        if (Array.from(this.activeLoaders.values()).some(loader => loader.animated)) return;
 
-        clearInterval(this.renderInterval);
-        this.renderInterval = null;
-        this.frameIndex = 0;
+        Logger.loaderLoggers.delete(this);
+        if (Logger.loaderLoggers.size || !Logger.renderInterval) return;
+
+        clearInterval(Logger.renderInterval);
+        Logger.renderInterval = null;
+        Logger.frameIndex = 0;
     }
 
-    private writeLoaderResolution(type: LoaderResolution, message: string, error?: unknown): void {
-        if (process.stdout.isTTY !== true) {
+    private writeLoaderResolution(type: LoaderResolution, message: string, animated: boolean, error?: unknown): void {
+        if (!animated) {
             if (type === "success") this.success(message);
             else if (type === "error") this.error(message, error);
             else if (message) this.log(message);
@@ -214,9 +253,9 @@ export class Logger {
 
     /** Writes directly to a console stream while preserving active TTY loaders. */
     protected write(stream: "log" | "warn" | "error", ...data: unknown[]): void {
-        this.clearLoaderLines();
+        Logger.clearLoaderLines();
         console[stream](...data);
-        this.renderLoaders();
+        Logger.renderLoaders();
     }
 
     /** Logs unfiltered application output. */
@@ -276,6 +315,7 @@ export class Logger {
     loader(message: string, options: LoaderOptions = {}): LoaderHandle {
         const id = this.nextLoaderId++;
         const loader: LoaderEntry = {
+            animated: this.shouldAnimateLoaders(),
             cycle: options.cycle,
             cycleInterval: options.interval ?? DEFAULT_LOADER_CYCLE_INTERVAL_MS,
             lastCycleAt: Date.now(),
@@ -285,7 +325,7 @@ export class Logger {
 
         this.activeLoaders.set(id, loader);
 
-        if (process.stdout.isTTY === true) {
+        if (loader.animated) {
             process.stdout.write(`${this.formatLoaderLine(loader)}\n`);
             this.startLoaderRenderer();
         } else {
@@ -296,13 +336,12 @@ export class Logger {
             if (stopped) return;
             stopped = true;
 
-            const loaderCount = this.activeLoaders.size;
-            this.clearLoaderLines(loaderCount);
+            if (loader.animated) this.clearLoaderLines();
             this.activeLoaders.delete(id);
             this.stopLoaderRenderer();
 
             const resolvedMessage = finalMessage ?? loader.message;
-            this.writeLoaderResolution(type, resolvedMessage, error);
+            this.writeLoaderResolution(type, resolvedMessage, loader.animated, error);
             this.renderLoaders();
         };
 
@@ -310,10 +349,10 @@ export class Logger {
             update: nextMessage => {
                 if (stopped) return;
 
-                this.clearLoaderLines();
+                if (loader.animated) this.clearLoaderLines();
                 loader.message = nextMessage;
                 loader.lastCycleAt = Date.now();
-                this.renderLoaders();
+                if (loader.animated) this.renderLoaders();
             },
             stop: finalMessage => finish("stop", finalMessage ?? ""),
             succeed: finalMessage => finish("success", finalMessage),

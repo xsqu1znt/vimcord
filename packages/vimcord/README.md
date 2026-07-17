@@ -65,6 +65,28 @@ await client.login();
 
 `login()` uses `TOKEN`, or `TOKEN_DEV` when `client.$devMode` is true.
 
+### Process CLI
+
+Call `setupCLI()` once to enable promptless slash commands through the process stdin. This works in a local terminal and in hosting dashboards that provide a console command field.
+
+```ts
+import { GatewayIntentBits } from "discord.js";
+import { setupCLI, Vimcord } from "vimcord";
+
+setupCLI({
+    loaders: "auto" // "auto" | "always" | "never"
+});
+
+const client = new Vimcord({
+    customId: "main",
+    client: {
+        intents: [GatewayIntentBits.Guilds]
+    }
+});
+```
+
+Clients participate by default once the process CLI is initialized. Set `globals.app.enableCLI` to `false` on clients that should remain unavailable to CLI commands. Enter `/help` in the process console to view commands.
+
 ### Modules And Command Dispatch
 
 ```ts
@@ -409,6 +431,8 @@ loader.succeed("Commands synced");
 | `dynaSend` | Send helper for interactions, channels, messages, members, and users |
 | `defineGlobalUxConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
 | `defineGlobalCommandHooks` | Global command hooks used when modules do not define local hooks |
+| `setupCLI` | Initializes the process-wide stdin CLI and its client targets |
+| `CLILogger` | CLI-specific logger with target headers, groups, tables, styles, and loaders |
 
 ### Client Options
 
@@ -422,7 +446,7 @@ const client = new Vimcord({
         app: {
             name: "My Bot",
             devMode: false,
-            enableCLI: false,
+            enableCLI: true,
             disableBanner: false
         },
         staff: {
@@ -473,6 +497,45 @@ client.configure({
         }
     }
 });
+```
+
+### Plugin CLI And Health Contributions
+
+Plugin install hooks receive a typed context. Contributions remain scoped to that client and are removed automatically when the plugin unloads.
+
+```ts
+import type { VimcordPluginContext } from "vimcord";
+import { VimcordPlugin } from "vimcord";
+
+class ServicePlugin extends VimcordPlugin {
+    override name = "service";
+    override description = "Example service integration";
+    override version = "1.0.0";
+
+    constructor(private readonly service: { ping(): Promise<void> }) {
+        super();
+    }
+
+    override install({ cli, health }: VimcordPluginContext) {
+        cli.registerCommand({
+            name: "service-info",
+            description: "Displays service information.",
+            execute: ({ logger, client }) => logger.header("Service Info", client)
+        });
+
+        health.register({
+            id: "service",
+            label: "Service API",
+            check: async () => {
+                const startedAt = performance.now();
+                await this.service.ping();
+                return { status: "healthy", latencyMs: performance.now() - startedAt };
+            }
+        });
+    }
+
+    override uninstall() {}
+}
 ```
 
 ---
@@ -555,8 +618,6 @@ MONGO_URI_DEV=mongodb://localhost:27017/discord-bot-dev
 ## About
 
 Created by [**xsqu1znt**](https://github.com/xsqu1znt) with a simple goal: make Discord bot development enjoyable again.
-
-Built on top of [qznt](https://github.com/xsqu1znt/qznt) for that extra bit of utility magic.
 
 **License:** MIT
 

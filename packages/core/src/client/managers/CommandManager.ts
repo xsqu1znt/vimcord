@@ -108,10 +108,11 @@ export class CommandManager {
     /**
      * Pushes app commands to the bot application.
      * @param options Filter options.
+     * @returns Whether command synchronization completed.
      */
-    async push(options: CommandFilter = {}): Promise<void> {
+    async push(options: CommandFilter = {}): Promise<boolean> {
         const client = await this.getReadyClient("push app commands");
-        if (!client) return;
+        if (!client) return false;
 
         // --- Command Payloads ---
         const commands = this.getAllAppCommands(options)
@@ -119,7 +120,7 @@ export class CommandManager {
             .map(command => command.builder.toJSON());
         if (!commands.length) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to push");
-            return;
+            return false;
         }
 
         this.client.logger.module(
@@ -138,30 +139,36 @@ export class CommandManager {
             COMMAND_MANAGER_LOGGER,
             `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
         );
+        return true;
     }
 
-    /** Pulls app commands from the bot application. */
-    async pull(): Promise<void> {
+    /**
+     * Pulls app commands from the bot application.
+     * @returns Whether command removal completed.
+     */
+    async pull(): Promise<boolean> {
         const client = await this.getReadyClient("pull app commands");
-        if (!client) return;
+        if (!client) return false;
 
         this.client.logger.module(COMMAND_MANAGER_LOGGER, "↓ Pulling app commands...");
         await client.rest.put(Routes.applicationCommands(client.user.id), { body: [] });
         this.client.logger.module(COMMAND_MANAGER_LOGGER, "🗸 Pulled app commands");
+        return true;
     }
 
     /**
      * Pushes app commands to each guild the bot application is in.
      * @param options Filter options.
+     * @returns Whether command synchronization completed.
      */
-    async pushByGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<void> {
+    async pushByGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<boolean> {
         const client = await this.getReadyClient("push app commands by guild");
-        if (!client) return;
+        if (!client) return false;
 
         const commands = this.getAllAppCommands(options).map(command => command.builder.toJSON());
         if (!commands.length) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to register");
-            return;
+            return false;
         }
 
         // Default to every cached guild when the caller does not provide a narrower target list
@@ -194,15 +201,17 @@ export class CommandManager {
             COMMAND_MANAGER_LOGGER,
             `🗸 Finished pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
         );
+        return true;
     }
 
     /**
      * Pulls app commands from each guild the bot application is in.
      * @param options Filter options.
+     * @returns Whether command removal completed.
      */
-    async pullByGuild(options: { guilds?: string[] } = {}): Promise<void> {
+    async pullByGuild(options: { guilds?: string[] } = {}): Promise<boolean> {
         const client = await this.getReadyClient("pull app commands by guild");
-        if (!client) return;
+        if (!client) return false;
 
         // Empty each guild command registry instead of deleting commands one at a time
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
@@ -223,6 +232,7 @@ export class CommandManager {
             COMMAND_MANAGER_LOGGER,
             `🗸 Finished pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
         );
+        return true;
     }
 
     /**

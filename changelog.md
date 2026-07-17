@@ -25,6 +25,10 @@
 - Prevented failed logins from rendering the successful startup footer.
 - Preserved plugin error stacks and routed specialized errors through stderr.
 - Made the existing `enableCLI` and `disableBanner` client globals control startup output as documented.
+- Prevented CLI guidance from appearing when `enableCLI` is true but the process CLI was never initialized.
+- Coordinated loaders across separate client and CLI logger instances so normal logs preserve active animations.
+- Prevented CLI command registration from reporting success when the selected Discord client is not ready.
+- Locked destructive CLI confirmation instructions to the displayed client id.
 
 ### Changed
 
@@ -43,6 +47,9 @@
 - Simplified module and plugin logging so structured values are no longer flattened with `join()`.
 - Changed completed-command logging to accept a named data object instead of five positional arguments.
 - Removed unused deprecated logger table/section output and combined prefix text into one option.
+- Changed `enableCLI` to default to `true` as a per-client participation switch; it has no effect until `setupCLI()` initializes the process runtime.
+- Changed plugin installation hooks to receive a typed contribution context with the client, CLI command registry, and health registry.
+- Made application-command push and pull methods return whether remote synchronization completed.
 
 ### Added
 
@@ -50,3 +57,10 @@
 - Added regression tests for conditional embed descriptions, typed modal field access, label-only paginator defaults, and halted module execution.
 - Added status profile regression tests for shared profiles and blank omitted environments.
 - Added logger regression tests for verbose diagnostics, loader completion, error stacks, per-client isolation, and CLI guidance.
+- Added a process-wide, promptless CLI initialized through `setupCLI()` with automatic client discovery and selection.
+- Added a dedicated `CLILogger` with target headers, groups, fields, aligned tables, shared styles, JSON output, and configurable loaders.
+- Added `/help`, `/clients`, `/use`, `/version`, `/plugins`, `/modules`, `/clear`, `/exit`, `/ping`, `/stats`, `/guildinfo`, and `/userinfo` CLI commands.
+- Added guarded `/register` and `/unregister` CLI commands for global and explicit guild application-command scopes.
+- Added client-scoped plugin CLI command and health-probe contributions with automatic unload cleanup, timeout handling, and failure isolation.
+- Added a Mongoose health probe that reports measured MongoDB ping latency when the plugin is installed.
+- Added CLI parser, lifecycle, targeting, deployment, plugin contribution, and health-probe regression tests.

@@ -1,5 +1,6 @@
 export * from "./abstracts/index.js";
 export * from "./client/index.js";
+export * from "./cli/index.js";
 export * from "./commands/index.js";
 export * from "./errors/index.js";
 export * from "./events/index.js";

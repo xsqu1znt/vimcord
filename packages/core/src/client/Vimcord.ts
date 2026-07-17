@@ -7,6 +7,7 @@ import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
 
 import EventEmitter from "node:events";
 import { Client, Status as GatewayStatus, Routes } from "discord.js";
+import { syncCLIClient } from "@/cli/clientState.js";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { defineGlobalCommandHooks } from "@/commands/commandHooks.js";
 import { VimcordError } from "@/errors/VimcordError.js";
@@ -218,6 +219,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.globals.staff = mergeDeep(this.globals.staff, globals.staff);
         this.globals.hooks = mergeDeep(this.globals.hooks ?? {}, globals.hooks);
         this.logger.setVerbose(this.globals.app.verbose);
+        syncCLIClient(this);
         return this;
     }
 

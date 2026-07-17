@@ -56,8 +56,8 @@ export interface AppGlobals {
      */
     verbose: boolean;
 
-    /** Enables the Vimcord CLI.
-     * @default false
+    /** Includes this client in the process-wide CLI when `setupCLI()` has initialized it.
+     * @default true
      */
     enableCLI: boolean;
 
@@ -75,7 +75,7 @@ export const defaultAppGlobals = (): AppGlobals => {
         version,
         devMode: getDevMode(),
         verbose: false,
-        enableCLI: false,
+        enableCLI: true,
         disableBanner: false
     };
 };

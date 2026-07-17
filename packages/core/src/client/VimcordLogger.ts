@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import ansis from "ansis";
+import { isCLIEnabledFor } from "@/cli/clientState.js";
 import { Logger, stripAnsi } from "@/utils/Logger.js";
 
 const STARTUP_LINES = [
@@ -220,7 +221,7 @@ export class VimcordLogger extends Logger {
                 loader.stop();
                 this.write("log", this.buildStartupFooter(client));
 
-                if (!client.globals.app.enableCLI) return;
+                if (!isCLIEnabledFor(client)) return;
 
                 const cliLine = ` 🚀 ${ansis.bold.hex(colors.primary)("CLI")} ${ansis.bold("~ Type /help to view available commands")} `;
                 const consoleWidth = process.stdout.columns ?? MIN_CONSOLE_WIDTH;

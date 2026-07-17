@@ -1,4 +1,5 @@
 import type { ClientSessionOptions } from "mongoose";
+import type { HealthProbeResult, VimcordPluginContext } from "@vimcord/core";
 
 import mongoose from "mongoose";
 import { retryPromise } from "qznt";
@@ -85,17 +86,20 @@ export class MongoosePlugin extends VimcordPlugin {
         this.mongoose = new mongoose.Mongoose(mongooseOptions);
     }
 
-    override async install(client: Vimcord): Promise<void> {
+    override async install({ client, health }: VimcordPluginContext): Promise<void> {
         (this as { client: Vimcord | null }).client = client;
         await this.connect();
+        health.register({
+            id: "mongodb",
+            label: "MongoDB",
+            check: ({ signal }) => this.checkMongoHealth(signal)
+        });
         this.startConnectionRefreshMonitor();
-        this.installed = true;
     }
 
     override async uninstall(): Promise<void> {
         this.stopConnectionRefreshMonitor();
         await this.disconnect();
-        this.installed = false;
     }
 
     private async connectInternal(): Promise<boolean> {
@@ -163,18 +167,29 @@ export class MongoosePlugin extends VimcordPlugin {
         this.client?.logger.plugin.debug(this.name, "Stopped MongoDB connection health monitor");
     }
 
-    private async testMongoConnection(): Promise<boolean> {
-        if (this.mongoose.connection.readyState !== 1) return false;
+    private async checkMongoHealth(signal?: AbortSignal): Promise<HealthProbeResult> {
+        if (signal?.aborted) return { status: "unavailable", detail: "Check cancelled" };
+        if (this.mongoose.connection.readyState !== 1) {
+            return { status: "unavailable", detail: "Not connected" };
+        }
 
         const db = this.mongoose.connection.db;
-        if (!db) return true;
+        if (!db) return { status: "healthy" };
 
+        const startedAt = performance.now();
         try {
             await db.admin().ping();
-            return true;
-        } catch {
-            return false;
+            return { status: "healthy", latencyMs: performance.now() - startedAt };
+        } catch (error) {
+            return {
+                status: "unavailable",
+                detail: error instanceof Error ? error.message : "Ping failed"
+            };
         }
+    }
+
+    private async testMongoConnection(): Promise<boolean> {
+        return (await this.checkMongoHealth()).status === "healthy";
     }
 
     private async runConnectionRefreshCheck(): Promise<void> {
