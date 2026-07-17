@@ -29,6 +29,8 @@
 - Coordinated loaders across separate client and CLI logger instances so normal logs preserve active animations.
 - Prevented CLI command registration from reporting success when the selected Discord client is not ready.
 - Locked destructive CLI confirmation instructions to the displayed client id.
+- Handled PNPM's zero-exit registry 404 response when resolving a version for a package that has never been published.
+- Added a root TypeScript project so editor tooling resolves Node types for release scripts instead of treating them as inferred files.
 
 ### Changed
 
@@ -50,6 +52,7 @@
 - Changed `enableCLI` to default to `true` as a per-client participation switch; it has no effect until `setupCLI()` initializes the process runtime.
 - Changed plugin installation hooks to receive a typed contribution context with the client, CLI command registry, and health registry.
 - Made application-command push and pull methods return whether remote synchronization completed.
+- Added root script type-checking and test discovery so release tooling is covered by the normal repository checks.
 
 ### Added
 
@@ -64,3 +67,5 @@
 - Added client-scoped plugin CLI command and health-probe contributions with automatic unload cleanup, timeout handling, and failure isolation.
 - Added a Mongoose health probe that reports measured MongoDB ping latency when the plugin is installed.
 - Added CLI parser, lifecycle, targeting, deployment, plugin contribution, and health-probe regression tests.
+- Added an interactive `pnpm publish:workspace` release script with dynamic workspace package selection, registry-aware patch versions, dependency-ordered checks and builds, and a read-only dry run.
+- Added clean-workspace enforcement and automatic release commits pushed to the tracked GitHub branch before PNPM publishes the selected packages.

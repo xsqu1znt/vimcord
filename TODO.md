@@ -47,3 +47,11 @@ Rules:
   - `setupCLI()` owns the single runtime while each client can opt out through `enableCLI`.
   - Added target-aware output, configurable loaders, help and target management, ping/stats/guild/user information, and guarded global/guild command registration.
   - Plugins can contribute client-scoped CLI commands and health probes; Mongoose contributes measured MongoDB latency.
+
+- [x] Publishing: add an interactive root workspace release script
+  - Publishable packages are discovered from PNPM and can be selected by number, range, or `all`.
+  - Stable patch versions are resolved against both the local manifests and npm, with workspace dependencies published first.
+  - Selected packages are checked and built before version manifests are committed and pushed to the tracked GitHub branch.
+  - PNPM's clean, current-branch checks remain enabled during publishing; `--dry-run` only resolves and displays the plan.
+  - A pushed release commit remains authoritative after a registry failure so published and repository versions cannot diverge through rollback.
+  - Root scripts belong to the root `tsconfig.json`, keeping Node types available in VS Code and command-line checks.
