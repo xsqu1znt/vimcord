@@ -16,10 +16,38 @@ export interface CLITableColumn {
 /** Stringifiable cells used by one CLI table row. */
 export type CLITableRow = Readonly<Record<string, string | number | null | undefined>>;
 
-/** Formats a stable human-readable target for CLI output. */
+/** Formats a concise human-readable target for CLI output. */
 export function formatCLIClientTarget(client: Vimcord): string {
-    const identity = client.user?.tag ?? client.$name;
-    return `${client.id} / ${identity}`;
+    return client.user ? `${client.$name} / ${client.user.tag}` : client.$name;
+}
+
+const DEFAULT_TABLE_WIDTH = 100;
+const MAX_TABLE_WIDTH = 110;
+const MIN_TABLE_COLUMN_WIDTH = 6;
+const TABLE_COLUMN_GAP = 2;
+
+function wrapTableCell(value: string, width: number): string[] {
+    const lines: string[] = [];
+
+    // Table values are normalized to visible text so ANSI sequences do not corrupt wrapping widths.
+    for (const sourceLine of stripAnsi(value).split("\n")) {
+        let remaining = sourceLine.trimEnd();
+        if (!remaining) {
+            lines.push("");
+            continue;
+        }
+
+        while (remaining.length > width) {
+            const candidate = remaining.slice(0, width + 1);
+            const spaceIndex = candidate.lastIndexOf(" ");
+            const breakIndex = spaceIndex > 0 ? spaceIndex : width;
+            lines.push(remaining.slice(0, breakIndex).trimEnd());
+            remaining = remaining.slice(breakIndex).trimStart();
+        }
+        lines.push(remaining);
+    }
+
+    return lines;
 }
 
 /** Dedicated CLI logger with target headers, groups, fields, tables, JSON, and command loaders. */
@@ -43,7 +71,7 @@ export class CLILogger extends Logger {
     /** Writes a command result header and its resolved target. */
     header(title: string, client?: Vimcord | null): void {
         const target = client ? ` ${this.styles.muted("—")} ${this.styles.target(formatCLIClientTarget(client))}` : "";
-        this.write("log", `\n${this.styles.title("[CLI]")} ${ansis.bold(title)}${target}`);
+        this.write("log", `${this.styles.title("[CLI]")} ${ansis.bold(title)}${target}`);
     }
 
     /** Writes one raw CLI output line. */
@@ -77,18 +105,48 @@ export class CLILogger extends Logger {
         const widths = columns.map((column, columnIndex) =>
             Math.max(stripAnsi(column.label).length, ...values.map(row => stripAnsi(row[columnIndex] ?? "").length))
         );
+        const minimumWidths = widths.map((width, index) =>
+            Math.min(width, Math.max(stripAnsi(columns[index]!.label).length, MIN_TABLE_COLUMN_WIDTH))
+        );
+        const terminalWidth = Math.max(20, Math.min(process.stdout.columns ?? DEFAULT_TABLE_WIDTH, MAX_TABLE_WIDTH));
+        const gapWidth = TABLE_COLUMN_GAP * Math.max(0, columns.length - 1);
+
+        // Reduce the widest flexible column first until the table fits the useful terminal width.
+        while (widths.reduce((total, width) => total + width, gapWidth) > terminalWidth) {
+            let columnIndex = -1;
+            let availableReduction = 0;
+            for (let index = 0; index < widths.length; index++) {
+                const reduction = widths[index]! - minimumWidths[index]!;
+                if (reduction > availableReduction) {
+                    columnIndex = index;
+                    availableReduction = reduction;
+                }
+            }
+            if (columnIndex < 0) break;
+            widths[columnIndex] = widths[columnIndex]! - 1;
+        }
+
         const formatCell = (value: string, width: number, align: "left" | "right" = "left"): string => {
             const padding = " ".repeat(Math.max(0, width - stripAnsi(value).length));
             return align === "right" ? `${padding}${value}` : `${value}${padding}`;
+        };
+        const formatRow = (row: readonly string[]): string => {
+            const cells = row.map((value, index) => wrapTableCell(value, widths[index]!));
+            const lineCount = Math.max(...cells.map(cell => cell.length));
+
+            return Array.from({ length: lineCount }, (_, lineIndex) =>
+                cells
+                    .map((cell, index) => formatCell(cell[lineIndex] ?? "", widths[index]!, columns[index]!.align))
+                    .join("  ")
+                    .trimEnd()
+            ).join("\n");
         };
 
         const header = columns
             .map((column, index) => this.styles.label(formatCell(column.label, widths[index]!, column.align)))
             .join("  ");
         const divider = widths.map(width => this.styles.muted("─".repeat(width))).join("  ");
-        const body = values.map(row =>
-            row.map((value, index) => formatCell(value, widths[index]!, columns[index]!.align)).join("  ")
-        );
+        const body = values.map(formatRow);
 
         this.write("log", [header, divider, ...body].join("\n"));
     }

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCLI, setupCLI } from "../cli/setupCLI.js";
 import { Vimcord as VimcordClient } from "../client/Vimcord.js";
 import { VimcordLogger } from "../client/VimcordLogger.js";
-import { Logger } from "./Logger.js";
+import { Logger, stripAnsi } from "./Logger.js";
 
 afterEach(() => {
     getCLI()?.stop();
@@ -74,6 +74,21 @@ describe("Logger", () => {
 });
 
 describe("VimcordLogger", () => {
+    it("uses an uppercase PLUGIN label for every plugin log type", () => {
+        const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const logger = new VimcordLogger({ verbose: true });
+
+        logger.plugin.log("mongoose", "Connecting");
+        logger.plugin.debug("mongoose", "Compiling");
+        logger.plugin.success("mongoose", "Connected");
+        logger.plugin.error("mongoose", "Connection failed");
+
+        const rendered = stripAnsi([...output.mock.calls, ...errors.mock.calls].flat().join(" "));
+        expect(rendered.match(/PLUGIN <mongoose>/g)).toHaveLength(4);
+        expect(rendered).not.toContain("Plugin <mongoose>");
+    });
+
     it("keeps logger configuration isolated between clients", () => {
         const quiet = new VimcordClient({ customId: "quiet", client: { intents: [] }, verbose: false });
         const verbose = new VimcordClient({ customId: "verbose", client: { intents: [] }, verbose: true });

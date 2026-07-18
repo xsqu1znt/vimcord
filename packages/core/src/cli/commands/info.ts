@@ -240,7 +240,10 @@ export function createInfoCLICommands(): CLICommand[] {
                     }
                     const guildQuery = guildValues.join(" ");
                     const guild = guildQuery ? await resolveCLIGuild(client, guildQuery) : null;
-                    const member = guild ? await guild.members.fetch(user.id).catch(() => null) : null;
+                    const [member, botStaff] = await Promise.all([
+                        guild ? guild.members.fetch(user.id).catch(() => null) : null,
+                        client.isBotStaff(user.id)
+                    ]);
                     const roles = member
                         ? member.roles.cache
                               .filter(role => role.id !== guild?.id)
@@ -253,6 +256,7 @@ export function createInfoCLICommands(): CLICommand[] {
                         tag: user.tag,
                         bot: user.bot,
                         system: user.system,
+                        botStaff,
                         createdAt: user.createdAt.toISOString(),
                         avatarUrl: user.displayAvatarURL({ size: 1024 }),
                         member: member
@@ -278,6 +282,7 @@ export function createInfoCLICommands(): CLICommand[] {
                             ["Global name", data.globalName ?? "None"],
                             ["ID", data.id],
                             ["Account type", data.bot ? "Bot" : data.system ? "System" : "User"],
+                            ["Bot staff", data.botStaff ? "Yes" : "No"],
                             ["Created", data.createdAt],
                             ["Avatar", data.avatarUrl]
                         ]);

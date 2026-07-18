@@ -1,5 +1,6 @@
 import type { CLICommand } from "../types.js";
 
+import { getVimcordPackageVersion } from "@/utils/packageVersion.js";
 import { formatCLIClientTarget } from "../CLILogger.js";
 import { hasCLIFlag } from "../parser.js";
 import { formatLatency, requireCLIClient } from "./helpers.js";
@@ -106,7 +107,8 @@ export function createGeneralCLICommands(): CLICommand[] {
                 const data = {
                     clientId: client?.id ?? null,
                     application: client?.$name ?? null,
-                    applicationVersion: client?.$version ?? null,
+                    applicationVersion: client?.$version ? `v${client.$version}` : null,
+                    vimcordVersion: `v${getVimcordPackageVersion()}`,
                     node: process.version
                 };
 
@@ -115,7 +117,8 @@ export function createGeneralCLICommands(): CLICommand[] {
                 else {
                     logger.fields([
                         ["Application", data.application ?? "No client selected"],
-                        ["App version", data.applicationVersion ?? "—"],
+                        ["App version", data.applicationVersion ? `v${data.applicationVersion}` : "—"],
+                        ["Vimcord", `v${data.vimcordVersion}`],
                         ["Node", data.node]
                     ]);
                 }

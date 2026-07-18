@@ -1,12 +1,10 @@
 import type { LoggerOptions } from "@/utils/Logger.js";
 import type { Vimcord } from "./Vimcord.js";
 
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import ansis from "ansis";
 import { isCLIEnabledFor } from "@/cli/clientState.js";
 import { Logger, stripAnsi } from "@/utils/Logger.js";
+import { getVimcordPackageVersion } from "@/utils/packageVersion.js";
 
 const STARTUP_LINES = [
     "Initializing Vimcord...",
@@ -21,64 +19,6 @@ const STARTUP_LINES = [
 ];
 
 const MIN_CONSOLE_WIDTH = 80;
-const PACKAGE_REQUIRE = createRequire(join(process.cwd(), "package.json"));
-
-function readPackageVersion(packagePath: string, packageName: string): string | null {
-    try {
-        const data = JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown; version?: unknown };
-
-        if (data.name === packageName && typeof data.version === "string") return data.version;
-    } catch {
-        return null;
-    }
-
-    return null;
-}
-
-function findPackageVersion(startPath: string, packageName: string): string | null {
-    const currentDir = dirname(startPath);
-    const parentDir = dirname(currentDir);
-    const version = readPackageVersion(join(currentDir, "package.json"), packageName);
-
-    if (version) return version;
-    if (currentDir === parentDir) return null;
-
-    return findPackageVersion(currentDir, packageName);
-}
-
-function findWorkspacePackageVersion(packageName: string, packagePath: string, currentDir = process.cwd()): string | null {
-    const version = readPackageVersion(join(currentDir, packagePath, "package.json"), packageName);
-    const parentDir = dirname(currentDir);
-
-    if (version) return version;
-    if (currentDir === parentDir) return null;
-
-    return findWorkspacePackageVersion(packageName, packagePath, parentDir);
-}
-
-function getCorePackageVersion(): string {
-    try {
-        const packageEntry = PACKAGE_REQUIRE.resolve("@vimcord/core");
-        const version = findPackageVersion(packageEntry, "@vimcord/core");
-        if (version) return version;
-    } catch {
-        // Fall back to workspace lookup when core is running from this monorepo.
-    }
-
-    return findWorkspacePackageVersion("@vimcord/core", "packages/core") ?? "unknown";
-}
-
-function getVimcordPackageVersion(): string {
-    try {
-        const packageEntry = PACKAGE_REQUIRE.resolve("vimcord");
-        const version = findPackageVersion(packageEntry, "vimcord");
-        if (version) return version;
-    } catch {
-        // Fall back to core when the wrapper package is not installed.
-    }
-
-    return findWorkspacePackageVersion("vimcord", "packages/vimcord") ?? getCorePackageVersion();
-}
 
 /** Controls the in-progress Vimcord startup banner. */
 export interface VimcordStartupBannerHandle {
@@ -164,7 +104,7 @@ export class VimcordLogger extends Logger {
             row("📦 Prefix Commands", prefixCount.toString()),
             row("📦 Context Commands", contextCount.toString())
         ];
-        const pluginRows = plugins.map(plugin => row("🔌 Plugin", plugin.name));
+        const pluginRows = plugins.map(plugin => row("🔌 PLUGIN", plugin.name));
         const footerLabel = `${border("╰──[")} ${ansis.bold(client.$name)} ${muted(`v${client.$version}`)} ${border("]")}`;
         const footerLine = `${footerLabel}${border("─".repeat(Math.max(0, consoleWidth - stripAnsi(footerLabel).length - 1)))}${border("╯")}`;
 
@@ -194,9 +134,9 @@ export class VimcordLogger extends Logger {
                 "log",
                 [
                     ansis.hex(colors.muted)("Powered by"),
-                    ansis.hex(colors.primary)("██╗   ██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗"),
-                    ansis.hex(colors.primary)("██║   ██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗"),
-                    ansis.hex(colors.primary)("██║   ██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║"),
+                    ansis.hex(colors.primary)("██╗   ██╗██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗"),
+                    ansis.hex(colors.primary)("██║   ██║██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗"),
+                    ansis.hex(colors.primary)("██║   ██║██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║"),
                     ansis.hex(colors.primary)("╚██╗ ██╔╝██║██║╚██╔╝██║██║     ██║   ██║██╔══██╗██║  ██║"),
                     ansis.hex(colors.primary)(" ╚████╔╝ ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██║  ██║██████╔╝"),
                     ansis.hex(colors.primary)(`  ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ${version}`),
@@ -253,7 +193,7 @@ export class VimcordLogger extends Logger {
             ansis.yellow(`/${commandName}`),
             `used by ${userName}`,
             ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}${guildId ? ` (${guildId})` : ""}`),
-            ...(durationMs === undefined ? [] : [ansis.dim(`${durationMs.toFixed(1)}ms`)])
+            ...(durationMs === undefined ? [] : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)])
         );
     }
 
@@ -270,13 +210,13 @@ export class VimcordLogger extends Logger {
             this.log(ansis.hex(colors.muted)("PLUGIN"), ansis.hex(colors.muted)(`<${pluginName}>`), ...data);
         },
         debug: (pluginName: string, ...data: unknown[]): void => {
-            this.debug(`Plugin <${pluginName}>`, ...data);
+            this.debug(`PLUGIN <${pluginName}>`, ...data);
         },
         success: (pluginName: string, ...data: unknown[]): void => {
-            this.success(`Plugin <${pluginName}>`, ...data);
+            this.success(`PLUGIN <${pluginName}>`, ...data);
         },
         error: (pluginName: string, message: string, error?: unknown, ...data: unknown[]): void => {
-            this.error(`Plugin <${pluginName}>: ${message}`, error, ...data);
+            this.error(`PLUGIN <${pluginName}>: ${message}`, error, ...data);
         }
     };
 }
