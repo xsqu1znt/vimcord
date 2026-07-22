@@ -1,0 +1,4 @@
+- [x] Add a `roles` object property to `globals.staff.guild`.
+  - Named staff-guild role IDs now mirror the existing named channel IDs and default to an empty object.
+- [x] Add `fetchRole` and `fetchMember` to `ux/tools.ts`.
+  - Both helpers accept nullable inputs, check the relevant guild cache first, fetch on a miss, and return `null` when resolution fails.

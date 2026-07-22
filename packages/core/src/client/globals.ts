@@ -108,6 +108,8 @@ export interface StaffGlobals {
         inviteUrl: string | null;
         /** Named channel IDs for use throughout the bot. */
         channels: Record<string, string>;
+        /** Named role IDs for use throughout the bot. */
+        roles: Record<string, string>;
     };
 }
 
@@ -126,7 +128,8 @@ export const defaultStaffGlobals = (): StaffGlobals => {
         guild: {
             id: null,
             inviteUrl: null,
-            channels: {}
+            channels: {},
+            roles: {}
         }
     };
 };

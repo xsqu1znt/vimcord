@@ -40,6 +40,7 @@ function createStaff(overrides: Partial<StaffGlobals> = {}): StaffGlobals {
             id: null,
             inviteUrl: null,
             channels: {},
+            roles: {},
             ...overrides.guild
         },
         ...overrides

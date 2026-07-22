@@ -6,4 +6,5 @@ export * from "./dynaSend.js";
 export * from "./paginator.js";
 export * from "./prompt.js";
 export * from "./shared.js";
+export * from "./tools.js";
 export * from "./uxConfig.js";

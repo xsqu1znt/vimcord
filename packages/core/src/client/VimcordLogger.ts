@@ -63,23 +63,12 @@ export class VimcordLogger extends Logger {
 
     private buildStartupFooter(client: Vimcord): string {
         const { colors } = this.options;
-        const consoleWidth = process.stdout.columns ?? MIN_CONSOLE_WIDTH;
+        const consoleWidth = Math.max(MIN_CONSOLE_WIDTH, process.stdout.columns ?? MIN_CONSOLE_WIDTH);
         const plugins = client.plugins.getAll(true);
         const eventCount = client.modules.events.getAll().length;
         const slashCount = client.modules.commands.slash.getAll().length;
         const prefixCount = client.modules.commands.prefix.getAll().length;
         const contextCount = client.modules.commands.getAllContextCommands().length;
-
-        if (process.stdout.isTTY === true && consoleWidth < MIN_CONSOLE_WIDTH) {
-            const mode = client.$devMode ? "DEV" : "PRODUCTION";
-            return [
-                `${ansis.bold.hex(colors.primary)(client.$name)} ${ansis.hex(colors.muted)(`v${client.$version}`)} ${ansis.hex(colors.caution)(mode)}`,
-                ansis.hex(colors.muted)(
-                    `${eventCount} events • ${slashCount} slash • ${prefixCount} prefix • ${contextCount} context • ${plugins.length} plugins`
-                ),
-                ""
-            ].join("\n");
-        }
 
         const border = ansis.hex(colors.primary);
         const muted = ansis.hex(colors.muted);
@@ -123,27 +112,22 @@ export class VimcordLogger extends Logger {
     startupBanner(client: Vimcord): VimcordStartupBannerHandle {
         const { colors } = this.options;
         const version = ansis.hex(colors.muted)(`v${getVimcordPackageVersion()}`);
-        const compact = process.stdout.isTTY === true && (process.stdout.columns ?? MIN_CONSOLE_WIDTH) < MIN_CONSOLE_WIDTH;
         let messageIndex = 0;
         let resolved = false;
 
-        if (compact) {
-            this.write("log", `${ansis.bold.hex(colors.primary)("⚡ Vimcord")} ${version}`);
-        } else {
-            this.write(
-                "log",
-                [
-                    ansis.hex(colors.muted)("Powered by"),
-                    ansis.hex(colors.primary)("██╗   ██╗██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗"),
-                    ansis.hex(colors.primary)("██║   ██║██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗"),
-                    ansis.hex(colors.primary)("██║   ██║██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║"),
-                    ansis.hex(colors.primary)("╚██╗ ██╔╝██║██║╚██╔╝██║██║     ██║   ██║██╔══██╗██║  ██║"),
-                    ansis.hex(colors.primary)(" ╚████╔╝ ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██║  ██║██████╔╝"),
-                    ansis.hex(colors.primary)(`  ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ${version}`),
-                    ""
-                ].join("\n")
-            );
-        }
+        this.write(
+            "log",
+            [
+                ansis.hex(colors.muted)("Powered by"),
+                ansis.hex(colors.primary)("██╗   ██╗██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗"),
+                ansis.hex(colors.primary)("██║   ██║██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗"),
+                ansis.hex(colors.primary)("██║   ██║██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║"),
+                ansis.hex(colors.primary)("╚██╗ ██╔╝██║██║╚██╔╝██║██║     ██║   ██║██╔══██╗██║  ██║"),
+                ansis.hex(colors.primary)(" ╚████╔╝ ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██║  ██║██████╔╝"),
+                ansis.hex(colors.primary)(`  ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ ${version}`),
+                ""
+            ].join("\n")
+        );
 
         const loader = this.loader(STARTUP_LINES[0]!, {
             interval: 3_000,
@@ -164,7 +148,7 @@ export class VimcordLogger extends Logger {
                 if (!isCLIEnabledFor(client)) return;
 
                 const cliLine = ` 🚀 ${ansis.bold.hex(colors.primary)("CLI")} ${ansis.bold("~ Type /help to view available commands")} `;
-                const consoleWidth = process.stdout.columns ?? MIN_CONSOLE_WIDTH;
+                const consoleWidth = Math.max(MIN_CONSOLE_WIDTH, process.stdout.columns ?? MIN_CONSOLE_WIDTH);
                 const leftLine = ansis.hex(colors.muted)(
                     "─".repeat(Math.max(0, consoleWidth - stripAnsi(cliLine).length - 2))
                 );

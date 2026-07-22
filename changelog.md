@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-22
+
+### Added
+
+- Added named role IDs to `globals.staff.guild.roles`, alongside the existing named channel IDs.
+- Added public cache-first `fetchRole` and `fetchMember` UX helpers with nullable failure results.
+
 ## 2026-07-17
 
 ### Fixed
@@ -7,6 +14,7 @@
 - Standardized plugin-scoped logger labels as uppercase `PLUGIN` across normal, debug, success, error, and startup summary output.
 - Made CLI tables wrap within the detected terminal width with a compact maximum instead of expanding to their longest values.
 - Removed blank-line padding before and after CLI command results.
+- Restored the full startup banner on hosts that report a narrow terminal width despite supporting the complete layout.
 
 ### Changed
 
