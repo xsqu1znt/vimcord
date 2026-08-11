@@ -37,10 +37,12 @@ describe("BetterModal", () => {
         const interaction = {
             awaitModalSubmit: vi.fn(async () => modalSubmit)
         } as unknown as ModalShowableInteraction;
-        const modal = new BetterModal({ title: "Create Ticket" }).addTextInput({
-            customId: "subject",
-            label: "Subject"
-        });
+        const modal = new BetterModal({ title: "Create Ticket" })
+            .addTextDisplay({ content: "Tell us what happened." })
+            .addTextInput({
+                customId: "subject",
+                label: "Subject"
+            });
 
         const result = await modal.awaitSubmit(interaction, { timeout: 1_000 });
 
@@ -48,6 +50,31 @@ describe("BetterModal", () => {
         expect(result?.getField<string>("subject", true)).toBe("Support");
         expect(result?.getField("users", ComponentType.UserSelect, true)).toBe(users);
         expect(result?.getField("users", "getSelectedUsers", true)).toBe(users);
+    });
+
+    it("preserves text displays between submitted components", () => {
+        const modal = new BetterModal({ title: "Create Ticket" }).addComponents(
+            { textInput: { customId: "subject", label: "Subject" } },
+            { textDisplay: { content: "Include the relevant details." } },
+            { userSelect: { customId: "assignees", label: "Assignees" } }
+        );
+
+        expect(modal.toJSON().components.map(component => component.type)).toEqual([
+            ComponentType.Label,
+            ComponentType.TextDisplay,
+            ComponentType.Label
+        ]);
+        expect(modal.clone().toJSON()).toEqual(modal.toJSON());
+
+        modal.setComponents(
+            { textDisplay: { content: "Review your choices." } },
+            { textInput: { customId: "confirmation", label: "Confirmation" } }
+        );
+
+        expect(modal.toJSON().components.map(component => component.type)).toEqual([
+            ComponentType.TextDisplay,
+            ComponentType.Label
+        ]);
     });
 });
 

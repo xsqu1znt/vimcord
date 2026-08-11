@@ -320,6 +320,9 @@ import { TextInputStyle } from "discord.js";
 import { BetterModal } from "vimcord";
 
 const modal = new BetterModal({ title: "Create Ticket" })
+    .addTextDisplay({
+        content: "Please provide the details below so we can help."
+    })
     .addTextInput({
         customId: "subject",
         label: "Subject",
