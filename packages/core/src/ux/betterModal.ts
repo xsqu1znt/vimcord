@@ -4,6 +4,7 @@ import type {
     APIFileUploadComponent,
     APIModalInteractionResponseCallbackData,
     APIRadioGroupComponent,
+    APITextDisplayComponent,
     ChannelSelectMenuComponentData,
     CommandInteraction,
     InteractionDeferReplyOptions,
@@ -33,6 +34,7 @@ import {
     RadioGroupBuilder,
     RoleSelectMenuBuilder,
     StringSelectMenuBuilder,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
     UserSelectMenuBuilder
@@ -55,6 +57,7 @@ export type BetterAPIUserSelectComponent = { userSelect: BetterUserSelectCompone
 export type BetterAPIRoleSelectComponent = { roleSelect: BetterRoleSelectComponent };
 export type BetterAPIMentionableSelectComponent = { mentionableSelect: BetterMentionableSelectComponent };
 export type BetterAPIFileUploadComponent = { fileUpload: BetterFileUploadComponent };
+export type BetterAPITextDisplayComponent = { textDisplay: BetterTextDisplayComponent };
 
 export type BetterAPIModalComponent =
     | BetterAPITextInputComponent
@@ -66,7 +69,8 @@ export type BetterAPIModalComponent =
     | BetterAPIUserSelectComponent
     | BetterAPIRoleSelectComponent
     | BetterAPIMentionableSelectComponent
-    | BetterAPIFileUploadComponent;
+    | BetterAPIFileUploadComponent
+    | BetterAPITextDisplayComponent;
 
 export type BetterTextInputComponent = Partial<TextInputComponentData> & LabelComponentOptions;
 export type BetterCheckboxComponent = Partial<APICheckboxComponent> & LabelComponentOptions;
@@ -78,6 +82,7 @@ export type BetterUserSelectComponent = Partial<UserSelectMenuComponentData> & L
 export type BetterRoleSelectComponent = Partial<RoleSelectMenuComponentData> & LabelComponentOptions;
 export type BetterMentionableSelectComponent = Partial<MentionableSelectMenuComponentData> & LabelComponentOptions;
 export type BetterFileUploadComponent = Partial<APIFileUploadComponent> & LabelComponentOptions;
+export type BetterTextDisplayComponent = Pick<APITextDisplayComponent, "content">;
 
 export type BetterModalComponent =
     | BetterTextInputComponent
@@ -89,7 +94,8 @@ export type BetterModalComponent =
     | BetterUserSelectComponent
     | BetterRoleSelectComponent
     | BetterMentionableSelectComponent
-    | BetterFileUploadComponent;
+    | BetterFileUploadComponent
+    | BetterTextDisplayComponent;
 
 export type ModalShowableInteraction = CommandInteraction | MessageComponentInteraction;
 
@@ -154,7 +160,7 @@ type ModalFieldGetterArgs<Getter extends BetterModalFieldGetter> = ModalSubmitFi
 
 /** Helpers and parsed values returned after a BetterModal submission. */
 export interface BetterModalSubmitResult {
-    /** Simplified values for every component in insertion order. */
+    /** Simplified values for every submitted component in insertion order. */
     values: unknown[];
     /** The original Discord.js modal submission interaction. */
     interaction: ModalSubmitInteraction;
@@ -223,8 +229,9 @@ function getSimplifiedFieldValue(
 export class BetterModal {
     readonly customId: string;
 
-    private components: Map<string, BetterAPIModalComponent> = new Map();
-    private labelComponents: LabelBuilder[] = [];
+    private components: Map<string | symbol, BetterAPIModalComponent> = new Map();
+    /** Tracks only components that Discord includes in a modal submission. */
+    private fieldComponentIds: Set<string> = new Set();
     private modal: ModalBuilder;
 
     constructor(options?: BetterModalOptions) {
@@ -236,7 +243,7 @@ export class BetterModal {
     }
 
     private validateComponentLength(): void {
-        if ((this.components.size ?? 0) >= 25) {
+        if (this.components.size >= 25) {
             throw new Error("[BetterModal] Modal can only have 25 components");
         }
     }
@@ -251,9 +258,13 @@ export class BetterModal {
         return component;
     }
 
+    private addComponent(component: BetterAPIModalComponent, customId?: string): void {
+        this.components.set(customId ?? Symbol(), component);
+        if (customId !== undefined) this.fieldComponentIds.add(customId);
+    }
+
     private build(): ModalBuilder {
         if (!this.modal.data.title) throw new Error("[BetterModal] Modal must have a title");
-        this.modal.setLabelComponents(this.labelComponents);
         return this.modal;
     }
 
@@ -280,8 +291,12 @@ export class BetterModal {
 
     /** Sets components for the modal. */
     setComponents(...components: BetterAPIModalComponent[]): this {
+        const title = this.modal.data.title;
+
         this.components.clear();
-        this.labelComponents = [];
+        this.fieldComponentIds.clear();
+        this.modal = new ModalBuilder().setCustomId(this.customId);
+        if (title) this.modal.setTitle(title);
         this.addComponents(...components);
         return this;
     }
@@ -291,6 +306,8 @@ export class BetterModal {
         for (const component of components) {
             if ("textInput" in component) {
                 this.addTextInput(component.textInput);
+            } else if ("textDisplay" in component) {
+                this.addTextDisplay(component.textDisplay);
             } else if ("checkbox" in component) {
                 this.addCheckbox(component.checkbox);
             } else if ("checkboxGroup" in component) {
@@ -323,8 +340,19 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setTextInputComponent(textInput);
 
-        this.components.set(customId, { textInput: data });
-        this.labelComponents.push(label);
+        this.addComponent({ textInput: data }, customId);
+        this.modal.addLabelComponents(label);
+
+        return this;
+    }
+
+    addTextDisplay(data: BetterTextDisplayComponent): this {
+        this.validateComponentLength();
+
+        const textDisplay = new TextDisplayBuilder(data);
+
+        this.addComponent({ textDisplay: data });
+        this.modal.addTextDisplayComponents(textDisplay);
 
         return this;
     }
@@ -337,8 +365,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setStringSelectMenuComponent(select);
 
-        this.components.set(customId, { stringSelect: data });
-        this.labelComponents.push(label);
+        this.addComponent({ stringSelect: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -351,8 +379,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setCheckboxComponent(checkbox);
 
-        this.components.set(customId, { checkbox: data });
-        this.labelComponents.push(label);
+        this.addComponent({ checkbox: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -365,8 +393,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setCheckboxGroupComponent(checkboxGroup);
 
-        this.components.set(customId, { checkboxGroup: data });
-        this.labelComponents.push(label);
+        this.addComponent({ checkboxGroup: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -379,8 +407,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setRadioGroupComponent(radioGroup);
 
-        this.components.set(customId, { radioGroup: data });
-        this.labelComponents.push(label);
+        this.addComponent({ radioGroup: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -393,8 +421,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setChannelSelectMenuComponent(channelSelect);
 
-        this.components.set(customId, { channelSelect: data });
-        this.labelComponents.push(label);
+        this.addComponent({ channelSelect: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -407,8 +435,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setUserSelectMenuComponent(userSelect);
 
-        this.components.set(customId, { userSelect: data });
-        this.labelComponents.push(label);
+        this.addComponent({ userSelect: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -421,8 +449,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setRoleSelectMenuComponent(roleSelect);
 
-        this.components.set(customId, { roleSelect: data });
-        this.labelComponents.push(label);
+        this.addComponent({ roleSelect: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -435,8 +463,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setMentionableSelectMenuComponent(mentionableSelect);
 
-        this.components.set(customId, { mentionableSelect: data });
-        this.labelComponents.push(label);
+        this.addComponent({ mentionableSelect: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -449,8 +477,8 @@ export class BetterModal {
         const label = this.createLabelComponent(data);
         label.setFileUploadComponent(fileUpload);
 
-        this.components.set(customId, { fileUpload: data });
-        this.labelComponents.push(label);
+        this.addComponent({ fileUpload: data }, customId);
+        this.modal.addLabelComponents(label);
 
         return this;
     }
@@ -519,7 +547,7 @@ export class BetterModal {
             }) as BetterModalSubmitResult["getField"];
             const values: unknown[] = [];
 
-            for (const customId of this.components.keys()) {
+            for (const customId of this.fieldComponentIds) {
                 values.push(getField(customId));
             }
 
