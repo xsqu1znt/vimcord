@@ -135,10 +135,22 @@ interface ExtraButton {
     component: ButtonBuilder;
 }
 
+/** Options for a custom paginator component handler. */
+export interface PaginatorComponentHandlerOptions {
+    /** Acknowledge the interaction with `deferUpdate()` before the handler runs. */
+    deferUpdate?: boolean;
+}
+
 type PaginatorListener<K extends keyof PaginationEventMap> = {
     fn: (...args: PaginationEventMap[K]) => unknown;
     once: boolean;
 };
+
+interface PaginatorComponentListener {
+    customId: string;
+    fn: (interaction: MessageComponentInteraction) => unknown;
+    deferUpdate: boolean;
+}
 
 const NAV_CUSTOM_IDS = {
     first: "paginator:first",
@@ -234,12 +246,17 @@ function createPaginatorCollectorTiming(options: ResolvedPaginatorOptions): { id
     throw new Error("[Paginator] Either idle or timeout must be provided");
 }
 
+function isBuiltInNavigationControl(customId: string): boolean {
+    return (Object.values(NAV_CUSTOM_IDS) as string[]).includes(customId);
+}
+
 export class Paginator {
     chapters: PaginatorChapter[] = [];
 
     private options: ResolvedPaginatorOptions;
     private readonly extraButtons: ExtraButton[] = [];
     private readonly listeners: { [K in keyof PaginationEventMap]: PaginatorListener<K>[] };
+    private readonly componentListeners: PaginatorComponentListener[] = [];
     private readonly navButtons: Record<NavButtonId, ButtonBuilder> = {
         first: createNavButton("first"),
         skipBack: createNavButton("skipBack"),
@@ -478,12 +495,16 @@ export class Paginator {
         this.collector = collector;
 
         collector.on(async interaction => {
-            // Jump must remain unacknowledged so it can open a modal; every other control updates the current message.
-            if (interaction.customId !== NAV_CUSTOM_IDS.jump) {
+            // Built-in controls update the paginator message. Custom handlers receive the original interaction by default.
+            if (isBuiltInNavigationControl(interaction.customId) && interaction.customId !== NAV_CUSTOM_IDS.jump) {
                 await interaction.deferUpdate().catch(Boolean);
             }
             await this.emit("collect", interaction, this.getCurrentPage(), { ...this.state.index });
         });
+
+        for (const listener of this.componentListeners) {
+            this.registerComponentListener(collector, listener);
+        }
 
         collector.on(NAV_CUSTOM_IDS.chapterSelect, async interaction => {
             if (!interaction.isStringSelectMenu()) return;
@@ -566,6 +587,12 @@ export class Paginator {
         await this.navigate("jump", submittedPage - 1);
     }
 
+    private registerComponentListener(collector: BetterCollector, listener: PaginatorComponentListener): void {
+        collector.on(listener.customId, listener.fn, {
+            defer: listener.deferUpdate ? { update: true } : false
+        });
+    }
+
     private async navigate(event: NavButtonId, nestedIndex: number): Promise<void> {
         await this.emit(event, this.getCurrentPage(), { ...this.state.index });
         await this.setPage(this.state.index.chapter, nestedIndex);
@@ -594,8 +621,43 @@ export class Paginator {
      * @param event Event name to listen for
      * @param listener Listener to run when the event fires
      */
-    on<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this {
-        this.listeners[event].push({ fn: listener, once: false });
+    on<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this;
+
+    /**
+     * Registers a handler for a custom paginator component.
+     * Custom handlers receive an unacknowledged interaction and must acknowledge it within Discord's response window.
+     * @param customId Custom component ID to listen for
+     * @param listener Handler to run when the component is interacted with
+     * @param options Handler configuration
+     */
+    on(
+        customId: string,
+        listener: (interaction: MessageComponentInteraction) => unknown,
+        options?: PaginatorComponentHandlerOptions
+    ): this;
+
+    on<K extends keyof PaginationEventMap>(
+        event: K | string,
+        listener: ((...args: PaginationEventMap[K]) => unknown) | ((interaction: MessageComponentInteraction) => unknown),
+        options?: PaginatorComponentHandlerOptions
+    ): this {
+        if (Object.hasOwn(this.listeners, event)) {
+            const paginationEvent = event as K;
+            this.listeners[paginationEvent].push({
+                fn: listener as (...args: PaginationEventMap[K]) => unknown,
+                once: false
+            });
+            return this;
+        }
+
+        const componentListener = {
+            customId: event,
+            fn: listener as (interaction: MessageComponentInteraction) => unknown,
+            deferUpdate: options?.deferUpdate ?? false
+        };
+
+        this.componentListeners.push(componentListener);
+        if (this.collector) this.registerComponentListener(this.collector, componentListener);
         return this;
     }
 

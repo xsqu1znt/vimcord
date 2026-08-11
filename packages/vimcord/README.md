@@ -266,6 +266,7 @@ await container.send(interaction);
 ### Paginator
 
 ```ts
+import { ButtonBuilder, ButtonStyle } from "discord.js";
 import { BetterContainer, Paginator, PaginationTimeout, PaginationType } from "vimcord";
 
 const intro = new BetterContainer().addText("## Help").addText("Choose a page below.");
@@ -282,12 +283,26 @@ paginator
     .addChapter([intro, "Use `/help command` for command-specific help."], { label: "General", emoji: "📖" })
     .addChapter([moderation], { label: "Moderation", emoji: "🛡️" });
 
+paginator.insertButtonAt(
+    0,
+    new ButtonBuilder().setCustomId("help:feedback").setLabel("Feedback").setStyle(ButtonStyle.Secondary)
+);
+
 paginator.on("pageChange", (_page, index) => {
     console.log(`Viewing chapter ${index.chapter}, page ${index.nested}`);
 });
 
+// Custom component handlers receive the original interaction without an automatic acknowledgement.
+paginator.on("help:feedback", async buttonInteraction => {
+    await buttonInteraction.reply({ content: "Thanks for your feedback!", flags: "Ephemeral" });
+});
+
 await paginator.send(interaction);
 ```
+
+Custom paginator handlers must call `showModal`, `update`, `deferUpdate`, `reply`, or otherwise acknowledge the
+interaction within Discord's response window. To acknowledge a custom interaction before its handler runs, pass
+`{ deferUpdate: true }` as the third argument to `paginator.on()`.
 
 ### Prompt
 
