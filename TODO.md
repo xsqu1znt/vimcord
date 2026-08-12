@@ -1,4 +1,1 @@
-- [x] Add a `roles` object property to `globals.staff.guild`.
-  - Named staff-guild role IDs now mirror the existing named channel IDs and default to an empty object.
-- [x] Add `fetchRole` and `fetchMember` to `ux/tools.ts`.
-  - Both helpers accept nullable inputs, check the relevant guild cache first, fetch on a miss, and return `null` when resolution fails.
+BetterCollector: when using a container (since it's a component), when editing the message to disable/remove components it reverts back to the original container it had when the builder was first used, disable should only disable interactable components, not messing with the current container. delete components should only delete components if they're action rows outside of a container
