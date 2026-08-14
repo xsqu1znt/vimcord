@@ -476,7 +476,7 @@ export class Paginator {
 
     private collectComponents(): void {
         const message = this.state.message;
-        if (!message || !this.hasComponentControls()) return;
+        if (!message) return;
 
         if (this.collector) {
             this.ignoreNextCollectorEnd = true;

@@ -58,9 +58,9 @@ function createInteraction(customId: string): MessageComponentInteraction {
     return interaction;
 }
 
-async function createPaginator(): Promise<{ harness: CollectorHarness; paginator: Paginator }> {
+async function createPaginator(pages = ["first", "second"]): Promise<{ harness: CollectorHarness; paginator: Paginator }> {
     const harness = createCollectorHarness();
-    const paginator = new Paginator({ pages: ["first", "second"], timeout: 60_000 });
+    const paginator = new Paginator({ pages, timeout: 60_000 });
     const internals = paginator as unknown as PaginatorInternals;
 
     await paginator.setPage();
@@ -71,6 +71,18 @@ async function createPaginator(): Promise<{ harness: CollectorHarness; paginator
 }
 
 describe("Paginator custom component handlers", () => {
+    it("creates a collector for a single page without paginator controls", async () => {
+        const { harness, paginator } = await createPaginator(["first"]);
+        const handler = vi.fn();
+        const interaction = createInteraction("custom:single-page");
+
+        paginator.on("custom:single-page", handler);
+        await harness.collect(interaction);
+
+        expect(harness.message.createMessageComponentCollector).toHaveBeenCalledOnce();
+        expect(handler).toHaveBeenCalledWith(interaction);
+    });
+
     it("receives an unacknowledged interaction by default", async () => {
         const { harness, paginator } = await createPaginator();
         const handler = vi.fn((interaction: MessageComponentInteraction) => {
