@@ -87,8 +87,8 @@ export interface StaffGlobals {
     superUsers: string[];
     /** Discord role IDs granted superuser privileges. */
     superUserRoles: string[];
-    /** Per-command user ID overrides that bypass normal permission checks. */
-    bypassers: { commandName: string; userIds: string[] }[];
+    /** Per-command user/role ID overrides that bypass normal permission checks. */
+    bypassers: { commandName: string; userIds?: string[]; roleIds?: string[] }[];
     /** Controls which staff roles bypass guild administrator permission checks. */
     bypassesGuildAdmin: {
         /** Applies to all staff roles. */

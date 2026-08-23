@@ -121,6 +121,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private connectionRefreshTimer: ReturnType<typeof setInterval> | null = null;
     private refreshingConnectionPromise: Promise<void> | null = null;
     private loginToken: string | null = null;
+    private warnedMissingStaffGuild = false;
 
     constructor(options: VimcordClientOptions) {
         const {
@@ -438,18 +439,39 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     /**
+     * Fetches the role IDs a user holds in the configured staff guild, regardless of the guild
+     * a command is invoked in.
+     * @param userId The ID of the user to check
+     */
+    async getStaffGuildRoleIds(userId: string): Promise<string[]> {
+        const staff = this.globals.staff;
+        if (!staff.guild.id) {
+            if (!this.warnedMissingStaffGuild) {
+                this.warnedMissingStaffGuild = true;
+                this.logger.warn(
+                    "[Staff] `staff.guild.id` is not configured, so staff-guild role checks (superUserRoles, bypasser roleIds) can never match anyone."
+                );
+            }
+            return [];
+        }
+
+        const guild = await this.fetchGuild(staff.guild.id);
+        const member = await guild?.members.fetch(userId).catch(() => null);
+        if (!member) return [];
+
+        return [...member.roles.cache.keys()];
+    }
+
+    /**
      * Checks whether a user is configured as bot staff.
      * @param userId The ID of the user to test
      */
     async isBotStaff(userId: string): Promise<boolean> {
         const staff = this.globals.staff;
         if (staff.ownerId === userId || staff.superUsers.includes(userId)) return true;
-        if (!staff.guild.id || !staff.superUserRoles.length) return false;
+        if (!staff.superUserRoles.length) return false;
 
-        const guild = await this.fetchGuild(staff.guild.id);
-        const member = await guild?.members.fetch(userId).catch(() => null);
-        if (!member) return false;
-
-        return staff.superUserRoles.some(roleId => member.roles.cache.has(roleId));
+        const staffGuildRoleIds = await this.getStaffGuildRoleIds(userId);
+        return staff.superUserRoles.some(roleId => staffGuildRoleIds.includes(roleId));
     }
 }

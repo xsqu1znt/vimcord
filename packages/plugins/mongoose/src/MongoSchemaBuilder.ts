@@ -98,7 +98,7 @@ export function createMongoSchema<Definition extends object>(
     return new MongoSchemaBuilder(collection, definition, options);
 }
 
-export class MongoSchemaBuilder<Definition> {
+export class MongoSchemaBuilder<Definition = {}> {
     static globalPlugins: MongoPlugin[] = [];
 
     readonly client: Vimcord | null = null;

@@ -7,6 +7,7 @@ import { Vimcord, VimcordPlugin } from "@vimcord/core";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
 export * from "./MongoSchemaBuilder.js";
+export * from "./ServiceFactories.js";
 
 export interface MongooseOptions extends mongoose.MongooseOptions {
     /**

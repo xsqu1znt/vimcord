@@ -103,11 +103,26 @@ function getMemberRoleIds(member: CommandMember): string[] {
     return Array.isArray(member.roles) ? member.roles : member.roles.cache.map(role => role.id);
 }
 
-function isCommandBypasser(staff: StaffGlobals, commandName: string, userId: string): boolean {
+async function isCommandBypasser<K extends CommandModuleType>(
+    ctx: CommandModuleHookContext<K>,
+    staff: StaffGlobals,
+    commandName: string,
+    userId: string
+): Promise<boolean> {
     const normalizedCommandName = commandName.trim().toLowerCase();
-    return staff.bypassers.some(
-        entry => entry.commandName.trim().toLowerCase() === normalizedCommandName && entry.userIds.includes(userId)
+    const matchingEntries = staff.bypassers.filter(
+        entry => entry.commandName.trim().toLowerCase() === normalizedCommandName
     );
+    if (!matchingEntries.length) return false;
+    if (matchingEntries.some(entry => entry.userIds?.includes(userId))) return true;
+
+    const roleIds = matchingEntries.flatMap(entry => entry.roleIds ?? []);
+    if (!roleIds.length) return false;
+
+    // Resolved against the configured staff guild, not the invoking guild, so a bypasser role
+    // grants access regardless of which server the command was used in.
+    const staffGuildRoleIds = await ctx.client.getStaffGuildRoleIds(userId);
+    return roleIds.some(id => staffGuildRoleIds.includes(id));
 }
 
 function requiresAdministrator(requiredPermissions: PermissionResolvable[] | undefined): boolean {
@@ -160,7 +175,7 @@ export async function testCommandPermissions<K extends CommandModuleType>(
     if (!result.passed) return result;
 
     // --- Additive access grants ---
-    const isBypasser = isCommandBypasser(staff, ctx.module.name, user.id);
+    const isBypasser = await isCommandBypasser(ctx, staff, ctx.module.name, user.id);
     const administratorRequired = requiresAdministrator(permissions.user);
     const needsBotStaff =
         Boolean(permissions.botStaffOnly) || (administratorRequired && staff.bypassesGuildAdmin.allBotStaff);
