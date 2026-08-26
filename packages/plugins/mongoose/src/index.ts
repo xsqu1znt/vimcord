@@ -280,19 +280,15 @@ export class MongoosePlugin extends VimcordPlugin {
         return session;
     }
 
-    async useTransaction(
-        fn: (session: mongoose.ClientSession) => Promise<unknown>,
+    async useTransaction<T>(
+        fn: (session: mongoose.ClientSession) => Promise<T>,
         options?: mongoose.mongo.TransactionOptions
-    ): Promise<void> {
-        await this.useSession(async session => {
-            session.startTransaction(options);
-            try {
-                await fn(session);
-                await session.commitTransaction();
-            } catch (err) {
-                if (session.inTransaction()) await session.abortTransaction();
-                throw err;
-            }
-        });
+    ): Promise<T> {
+        const session = await this.startSession();
+        try {
+            return await session.withTransaction(() => fn(session), options);
+        } finally {
+            await session.endSession();
+        }
     }
 }

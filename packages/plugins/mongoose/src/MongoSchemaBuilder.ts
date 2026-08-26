@@ -220,10 +220,10 @@ export class MongoSchemaBuilder<Definition = {}> {
      * @param fn The function to use inside of the transaction
      * @param options The options for the transaction
      */
-    async useTransaction(
-        fn: (session: mongoose.ClientSession) => Promise<unknown>,
+    async useTransaction<T>(
+        fn: (session: mongoose.ClientSession) => Promise<T>,
         options?: mongoose.mongo.TransactionOptions
-    ): Promise<void> {
+    ): Promise<T> {
         const { plugin } = this.compileModel();
         return await plugin.useTransaction(fn, options);
     }
