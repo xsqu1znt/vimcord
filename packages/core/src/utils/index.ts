@@ -3,5 +3,6 @@ export * from "./arr.js";
 export * from "./clientUtils.js";
 export * from "./import.js";
 export * from "./obj.js";
+export * from "./packageVersion.js";
 export * from "./process.js";
 export * from "./str.js";

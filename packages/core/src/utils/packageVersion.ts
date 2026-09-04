@@ -32,27 +32,30 @@ function findWorkspacePackageVersion(packageName: string, packagePath: string, c
     return findWorkspacePackageVersion(packageName, packagePath, parentDir);
 }
 
-function getCorePackageVersion(): string {
+/**
+ * Resolves the installed version of a package, including monorepo development environments.
+ *
+ * The package is resolved from the consuming app first. When that fails, which happens while working inside this
+ * monorepo, the workspace path is walked upwards from the current directory instead.
+ *
+ * @param packageName The package name to read the version from
+ * @param workspacePath The path to the package inside this monorepo, relative to the workspace root
+ */
+export function getPackageVersion(packageName: string, workspacePath: string): string | null {
     try {
-        const packageEntry = PACKAGE_REQUIRE.resolve("@vimcord/core");
-        const version = findPackageVersion(packageEntry, "@vimcord/core");
+        const packageEntry = PACKAGE_REQUIRE.resolve(packageName);
+        const version = findPackageVersion(packageEntry, packageName);
         if (version) return version;
     } catch {
-        // Core may be executing directly from this monorepo instead of an installed package.
+        // The package may be executing directly from this monorepo instead of an installed package.
     }
 
-    return findWorkspacePackageVersion("@vimcord/core", "packages/core") ?? "unknown";
+    return findWorkspacePackageVersion(packageName, workspacePath);
 }
 
 /** Resolves the installed Vimcord wrapper version, including monorepo development environments. */
 export function getVimcordPackageVersion(): string {
-    try {
-        const packageEntry = PACKAGE_REQUIRE.resolve("vimcord");
-        const version = findPackageVersion(packageEntry, "vimcord");
-        if (version) return version;
-    } catch {
-        // Consumers may install core directly without the wrapper package.
-    }
-
-    return findWorkspacePackageVersion("vimcord", "packages/vimcord") ?? getCorePackageVersion();
+    return (
+        getPackageVersion("vimcord", "packages/vimcord") ?? getPackageVersion("@vimcord/core", "packages/core") ?? "unknown"
+    );
 }
