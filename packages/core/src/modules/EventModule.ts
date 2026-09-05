@@ -7,11 +7,11 @@ import { AbstractModule } from "../abstracts/AbstractModule.js";
 /** Overrides the `clientReady` event so there's no double client args. */
 export type VimcordClientEvents = Omit<ClientEvents, "clientReady"> & { clientReady: [] };
 
-type EventModuleContext<Args extends unknown[]> = ModuleContext & {
+type EventModuleContext<Args extends unknown[]> = ModuleContext<boolean> & {
     args: Args;
 };
 
-type EventModuleHookContext<Args extends unknown[]> = ModuleHookContext<Args> & EventModuleContext<Args>;
+type EventModuleHookContext<Args extends unknown[]> = ModuleHookContext<Args, boolean> & EventModuleContext<Args>;
 
 export interface EventModuleOptions<
     Event extends keyof VimcordClientEvents = keyof VimcordClientEvents,
@@ -24,11 +24,6 @@ export interface EventModuleOptions<
      * @default false
      */
     once?: boolean;
-    /**
-     * Priority for event execution order (higher = earlier).
-     * @default 0
-     */
-    priority?: number;
 }
 
 export class EventModule<
@@ -38,14 +33,12 @@ export class EventModule<
     override moduleType: string = "Event";
     readonly event: Event;
     readonly once: boolean;
-    readonly priority: number;
 
     constructor(options: EventModuleOptions<Event, Args>) {
         super({ requiresReady: false, ...options });
 
         this.event = options.event;
         this.once = options.once ?? false;
-        this.priority = Math.max(0, options.priority ?? 0);
     }
 
     protected override validate(): boolean {
@@ -53,7 +46,7 @@ export class EventModule<
     }
 
     protected override createModuleCTX(args: Args): EventModuleContext<Args> {
-        return { client: this.client as Vimcord<true>, args };
+        return { client: this.client as Vimcord, args };
     }
 
     protected override createHookCTX(moduleCTX: EventModuleContext<Args>): EventModuleHookContext<Args> {

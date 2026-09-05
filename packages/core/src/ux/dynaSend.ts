@@ -30,6 +30,7 @@ import {
     InteractionCallbackResponse,
     Message,
     MessageFlags,
+    MessageFlagsBitField,
     User
 } from "discord.js";
 
@@ -90,41 +91,41 @@ function isInteractionCallback(obj: unknown): obj is InteractionCallbackResponse
     return obj instanceof InteractionCallbackResponse;
 }
 
+function toFlagsBitField(flags: NonNullable<InteractionReplyOptions["flags"]>): MessageFlagsBitField {
+    return new MessageFlagsBitField(flags as never);
+}
+
+/** Whether `flags` includes any of `check`, resolving each array entry as its own (possibly combined) bitfield. */
+export function hasAnyMessageFlag(flags: InteractionReplyOptions["flags"], check: readonly MessageFlags[]): boolean {
+    if (flags == null) return false;
+    if (Array.isArray(flags)) return flags.some(f => toFlagsBitField(f).any(check));
+    return toFlagsBitField(flags).any(check);
+}
+
+/** Adds a flag to a flags value, resolving through `MessageFlagsBitField`. */
+export function addMessageFlag(
+    flags: InteractionReplyOptions["flags"],
+    flag: MessageFlags
+): NonNullable<InteractionReplyOptions["flags"]> {
+    if (flags == null) return flag as NonNullable<InteractionReplyOptions["flags"]>;
+    return toFlagsBitField(flags).add(flag).bitfield as NonNullable<InteractionReplyOptions["flags"]>;
+}
+
 // Removes flags that are not applicable to certain send methods (e.g., Ephemeral for channels)
-// Supports number flags, string flags ("Ephemeral"), and array flags
+// Supports number flags, string flags ("Ephemeral"), and array flags; array entries may themselves be combined bitmasks
 function filterFlags(
     flags: InteractionReplyOptions["flags"],
     excludeFlags: readonly MessageFlags[]
 ): InteractionReplyOptions["flags"] {
     if (flags == null) return undefined;
 
-    // Build sets of flags to exclude for O(1) lookup
-    const flagToExclude = new Set<number>();
-    const stringFlags = new Set<string>();
-
-    for (const f of excludeFlags) {
-        flagToExclude.add(f);
-        stringFlags.add(MessageFlags[f]);
-    }
-
-    // Handle array flags: filter out excluded flags
     if (Array.isArray(flags)) {
-        const filtered = flags.filter(f => {
-            const num = typeof f === "number" ? f : MessageFlags[f as keyof typeof MessageFlags];
-            return !flagToExclude.has(num);
-        });
-        return filtered.length ? (filtered as InteractionReplyOptions["flags"]) : undefined;
+        const remaining = flags.map(f => toFlagsBitField(f).remove(...excludeFlags).bitfield).filter(f => f !== 0);
+        return remaining.length ? (remaining as InteractionReplyOptions["flags"]) : undefined;
     }
 
-    // Handle number flags: bitwise AND to remove excluded flags
-    if (typeof flags === "number") {
-        let result = flags;
-        for (const flag of excludeFlags) result &= ~flag;
-        return result || undefined;
-    }
-
-    // Handle single string flag: check if it should be excluded
-    return stringFlags.has(String(flags)) ? undefined : flags;
+    const remaining = toFlagsBitField(flags).remove(...excludeFlags).bitfield;
+    return remaining || undefined;
 }
 
 // Determines the appropriate send method based on the handler type and state

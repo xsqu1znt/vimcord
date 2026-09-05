@@ -107,10 +107,13 @@ export class BetterEmbed {
             timestamp: data.timestamp ?? null,
             acf: data.acf ?? true
         };
-
-        this.build();
     }
 
+    /**
+     * Rebuilds the embed from stored data. Setters only update stored data; this runs once at the
+     * `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly
+     * once per serialization, not once per setter call.
+     */
     private build(): void {
         const formatting = this.createFormattingContext();
         const author = normalizeAuthor(this.data.author);
@@ -148,17 +151,26 @@ export class BetterEmbed {
 
         // --- Metadata ---
         const color = this.resolveColor();
-        if (color) embed.setColor(color);
-        if (this.data.timestamp) embed.setTimestamp(this.data.timestamp === true ? Date.now() : this.data.timestamp);
+        if (color !== null) embed.setColor(color);
 
-        const fields = this.data.fields
-            .filter(isEmbedField)
-            .slice(0, 25)
-            .map(field => ({
-                ...field,
-                name: this.formatText(field.name, formatting),
-                value: this.formatText(field.value, formatting)
-            }));
+        const timestamp = this.data.timestamp;
+        if (timestamp !== null && timestamp !== false) {
+            // discord.js's own EmbedBuilder.setTimestamp() falsy-checks its argument, so a literal
+            // epoch-zero timestamp (0) is still dropped downstream. That's a discord.js limitation,
+            // not something this layer can fix without bypassing its builder.
+            embed.setTimestamp(timestamp === true ? Date.now() : timestamp);
+        }
+
+        const validFields = this.data.fields.filter(isEmbedField);
+        if (validFields.length > 25) {
+            throw new Error(`[BetterEmbed] Embeds cannot have more than 25 fields (got ${validFields.length})`);
+        }
+
+        const fields = validFields.map(field => ({
+            ...field,
+            name: this.formatText(field.name, formatting),
+            value: this.formatText(field.value, formatting)
+        }));
 
         if (fields.length) embed.setFields(fields);
 
@@ -236,7 +248,7 @@ export class BetterEmbed {
     }
 
     private resolveColor(): ColorResolvable | null {
-        if (!this.data.color) return null;
+        if (this.data.color === null) return null;
         if (!Array.isArray(this.data.color)) return this.data.color;
         if (!this.data.color.length) return null;
         return this.data.color[Math.floor(Math.random() * this.data.color.length)] ?? null;
@@ -264,7 +276,6 @@ export class BetterEmbed {
      */
     setAuthor(author: string | BetterEmbedAuthor | null): this {
         this.data.author = author;
-        this.build();
         return this;
     }
 
@@ -274,7 +285,6 @@ export class BetterEmbed {
      */
     setTitle(title: string | BetterEmbedTitle | null): this {
         this.data.title = title;
-        this.build();
         return this;
     }
 
@@ -284,7 +294,6 @@ export class BetterEmbed {
      */
     setDescription(description: BetterEmbedData["description"]): this {
         this.data.description = description ?? null;
-        this.build();
         return this;
     }
 
@@ -294,7 +303,6 @@ export class BetterEmbed {
      */
     setThumbnail(url: string | null): this {
         this.data.thumbnailUrl = url;
-        this.build();
         return this;
     }
 
@@ -304,7 +312,6 @@ export class BetterEmbed {
      */
     setImage(url: string | null): this {
         this.data.imageUrl = url;
-        this.build();
         return this;
     }
 
@@ -314,7 +321,6 @@ export class BetterEmbed {
      */
     setFooter(footer: string | BetterEmbedFooter | null): this {
         this.data.footer = footer;
-        this.build();
         return this;
     }
 
@@ -324,7 +330,6 @@ export class BetterEmbed {
      */
     setColor(color: ColorResolvable | ColorResolvable[] | null): this {
         this.data.color = color;
-        this.build();
         return this;
     }
 
@@ -334,7 +339,6 @@ export class BetterEmbed {
      */
     setTimestamp(timestamp: number | boolean | Date | null): this {
         this.data.timestamp = timestamp;
-        this.build();
         return this;
     }
 
@@ -344,7 +348,6 @@ export class BetterEmbed {
      */
     addFields(fields: APIEmbedField[]): this {
         this.data.fields = [...this.data.fields, ...fields];
-        this.build();
         return this;
     }
 
@@ -354,7 +357,6 @@ export class BetterEmbed {
      */
     setFields(fields: APIEmbedField[]): this {
         this.data.fields = fields;
-        this.build();
         return this;
     }
 
@@ -368,7 +370,6 @@ export class BetterEmbed {
         const updatedFields = [...this.data.fields];
         updatedFields.splice(index, deleteCount, ...fields);
         this.data.fields = updatedFields;
-        this.build();
         return this;
     }
 

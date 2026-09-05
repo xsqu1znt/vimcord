@@ -88,9 +88,9 @@ export class VimcordCLI {
         return this.client;
     }
 
-    /** Returns core commands and contributions available for the attached client. */
-    getAvailableCommands(client: Vimcord | null = this.getClient()): readonly CLICommand[] {
-        return [...this.coreCommands, ...(client?.plugins.getCLICommands().map(entry => entry.command) ?? [])];
+    /** Returns the core CLI commands. */
+    getAvailableCommands(): readonly CLICommand[] {
+        return this.coreCommands;
     }
 
     /** Returns whether the given client is attached to this running CLI. */
@@ -108,8 +108,8 @@ export class VimcordCLI {
         if (this.client === client) this.client = null;
     }
 
-    private findCommand(name: string, client: Vimcord | null): CLICommand | undefined {
-        return this.getAvailableCommands(client).find(
+    private findCommand(name: string): CLICommand | undefined {
+        return this.getAvailableCommands().find(
             command => command.name === name || command.aliases?.includes(name) === true
         );
     }
@@ -125,7 +125,7 @@ export class VimcordCLI {
         if (!parsed) return;
 
         const client = this.getClient();
-        const command = this.findCommand(parsed.name, client);
+        const command = this.findCommand(parsed.name);
         if (!command) {
             this.logger.header("Unknown Command", client);
             this.logger.line(`No CLI command named ${this.logger.styles.command(`/${parsed.name}`)} is available.`);

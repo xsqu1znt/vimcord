@@ -12,21 +12,36 @@ function createClient(): Vimcord {
     return client;
 }
 
-class FailingPlugin extends VimcordPlugin {
-    name = "failing";
-    description = "Fails during cleanup";
+class RecordingPlugin extends VimcordPlugin {
+    name: string;
+    description = "Records install/uninstall calls";
     version = "1.0.0";
+    installCalls = 0;
+    uninstallCalls = 0;
 
-    install(): void {}
+    constructor(
+        name: string,
+        private readonly options: { failInstall?: boolean; failUninstall?: boolean } = {}
+    ) {
+        super();
+        this.name = name;
+    }
 
-    uninstall(): void {
-        throw new Error("cleanup failed");
+    override install(): void {
+        this.installCalls++;
+        if (this.options.failInstall) throw new Error(`${this.name} install failed`);
+    }
+
+    override uninstall(): void {
+        this.uninstallCalls++;
+        if (this.options.failUninstall) throw new Error(`${this.name} uninstall failed`);
     }
 }
 
 afterEach(async () => {
     await client?.destroy();
     client = undefined;
+    vi.restoreAllMocks();
 });
 
 describe("Vimcord.awaitReady", () => {
@@ -56,9 +71,9 @@ describe("Vimcord.awaitReady", () => {
 
     it("finishes client cleanup after a plugin uninstall failure", async () => {
         const client = createClient();
-        const plugin = new FailingPlugin();
-        plugin.installed = true;
+        const plugin = new RecordingPlugin("failing", { failUninstall: true });
         client.use(plugin);
+        await client.plugins.load();
 
         const wait = client.awaitReady();
         const destroyed = vi.fn();
@@ -71,5 +86,30 @@ describe("Vimcord.awaitReady", () => {
         expect(destroyClient).toHaveBeenCalled();
         expect(Vimcord.getInstance()).toBeUndefined();
         expect(destroyed).toHaveBeenCalledWith(client);
+    });
+});
+
+describe("Vimcord.login plugin cleanup", () => {
+    it("cleans up already-installed plugins when a later login step fails", async () => {
+        const client = createClient();
+        const plugin = new RecordingPlugin("service");
+        client.use(plugin);
+        vi.spyOn(Client.prototype, "login").mockRejectedValue(new Error("network down"));
+
+        await expect(client.login("token")).rejects.toThrow(/network down/);
+
+        expect(plugin.installCalls).toBe(1);
+        expect(plugin.uninstallCalls).toBe(1);
+        expect(client.plugins.isInstalled(plugin.name)).toBe(false);
+    });
+
+    it("keeps the login failure as the primary error even when plugin cleanup also fails", async () => {
+        const client = createClient();
+        const plugin = new RecordingPlugin("service", { failUninstall: true });
+        client.use(plugin);
+        vi.spyOn(Client.prototype, "login").mockRejectedValue(new Error("network down"));
+
+        await expect(client.login("token")).rejects.toThrow(/network down/);
+        expect(client.plugins.isInstalled(plugin.name)).toBe(false);
     });
 });

@@ -163,6 +163,39 @@ export default new SlashCommandModule({
 });
 ```
 
+Routes are fixed when the module is constructed. Command conditions and permissions run first. A matched route then
+runs its own conditions and permissions before its handler. Both levels must pass, and failures use the existing
+command hooks with the same command context.
+
+When `execute` and `routes` are both present, a matched subcommand uses its route. An invocation without a subcommand
+uses `execute`. If the interaction names a subcommand that has no route, Vimcord runs `onUnknownRoute` or its default
+ephemeral response. A command with no routes sends every invocation to `execute`, including builder subcommands.
+Route-only commands must cover every subcommand declared by the builder.
+
+`deferReply` on a route overrides the command setting. Omitting it inherits the command setting. Setting it to `false`
+disables deferral for that route.
+
+Use `singleInvocation: true` to skip a second invocation from the same user while this module is still running. Slash
+routes share that module and user key. For a custom scope, return a key from `singleInvocation.key`. The guard acquires
+after `preExecute`, releases before `postExecute`, and releases when the handler throws. A skipped invocation does not
+count as executed and only runs `onAlreadyRunning`; the hook is silent unless you send a response. This in-memory guard
+coordinates one process only.
+
+```ts
+export default new SlashCommandModule({
+    builder,
+    singleInvocation: true,
+    hooks: {
+        async onAlreadyRunning({ interaction }) {
+            await interaction.reply({ content: "That command is already running.", flags: "Ephemeral" });
+        }
+    },
+    async execute({ interaction }) {
+        await runJob(interaction.user.id);
+    }
+});
+```
+
 ### Command Permissions
 
 ```ts
@@ -304,33 +337,34 @@ await container.send(interaction);
 
 ```ts
 import { ButtonBuilder, ButtonStyle } from "discord.js";
-import { BetterContainer, Paginator, PaginationTimeout, PaginationType } from "vimcord";
-
-const intro = new BetterContainer().addText("## Help").addText("Choose a page below.");
-const moderation = new BetterContainer().addText("## Moderation").addText("Ban, kick, and timeout commands.");
+import { Paginator, PaginationType, ResolveAction } from "vimcord";
 
 const paginator = new Paginator({
     type: PaginationType.LongSkip,
+    jump: true,
     skipSize: 5,
     idle: 60_000,
-    onTimeout: PaginationTimeout.DisableComponents
+    onTimeout: ResolveAction.DisableComponents
 });
 
 paginator
-    .addChapter([intro, "Use `/help command` for command-specific help."], { label: "General", emoji: "📖" })
-    .addChapter([moderation], { label: "Moderation", emoji: "🛡️" });
+    .addChapter(["Help overview", "Use `/help command` for command-specific help."], {
+        label: "General",
+        emoji: "📖"
+    })
+    .addChapter(["Ban, kick, and timeout commands."], { label: "Moderation", emoji: "🛡️" });
 
 paginator.insertButtonAt(
     0,
     new ButtonBuilder().setCustomId("help:feedback").setLabel("Feedback").setStyle(ButtonStyle.Secondary)
 );
 
-paginator.on("pageChange", (_page, index) => {
-    console.log(`Viewing chapter ${index.chapter}, page ${index.nested}`);
+paginator.on("paginate", ({ previous, destination, action, page }) => {
+    console.log(`${action}: ${previous.chapter}.${previous.nested} -> ${destination.chapter}.${destination.nested}`);
 });
 
 // Custom component handlers receive the original interaction without an automatic acknowledgement.
-paginator.on("help:feedback", async buttonInteraction => {
+paginator.onComponent("help:feedback", async buttonInteraction => {
     await buttonInteraction.reply({ content: "Thanks for your feedback!", flags: "Ephemeral" });
 });
 
@@ -339,7 +373,157 @@ await paginator.send(interaction);
 
 Custom paginator handlers must call `showModal`, `update`, `deferUpdate`, `reply`, or otherwise acknowledge the
 interaction within Discord's response window. To acknowledge a custom interaction before its handler runs, pass
-`{ deferUpdate: true }` as the third argument to `paginator.on()`.
+`{ deferUpdate: true }` as the third argument to `paginator.onComponent()`.
+
+Every paginator starts a collector. A one-page paginator without navigation can still collect controls supplied in the
+page or send options and run `collect` and `onComponent` callbacks. Page navigation is omitted for a one-page chapter,
+but chapter selection remains when the paginator has several chapters.
+
+#### Paginator migration
+
+Navigation layouts and Jump are explicit. `dynamic`, `paginator.longThreshold`, `paginator.jumpableThreshold`, and
+automatic Jump insertion are gone.
+
+Paginator timeout actions now use the shared `ResolveAction` enum. Replace `PaginationTimeout.DisableComponents` with
+`ResolveAction.DisableComponents`, and use the same mapping for the other timeout actions.
+
+```ts
+// Before
+new Paginator({ dynamic: true, type: PaginationType.LongSkip, timeout: 60_000 });
+
+// After
+new Paginator({ type: PaginationType.LongSkip, jump: true, timeout: 60_000 });
+```
+
+All successful navigation edits now emit one `paginate` event. Initial sends, unchanged positions, refreshes, loading
+placeholders, and timeout cleanup do not emit it.
+
+```ts
+// Before
+paginator.on("beforePageChange", loadPage);
+paginator.on("pageChange", handlePage);
+paginator.on("next", handleNext);
+
+// After
+paginator.on("paginate", ({ previous, destination, action, page }) => {
+    handlePage({ previous, destination, action, page });
+});
+```
+
+Paginator events and custom component IDs use separate methods. A custom ID such as `"next"` is never treated as an
+event name.
+
+```ts
+// Before
+paginator.on("help:feedback", handleFeedback, { deferUpdate: true });
+
+// After
+paginator.onComponent("help:feedback", handleFeedback, { deferUpdate: true });
+```
+
+Chapters accept an array of pages only. An inner array is one page with several embeds.
+
+```ts
+// Before: a single page could be passed directly
+paginator.addChapter(embedA, { label: "Help" });
+
+// After
+paginator.addChapter([embedA, embedB], { label: "Two pages" });
+paginator.addChapter([[embedA, embedB]], { label: "One multi-embed page" });
+```
+
+Files now belong to the page payload they accompany.
+
+```ts
+// Before
+paginator.addChapter([embedA, embedB], { label: "Reports", files: [fileA, fileB] });
+
+// After
+paginator.addChapter(
+    [
+        { embeds: [embedA], files: [fileA] },
+        { embeds: [embedB], files: [fileB] }
+    ],
+    { label: "Reports" }
+);
+```
+
+The public chapter record now describes its source instead of exposing parallel `pages` and `files` arrays.
+
+```ts
+// Before
+const pages = paginator.chapters[0].pages;
+
+// After
+const source = paginator.chapters[0].source;
+const pages = source.kind === "static" || source.kind === "chapterLoader" ? source.pages : null;
+```
+
+Loaders replace `beforeChapterChange` and `hydrateChapter`. A chapter loader is cached once per paginator. Call
+`reloadChapter()` when it needs fresh data. A page loader receives the requested zero-based page on every navigation
+and declares its page count up front.
+
+If reloading fails, the previous chapter stays available. This includes a reload that removes the current page.
+The failure is logged; select an earlier page before retrying that reload.
+
+```ts
+// Before
+paginator.addChapter([loadingPage], { label: "Users" });
+paginator.on("beforeChapterChange", async chapter => {
+    paginator.hydrateChapter(chapter, await loadUsers(), true);
+});
+
+// After: load and cache the complete chapter
+paginator.addLazyChapter(async () => loadUsers(), { label: "Users" });
+await paginator.reloadChapter();
+
+// After: load one requested page every time
+paginator.addPageLoader(20, async page => loadUserPage(page), { label: "Users" });
+```
+
+`onLoading` runs only for a lazy load. Return nothing to leave the current page visible. An ordinary paginator uses
+ordinary content or embeds for its placeholder.
+
+```ts
+import { Paginator } from "vimcord";
+
+const paginator = new Paginator({
+    timeout: 60_000,
+    onLoading: () => ({ content: "Loading users..." })
+}).addPageLoader(20, page => loadUserPage(page), { label: "Users" });
+```
+
+A Components V2 paginator uses containers for every page and placeholder. A paginator cannot mix ordinary pages and
+Components V2 containers. Static mixtures fail before send. Invalid lazy results fail before edit.
+
+```ts
+import { BetterContainer, Paginator } from "vimcord";
+
+const paginator = new Paginator({
+    timeout: 60_000,
+    onLoading: () => ({ containers: [new BetterContainer().addText("Loading users...")] })
+}).addPageLoader(20, async page => ({
+    containers: [new BetterContainer().addText(await loadUserPageText(page))]
+}), { label: "Users" });
+```
+
+`insertButtonAt(index, button)` and `removeButtonAt(...indexes)` now use the same identity: the zero-based insertion
+position among rendered navigation buttons.
+
+Jump failures and stale submissions use global messages only. All three defaults are `null`, which silently calls
+`deferUpdate()` when the interaction still needs acknowledgement. Set a string to send an ephemeral response.
+
+```ts
+defineGlobalUxConfig({
+    paginator: {
+        messages: {
+            loadFailed: "That page could not be loaded.",
+            expired: "This paginator has expired.",
+            chapterChanged: "The chapter changed. Open Jump again."
+        }
+    }
+});
+```
 
 ### Prompt
 
@@ -360,7 +544,7 @@ const result = await promptMessage(interaction, {
     highlightSelectedButton: true
 });
 
-if (result.confirmed) {
+if (result.status === "confirmed") {
     await targetMessage.delete();
 }
 ```
@@ -368,7 +552,7 @@ if (result.confirmed) {
 ### BetterModal
 
 ```ts
-import { TextInputStyle } from "discord.js";
+import { ComponentType, TextInputStyle } from "discord.js";
 import { BetterModal } from "vimcord";
 
 const modal = new BetterModal({ title: "Create Ticket" })
@@ -397,13 +581,39 @@ const modal = new BetterModal({ title: "Create Ticket" })
 const result = await modal.showAndAwait(interaction, { timeout: 60_000 });
 if (!result) return;
 
-const subject = result.getField<string>("subject", true);
-const assignees = result.getField("assignees", "getSelectedUsers");
+const subject = result.getField("subject", ComponentType.TextInput, true);
+const assignees = result.getField("assignees", ComponentType.UserSelect);
 
 await result.reply({
     content: `Ticket created: ${subject}`,
     flags: "Ephemeral"
 });
+```
+
+Modal submissions now expose one component-type-based `getField`, the original interaction, and reply helpers. Use `interaction.fields` when you need a Discord.js getter that the simplified accessor does not cover.
+
+```ts
+// Before: asserted result type, forwarded getter name, positional values
+const subject = result.getField<string>("subject", true);
+const assignees = result.getField("assignees", "getSelectedUsers");
+const firstValue = result.values[0];
+
+// After: component type selects and checks the return type
+const subject = result.getField("subject", ComponentType.TextInput, true);
+const assignees = result.getField("assignees", ComponentType.UserSelect);
+const members = result.interaction.fields.getSelectedMembers("assignees");
+```
+
+Deferral methods now live only on the original interaction. `followUp()` remains a helper and always creates a follow-up message, even after a reply or deferral.
+
+```ts
+// Before
+await result.deferUpdate();
+await result.deferReply({ flags: "Ephemeral" });
+
+// After
+await result.interaction.deferUpdate();
+await result.interaction.deferReply({ flags: "Ephemeral" });
 ```
 
 ### DynaSend
@@ -467,31 +677,24 @@ await Users.useTransaction(async () => {
 
 #### Pagination
 
-`paginate` uses offset pagination. Deep pages are slower because MongoDB scans through skipped documents. Pair it with
-`Paginator` by loading a chapter in `beforeChapterChange` and replacing its placeholder pages with `hydrateChapter`:
+`paginate` uses offset pagination. Deep pages are slower because MongoDB scans through skipped documents. A paginator
+page loader requests one database page at a time and does not cache it:
 
 ```ts
 import { BetterContainer, Paginator } from "vimcord";
 
-const firstPage = await Users.paginate();
-const paginator = new Paginator({ dynamic: true, idle: 60_000 });
-
-for (let page = 1; page <= firstPage.pages; page++) {
-    const pages = page === 1
-        ? firstPage.docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
-        : [new BetterContainer().addText("Loading...")];
-
-    paginator.addChapter(pages, { label: `Page ${page}` });
-}
-
-paginator.on("beforeChapterChange", async chapterIndex => {
-    const { docs } = await Users.paginate(undefined, undefined, { page: chapterIndex + 1 });
-    paginator.hydrateChapter(
-        chapterIndex,
-        docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user")),
-        true
-    );
+const first = await Users.paginate();
+const paginator = new Paginator({
+    idle: 60_000,
+    onLoading: () => ({ containers: [new BetterContainer().addText("Loading users...")] })
 });
+
+paginator.addPageLoader(first.pages, async page => {
+    const { docs } = page === 0 ? first : await Users.paginate(undefined, undefined, { page: page + 1 });
+    return {
+        containers: docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
+    };
+}, { label: "Users" });
 ```
 
 #### Read cache
@@ -609,9 +812,9 @@ client.configure({
 });
 ```
 
-### Plugin CLI And Health Contributions
+### Plugin Health Registration
 
-Plugin install hooks receive a typed context. Contributions remain scoped to that client and are removed automatically when the plugin unloads.
+Plugin install hooks receive a typed context. A registered health probe is scoped to that client and is removed automatically when the plugin unloads.
 
 ```ts
 import type { VimcordPluginContext } from "vimcord";
@@ -626,13 +829,7 @@ class ServicePlugin extends VimcordPlugin {
         super();
     }
 
-    override install({ cli, health }: VimcordPluginContext) {
-        cli.registerCommand({
-            name: "service-info",
-            description: "Displays service information.",
-            execute: ({ logger, client }) => logger.header("Service Info", client)
-        });
-
+    override install({ health }: VimcordPluginContext) {
         health.register({
             id: "service",
             label: "Service API",
@@ -643,8 +840,6 @@ class ServicePlugin extends VimcordPlugin {
             }
         });
     }
-
-    override uninstall() {}
 }
 ```
 

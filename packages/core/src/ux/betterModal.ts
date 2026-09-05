@@ -7,8 +7,6 @@ import type {
     APITextDisplayComponent,
     ChannelSelectMenuComponentData,
     CommandInteraction,
-    InteractionDeferReplyOptions,
-    InteractionDeferUpdateOptions,
     MentionableSelectMenuComponentData,
     MessageComponentInteraction,
     ModalSubmitFields,
@@ -25,6 +23,8 @@ import {
     CheckboxBuilder,
     CheckboxGroupBuilder,
     ComponentType,
+    DiscordjsError,
+    DiscordjsErrorCodes,
     FileUploadBuilder,
     LabelBuilder,
     MentionableSelectMenuBuilder,
@@ -40,7 +40,7 @@ import {
     UserSelectMenuBuilder
 } from "discord.js";
 import { createRandomId } from "@/utils/str.js";
-import { dynaSend } from "./dynaSend.js";
+import { dynaSend, SendMethod } from "./dynaSend.js";
 
 interface LabelComponentOptions {
     label: string;
@@ -110,20 +110,6 @@ export interface AwaitModalSubmitOptions {
     deferUpdate?: boolean;
 }
 
-/** Discord.js modal field getters supported by the dynamic `getField` helper. */
-export type BetterModalFieldGetter =
-    | "getTextInputValue"
-    | "getStringSelectValues"
-    | "getSelectedUsers"
-    | "getSelectedMembers"
-    | "getSelectedChannels"
-    | "getSelectedRoles"
-    | "getSelectedMentionables"
-    | "getUploadedFiles"
-    | "getRadioGroup"
-    | "getCheckboxGroup"
-    | "getCheckbox";
-
 /** Simplified values returned for each supported modal component type. */
 export interface BetterModalFieldValueMap {
     /** Text input value. */
@@ -151,22 +137,12 @@ export interface BetterModalFieldValueMap {
 /** Modal component types supported by the simplified field helper. */
 export type BetterModalFieldType = keyof BetterModalFieldValueMap;
 
-type ModalFieldGetterArgs<Getter extends BetterModalFieldGetter> = ModalSubmitFields[Getter] extends (
-    customId: string,
-    ...args: infer Args
-) => unknown
-    ? Args
-    : never;
-
 /** Helpers and parsed values returned after a BetterModal submission. */
 export interface BetterModalSubmitResult {
-    /** Simplified values for every submitted component in insertion order. */
-    values: unknown[];
     /** The original Discord.js modal submission interaction. */
     interaction: ModalSubmitInteraction;
-    /** Gets a simplified field value and optionally requires a non-empty result. */
-    getField<T = unknown>(customId: string, required: true): T;
-    getField<T = unknown>(customId: string, required?: boolean): T | undefined;
+    /** Gets a simplified field value based on the submitted component. */
+    getField(customId: string, required?: boolean): unknown;
     /** Gets a simplified value while validating the Discord component type. */
     getField<Type extends BetterModalFieldType>(
         customId: string,
@@ -178,20 +154,14 @@ export interface BetterModalSubmitResult {
         type: Type,
         required?: boolean
     ): BetterModalFieldValueMap[Type];
-    /** Calls one of Discord.js's typed modal field getters without accessing `interaction.fields` directly. */
-    getField<Getter extends BetterModalFieldGetter>(
-        customId: string,
-        getter: Getter,
-        ...args: ModalFieldGetterArgs<Getter>
-    ): ReturnType<ModalSubmitFields[Getter]>;
     /** Replies to the modal submission. */
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     /** Sends a follow-up to the modal submission. */
     followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
-    /** Defers an update response to the modal submission. */
-    deferUpdate: (options?: InteractionDeferUpdateOptions) => ReturnType<ModalSubmitInteraction["deferUpdate"]>;
-    /** Defers a reply to the modal submission. */
-    deferReply: (options?: InteractionDeferReplyOptions) => ReturnType<ModalSubmitInteraction["deferReply"]>;
+}
+
+function isModalTimeout(error: unknown): boolean {
+    return error instanceof DiscordjsError && error.code === DiscordjsErrorCodes.InteractionCollectorError;
 }
 
 function getSimplifiedFieldValue(
@@ -230,8 +200,6 @@ export class BetterModal {
     readonly customId: string;
 
     private components: Map<string | symbol, BetterAPIModalComponent> = new Map();
-    /** Tracks only components that Discord includes in a modal submission. */
-    private fieldComponentIds: Set<string> = new Set();
     private modal: ModalBuilder;
 
     constructor(options?: BetterModalOptions) {
@@ -260,7 +228,6 @@ export class BetterModal {
 
     private addComponent(component: BetterAPIModalComponent, customId?: string): void {
         this.components.set(customId ?? Symbol(), component);
-        if (customId !== undefined) this.fieldComponentIds.add(customId);
     }
 
     private build(): ModalBuilder {
@@ -294,7 +261,6 @@ export class BetterModal {
         const title = this.modal.data.title;
 
         this.components.clear();
-        this.fieldComponentIds.clear();
         this.modal = new ModalBuilder().setCustomId(this.customId);
         if (title) this.modal.setTitle(title);
         this.addComponents(...components);
@@ -521,47 +487,39 @@ export class BetterModal {
     ): Promise<BetterModalSubmitResult | null> {
         if (!interaction) throw new Error("[BetterModal] Interaction is null or undefined");
 
+        let modalSubmit: ModalSubmitInteraction;
+
         try {
-            const modalSubmit = await interaction.awaitModalSubmit({
+            modalSubmit = await interaction.awaitModalSubmit({
                 filter: i => i.customId === this.customId,
                 time: options.timeout
             });
-
-            if (options?.deferUpdate) {
-                await modalSubmit.deferUpdate();
-            }
-
-            const getField = ((
-                customId: string,
-                selector?: boolean | BetterModalFieldType | BetterModalFieldGetter,
-                ...args: unknown[]
-            ): unknown => {
-                if (typeof selector === "string") {
-                    const getter = modalSubmit.fields[selector] as unknown as (...getterArgs: unknown[]) => unknown;
-                    return getter.call(modalSubmit.fields, customId, ...args);
-                }
-
-                const type = typeof selector === "number" ? selector : undefined;
-                const required = typeof selector === "boolean" ? selector : args[0] === true;
-                return getSimplifiedFieldValue(modalSubmit.fields, customId, type, required);
-            }) as BetterModalSubmitResult["getField"];
-            const values: unknown[] = [];
-
-            for (const customId of this.fieldComponentIds) {
-                values.push(getField(customId));
-            }
-
-            return {
-                values,
-                interaction: modalSubmit,
-                getField,
-                reply: async options => dynaSend(modalSubmit, options),
-                followUp: async options => dynaSend(modalSubmit, options),
-                deferUpdate: async options => modalSubmit.deferUpdate(options),
-                deferReply: async options => modalSubmit.deferReply(options)
-            };
-        } catch {
-            return null;
+        } catch (error) {
+            if (isModalTimeout(error)) return null;
+            throw error;
         }
+
+        if (options.deferUpdate) {
+            await modalSubmit.deferUpdate();
+        }
+
+        function getField(customId: string, required?: boolean): unknown;
+        function getField<Type extends BetterModalFieldType>(
+            customId: string,
+            type: Type,
+            required?: boolean
+        ): BetterModalFieldValueMap[Type];
+        function getField(customId: string, selector?: boolean | BetterModalFieldType, required = false): unknown {
+            const type = typeof selector === "number" ? selector : undefined;
+            const isRequired = typeof selector === "boolean" ? selector : required;
+            return getSimplifiedFieldValue(modalSubmit.fields, customId, type, isRequired);
+        }
+
+        return {
+            interaction: modalSubmit,
+            getField,
+            reply: async options => dynaSend(modalSubmit, options),
+            followUp: async options => dynaSend(modalSubmit, { ...options, sendMethod: SendMethod.FollowUp })
+        };
     }
 }

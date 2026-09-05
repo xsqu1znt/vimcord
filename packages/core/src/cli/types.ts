@@ -35,7 +35,7 @@ export interface CLICommandContext {
     signal: AbortSignal;
 }
 
-/** A core or plugin-provided CLI command. */
+/** A core CLI command. */
 export interface CLICommand {
     /** Lowercase command name without a leading slash. */
     name: string;
@@ -45,7 +45,7 @@ export interface CLICommand {
     usage?: string;
     /** Additional lowercase command triggers. */
     aliases?: readonly string[];
-    /** Whether the attached client is required. Plugin commands should leave this enabled. @default true */
+    /** Whether the attached client is required. @default true */
     requiresClient?: boolean;
     /** Executes the command for its resolved target. */
     execute(context: CLICommandContext): Promise<void> | void;
@@ -87,12 +87,4 @@ export interface RegisteredHealthProbe {
     pluginName: string;
     /** Registered provider. */
     probe: HealthProbe;
-}
-
-/** A CLI command paired with its owning plugin. */
-export interface RegisteredCLICommand {
-    /** Plugin that registered the command. */
-    pluginName: string;
-    /** Registered command. */
-    command: CLICommand;
 }

@@ -10,7 +10,7 @@ import type {
 } from "./CommandModuleTypeKit.js";
 
 import { getGlobalCommandHooks } from "@/commands/commandHooks.js";
-import { testCommandPermissions } from "@/commands/commandPermissions.js";
+import { resolveInvokingUser, testCommandPermissions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
@@ -45,12 +45,23 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     override readonly metadata: CommandModuleMetadata;
 
     constructor(options: CommandModuleOptions<T>) {
-        super(options);
+        super({
+            ...options,
+            singleInvocation:
+                options.singleInvocation === true
+                    ? { key: (ctx: CommandModuleHookContext<T>) => this.defaultInvocationKey(ctx) }
+                    : options.singleInvocation || undefined
+        });
 
         this.description = options.description;
         this.permissions = options.permissions ?? {};
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
+    }
+
+    /** Default `singleInvocation` key when the caller passes `singleInvocation: true`: the module plus the invoking user. */
+    protected defaultInvocationKey(ctx: CommandModuleHookContext<T>): string {
+        return `${this.id}:${resolveInvokingUser(ctx).id}`;
     }
 
     /** Returns command-local hooks before falling back to client and package-level global hooks. */

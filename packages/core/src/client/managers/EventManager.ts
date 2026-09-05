@@ -102,7 +102,6 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         if (!eventIndex?.isArray) return;
 
         for (const [event, events] of eventIndex.map) {
-            events.sort((a, b) => b.priority - a.priority);
             if (events.some(e => e.once)) this.onceEvents.add(event as keyof ClientEvents);
         }
     }

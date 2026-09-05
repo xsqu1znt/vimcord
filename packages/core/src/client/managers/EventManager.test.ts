@@ -15,14 +15,13 @@ function createClient(): EventEmitter {
 
 function createEvent(
     id: string,
-    options: { once?: boolean; priority?: number; run: () => Promise<void> | void }
+    options: { once?: boolean; run: () => Promise<void> | void }
 ): Parameters<EventManager["register"]>[0] {
     return {
         id,
         name: id,
         event: "messageCreate",
         once: options.once ?? false,
-        priority: options.priority ?? 0,
         metadata: {},
         inject: vi.fn(),
         run: options.run
@@ -38,7 +37,6 @@ describe("EventManager", () => {
         manager.register(
             createEvent("once", {
                 once: true,
-                priority: 1,
                 run: () => {
                     calls.push("once");
                     client.emit("messageCreate", {});
