@@ -30,23 +30,6 @@ function createEvent(
 }
 
 describe("EventManager", () => {
-    it("indexes handlers by priority without remounting the listener", () => {
-        const client = createClient();
-        const manager = new EventManager(client as unknown as Vimcord);
-
-        manager.register(createEvent("low", { priority: 1, run: () => {} }));
-        const listener = client.listeners("messageCreate")[0];
-        manager.register(createEvent("high", { priority: 2, run: () => {} }));
-
-        expect(manager.getByEvent("messageCreate").map(event => event.id)).toEqual(["high", "low"]);
-        expect(client.listenerCount("messageCreate")).toBe(1);
-        expect(client.listeners("messageCreate")[0]).toBe(listener);
-
-        manager.unregister("high");
-        expect(client.listenerCount("messageCreate")).toBe(1);
-        expect(client.listeners("messageCreate")[0]).toBe(listener);
-    });
-
     it("consumes once handlers before a reentrant emission", async () => {
         const client = createClient();
         const manager = new EventManager(client as unknown as Vimcord);

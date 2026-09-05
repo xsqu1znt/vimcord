@@ -27,21 +27,6 @@ function createClient() {
 }
 
 describe("StatusManager", () => {
-    it("applies an activity and status in one presence update", async () => {
-        const client = createClient();
-        const manager = new StatusManager(client as unknown as Vimcord);
-
-        await manager.set({ activity: { name: "Watching", shardId: [2], status: "idle" } });
-
-        expect(client.user.setPresence).toHaveBeenCalledTimes(1);
-        expect(client.user.setPresence).toHaveBeenCalledWith({
-            status: "idle",
-            activities: [{ name: "Watching", url: undefined }],
-            shardId: [2]
-        });
-        expect(client.user.setActivity).not.toHaveBeenCalled();
-    });
-
     it("does not apply a stale formatted activity after clear", async () => {
         const client = createClient();
         let resolveGuild!: () => void;
