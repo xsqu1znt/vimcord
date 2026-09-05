@@ -55,12 +55,9 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
     }
 
     protected override createHookCTX(
+        moduleCTX: CommandModuleContext<CommandModuleType.MessageContext>,
         args: CommandModuleArgs<CommandModuleType.MessageContext>
     ): CommandModuleHookContext<CommandModuleType.MessageContext> {
-        return {
-            ...this.createModuleCTX(args),
-            module: this as any,
-            args
-        };
+        return { ...moduleCTX, module: this as any, args };
     }
 }

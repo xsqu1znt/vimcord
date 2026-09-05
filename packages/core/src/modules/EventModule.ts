@@ -56,7 +56,7 @@ export class EventModule<
         return { client: this.client as Vimcord<true>, args };
     }
 
-    protected override createHookCTX(args: Args): EventModuleHookContext<Args> {
-        return { module: this as unknown as ModuleHookContext<Args>["module"], client: this.client as Vimcord<true>, args };
+    protected override createHookCTX(moduleCTX: EventModuleContext<Args>): EventModuleHookContext<Args> {
+        return { ...moduleCTX, module: this as unknown as ModuleHookContext<Args>["module"] };
     }
 }

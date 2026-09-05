@@ -28,22 +28,6 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
     protected override createModuleCTX(
         args: CommandModuleArgs<CommandModuleType.Prefix>
     ): CommandModuleContext<CommandModuleType.Prefix> {
-        return this.createCommandCTX(args);
-    }
-
-    protected override createHookCTX(
-        args: CommandModuleArgs<CommandModuleType.Prefix>
-    ): CommandModuleHookContext<CommandModuleType.Prefix> {
-        return {
-            ...this.createCommandCTX(args),
-            module: this as any,
-            args
-        };
-    }
-
-    private createCommandCTX(
-        args: CommandModuleArgs<CommandModuleType.Prefix>
-    ): CommandModuleContext<CommandModuleType.Prefix> {
         const client = this.client as Vimcord<true>;
         const source = args[0];
 
@@ -68,5 +52,12 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
                 return rawParts;
             }
         };
+    }
+
+    protected override createHookCTX(
+        moduleCTX: CommandModuleContext<CommandModuleType.Prefix>,
+        args: CommandModuleArgs<CommandModuleType.Prefix>
+    ): CommandModuleHookContext<CommandModuleType.Prefix> {
+        return { ...moduleCTX, module: this as any, args };
     }
 }

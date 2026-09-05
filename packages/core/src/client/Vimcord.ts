@@ -1,7 +1,6 @@
 import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { PartialDeep } from "@/types/helpers.js";
-import type { VimcordFeatures } from "./features.js";
 import type { VimcordGlobals } from "./globals.js";
 import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
 
@@ -30,12 +29,8 @@ export type VimcordEvents = {
 export interface VimcordClientOptions {
     /** Discord.js client options. */
     client: ClientOptions;
-    /** Client features. */
-    features?: VimcordFeatures;
     /** Global bot configs. */
     globals?: PartialDeep<VimcordGlobals>;
-    /** Custom logger instance. A new `VimcordLogger` is created by default. */
-    logger?: VimcordLogger;
 
     // --- Debugging ---
     /** Enables diagnostic `debug()` logging. */
@@ -55,8 +50,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     readonly logger: VimcordLogger;
 
-    private client: ClientOptions;
-    readonly features: VimcordFeatures;
     readonly globals: VimcordGlobals;
 
     readonly plugins: PluginManager;
@@ -67,15 +60,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private readonly handleAwaitReady = (): void => this.resolveAwaitReady(true);
     private startupBannerHandle: VimcordStartupBannerHandle | undefined;
     private warnedMissingStaffGuild = false;
+    private readonly pendingStaffRoleLookups = new Map<string, Promise<string[]>>();
 
     constructor(options: VimcordClientOptions) {
         if (Vimcord.instance) throw new VimcordError("Only one Vimcord client can exist in a process", "CLIENT_ERROR");
 
         const {
             client,
-            features = {},
             globals,
-            logger,
 
             // --- Debugging ---
             verbose
@@ -83,16 +75,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
         super(client);
 
-        this.client = client;
-        this.features = features;
         this.globals = {
             app: mergeDeep(defaultAppGlobals(), globals?.app),
             staff: mergeDeep(defaultStaffGlobals(), globals?.staff),
             hooks: globals?.hooks ? mergeDeep({}, globals.hooks) : undefined
         };
 
-        const verboseMode = verbose ?? globals?.app?.verbose ?? logger?.options.verbose ?? false;
-        this.logger = logger ?? new VimcordLogger({ verbose: verboseMode });
+        const verboseMode = verbose ?? globals?.app?.verbose ?? false;
+        this.logger = new VimcordLogger({ verbose: verboseMode });
         this.$verboseMode = verboseMode;
 
         this.plugins = new PluginManager(this);
@@ -163,18 +153,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.logger.setVerbose(this.globals.app.verbose);
         syncCLIClient(this);
         return this;
-    }
-
-    /** Serializes the Vimcord client options. */
-    toOptions(): VimcordClientOptions {
-        return {
-            client: this.client,
-
-            features: this.features,
-            globals: this.globals,
-
-            verbose: this.logger.options.verbose
-        };
     }
 
     // --- Main ---
@@ -311,11 +289,24 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             return [];
         }
 
-        const guild = await this.fetchGuild(staff.guild.id);
-        const member = await guild?.members.fetch(userId).catch(() => null);
-        if (!member) return [];
+        // Permission checks for the same user can overlap within one dispatch, or across concurrent
+        // commands. This only shares the in-flight promise; it is not a cache and holds no TTL,
+        // since discord.js already caches the fetched member itself.
+        const pending = this.pendingStaffRoleLookups.get(userId);
+        if (pending) return await pending;
 
-        return [...member.roles.cache.keys()];
+        const lookup = (async () => {
+            const guild = await this.fetchGuild(staff.guild.id);
+            const member = await guild?.members.fetch(userId).catch(() => null);
+            return member ? [...member.roles.cache.keys()] : [];
+        })();
+
+        this.pendingStaffRoleLookups.set(userId, lookup);
+        try {
+            return await lookup;
+        } finally {
+            this.pendingStaffRoleLookups.delete(userId);
+        }
     }
 
     /**
