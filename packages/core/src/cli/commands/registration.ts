@@ -40,7 +40,7 @@ async function resolveGuildIds(client: Vimcord, values: readonly string[]): Prom
     if (requestsAll) {
         if (values.length > 1) throw new Error("The 'all' guild target cannot be combined with other guilds");
         const guildIds = client.guilds.cache.map(guild => guild.id);
-        if (!guildIds.length) throw new Error("The selected client has no cached guilds");
+        if (!guildIds.length) throw new Error("The attached client has no cached guilds");
         return guildIds;
     }
 
@@ -62,7 +62,7 @@ function createRegisterCommand(): CLICommand {
         description: "Pushes loaded application commands globally or to explicit guild targets.",
         usage: "/register <global|guild> [guilds...|all] [--names ...] [--category ...] [--tag ...]",
         execute: async context => {
-            rejectUnknownFlags(context, ["client", "names", "category", "tag"]);
+            rejectUnknownFlags(context, ["names", "category", "tag"]);
             const client = requireCLIClient(context);
             const scope = readScope(context, "register");
             const filter = readCommandFilter(context);
@@ -119,7 +119,7 @@ function createUnregisterCommand(): CLICommand {
         description: "Removes every remote application command from a global or guild scope.",
         usage: "/unregister <global|guild> [guilds...|all] --confirm",
         execute: async context => {
-            rejectUnknownFlags(context, ["client", "confirm"]);
+            rejectUnknownFlags(context, ["confirm"]);
             if (getCLIFlagValues(context.flags, "confirm").length) {
                 throw new Error("--confirm does not accept a value");
             }
@@ -147,7 +147,7 @@ function createUnregisterCommand(): CLICommand {
                 context.logger.line(`This will remove every remote application command from ${target}.`);
                 const confirmedTarget = scope === "global" ? "global" : `guild ${guildIds.join(" ")}`;
                 context.logger.line(
-                    `Run ${context.logger.styles.command(`/unregister ${confirmedTarget} --client ${client.id} --confirm`)} to continue.`
+                    `Run ${context.logger.styles.command(`/unregister ${confirmedTarget} --confirm`)} to continue.`
                 );
                 return;
             }

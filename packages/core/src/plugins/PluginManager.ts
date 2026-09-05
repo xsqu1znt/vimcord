@@ -104,7 +104,7 @@ export class PluginManager {
     get<T extends VimcordPlugin>(name: string, installed?: boolean): T | undefined {
         const plugin = this.plugins.get(name) as T | undefined;
         if (installed && !plugin?.installed) {
-            throw new PluginError(`Plugin '${name}' is not installed on client (${this.client.id})`);
+            throw new PluginError(`Plugin '${name}' is not installed on '${this.client.$name}'`);
         }
 
         return plugin as T | undefined;

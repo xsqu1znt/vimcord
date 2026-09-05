@@ -4,9 +4,9 @@ import type { CLICommandContext } from "../types.js";
 
 const DISCORD_ID_PATTERN = /^\d{17,20}$/;
 
-/** Narrows a command context after the runtime enforces client targeting. */
+/** Narrows a command context after the runtime checks the attached client. */
 export function requireCLIClient(context: CLICommandContext): Vimcord {
-    if (!context.client) throw new Error("This command requires a selected client");
+    if (!context.client) throw new Error("This command requires the attached client");
     return context.client;
 }
 

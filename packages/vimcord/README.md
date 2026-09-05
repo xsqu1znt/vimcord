@@ -78,14 +78,13 @@ setupCLI({
 });
 
 const client = new Vimcord({
-    customId: "main",
     client: {
         intents: [GatewayIntentBits.Guilds]
     }
 });
 ```
 
-Clients participate by default once the process CLI is initialized. Set `globals.app.enableCLI` to `false` on clients that should remain unavailable to CLI commands. Enter `/help` in the process console to view commands.
+The client participates by default once the process CLI is initialized. Set `globals.app.enableCLI` to `false` to disable CLI commands for it. Enter `/help` in the process console to view commands.
 
 ### Modules And Command Dispatch
 
@@ -106,10 +105,6 @@ const client = new Vimcord({
             ownerId: "123456789012345678",
             superUsers: ["234567890123456789"]
         }
-    },
-    connectionRefresh: {
-        interval: 60_000,
-        maxFailures: 2
     },
     verbose: true
 });
@@ -511,14 +506,13 @@ loader.succeed("Commands synced");
 | `dynaSend` | Send helper for interactions, channels, messages, members, and users |
 | `defineGlobalUxConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
 | `defineGlobalCommandHooks` | Global command hooks used when modules do not define local hooks |
-| `setupCLI` | Initializes the process-wide stdin CLI and its client targets |
+| `setupCLI` | Initializes the process-wide stdin CLI for the client |
 | `CLILogger` | CLI-specific logger with target headers, groups, tables, styles, and loaders |
 
 ### Client Options
 
 ```ts
 const client = new Vimcord({
-    customId: "main",
     client: {
         intents: [GatewayIntentBits.Guilds]
     },
@@ -534,12 +528,6 @@ const client = new Vimcord({
             superUsers: [],
             superUserRoles: []
         }
-    },
-    connectionRefresh: {
-        interval: 60_000,
-        requestTimeout: 10_000,
-        maxFailures: 2,
-        maxRefreshAttempts: 3
     },
     verbose: false
 });

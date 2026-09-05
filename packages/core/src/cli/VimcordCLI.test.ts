@@ -5,41 +5,37 @@ import { isCLIEnabledFor } from "./clientState.js";
 import { CLILogger } from "./CLILogger.js";
 import { getCLI, setupCLI } from "./setupCLI.js";
 
-afterEach(() => {
+afterEach(async () => {
     getCLI()?.stop();
-    Vimcord.$instances.clear();
+    await Vimcord.getInstance()?.destroy();
     vi.restoreAllMocks();
 });
 
 describe("setupCLI", () => {
-    it("attaches default-enabled clients created before and after setup", () => {
-        const first = new Vimcord({ customId: "first", client: { intents: [] } });
+    it("attaches a default-enabled client created before setup", () => {
+        const client = new Vimcord({ client: { intents: [] } });
         const cli = setupCLI({ loaders: "never" });
-        const second = new Vimcord({ customId: "second", client: { intents: [] } });
 
-        expect(first.globals.app.enableCLI).toBe(true);
-        expect(cli.getClients()).toEqual([first, second]);
-        expect(cli.getSelectedClient()).toBe(first);
-        expect(isCLIEnabledFor(first)).toBe(true);
-        expect(isCLIEnabledFor(second)).toBe(true);
+        expect(client.globals.app.enableCLI).toBe(true);
+        expect(cli.getClient()).toBe(client);
+        expect(isCLIEnabledFor(client)).toBe(true);
     });
 
-    it("excludes opted-out clients and reacts to runtime configuration changes", () => {
+    it("attaches a client created after setup and reacts to runtime configuration changes", () => {
+        const cli = setupCLI({ loaders: "never" });
         const client = new Vimcord({
-            customId: "private",
             client: { intents: [] },
             globals: { app: { enableCLI: false } }
         });
-        const cli = setupCLI({ loaders: "never" });
 
-        expect(cli.getClients()).toEqual([]);
+        expect(cli.getClient()).toBeNull();
         expect(isCLIEnabledFor(client)).toBe(false);
 
         client.configure({ app: { enableCLI: true } });
-        expect(cli.getClients()).toEqual([client]);
+        expect(cli.getClient()).toBe(client);
 
         client.configure({ app: { enableCLI: false } });
-        expect(cli.getClients()).toEqual([]);
+        expect(cli.getClient()).toBeNull();
     });
 
     it("prevents duplicate process runtimes and permits setup after stopping", () => {
@@ -52,26 +48,9 @@ describe("setupCLI", () => {
 });
 
 describe("VimcordCLI commands", () => {
-    it("selects clients and identifies the target in command output", async () => {
-        const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
-        new Vimcord({ customId: "alpha", client: { intents: [] }, globals: { app: { name: "Alpha Bot" } } });
-        const beta = new Vimcord({ customId: "beta", client: { intents: [] }, globals: { app: { name: "Beta Bot" } } });
-        Object.defineProperty(beta, "user", { configurable: true, value: { tag: "beta.bot#1234" } });
-        const cli = setupCLI({ loaders: "never" });
-
-        await cli.execute("/use beta");
-        await cli.execute("/stats");
-
-        const rendered = stripAnsi(output.mock.calls.flat().join(" "));
-        expect(cli.getSelectedClient()?.id).toBe("beta");
-        expect(rendered).toContain("[CLI] Client Selected — Beta Bot / beta.bot#1234");
-        expect(rendered).toContain("[CLI] Stats — Beta Bot / beta.bot#1234");
-        expect(rendered).not.toContain("beta / Beta Bot");
-    });
-
     it("renders results without surrounding blank lines and includes the Vimcord package version", async () => {
         const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
-        new Vimcord({ customId: "main", client: { intents: [] } });
+        new Vimcord({ client: { intents: [] } });
         const cli = setupCLI({ loaders: "never" });
 
         await cli.execute("/version");
@@ -110,7 +89,7 @@ describe("VimcordCLI commands", () => {
 
     it("shows whether a fetched user is bot staff", async () => {
         const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
-        const client = new Vimcord({ customId: "main", client: { intents: [] } });
+        const client = new Vimcord({ client: { intents: [] } });
         const cli = setupCLI({ loaders: "never" });
         const user = {
             id: "563488053893791745",
@@ -134,7 +113,7 @@ describe("VimcordCLI commands", () => {
     it("routes command deployment and requires confirmation before unregistering", async () => {
         const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
         vi.spyOn(console, "error").mockImplementation(() => undefined);
-        const client = new Vimcord({ customId: "main", client: { intents: [] } });
+        const client = new Vimcord({ client: { intents: [] } });
         const cli = setupCLI({ loaders: "never" });
         const command = { registration: { global: true } };
         vi.spyOn(client.modules.commands, "getAllAppCommands").mockReturnValue([command] as unknown as ReturnType<
