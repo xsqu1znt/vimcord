@@ -1,5 +1,4 @@
 import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
-import type { PartialDeep } from "@/types/helpers.js";
 
 import { mergeDeep } from "@/utils/obj.js";
 
@@ -12,19 +11,20 @@ export interface GlobalCommandHooks {
     context?: CommandModuleHooks<CommandModuleType.MessageContext | CommandModuleType.UserContext>;
 }
 
-export const globalCommandHooks: GlobalCommandHooks = {};
+const GLOBAL_COMMAND_HOOKS: GlobalCommandHooks = {};
 
 /**
  * Updates the global command hook configuration.
  * @param hooks Partial command hooks to merge into the global config
  */
-export function defineGlobalCommandHooks(hooks: PartialDeep<GlobalCommandHooks>): GlobalCommandHooks {
-    return mergeDeep(globalCommandHooks, hooks);
+export function defineGlobalCommandHooks(hooks: GlobalCommandHooks): void {
+    mergeDeep(GLOBAL_COMMAND_HOOKS, hooks);
 }
 
 /**
- * Returns the current global command hook configuration.
+ * Returns the package-level hook configuration for the command module base class.
+ * @internal
  */
 export function getGlobalCommandHooks(): GlobalCommandHooks {
-    return globalCommandHooks;
+    return GLOBAL_COMMAND_HOOKS;
 }
