@@ -1,63 +1,88 @@
 # Vimcord
 
-Vimcord is an opinionated Discord.js framework for typed modules, command dispatching, and reusable UX tools.
+An opinionated Discord.js wrapper. It adds a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
 
-It wraps `Discord.js` with a focused module layer, typed contexts, hooks hooks, and UX helpers for embeds, prompts, modals, components, pagination, and more.
+It does not hide Discord.js. Builders, intents, events, permissions, and interactions stay the Discord.js ones, used directly wherever that is the right tool.
 
-It does not hide Discord.js. You still use Discord.js builders, intents, events, permissions, and interactions directly it's the right tool.
+Vimcord runs large, high-traffic bots, so every API it exposes should read clean, stay cheap at scale, and carry only the cases users actually hit. Less code wins. A guard for an edge case nobody reaches is code we maintain forever for nothing.
 
-# qznt
+## Repo map
 
-Vimcord also makes use of `qznt` - a small utility library that we also can have patched, or new things implemented upstream just. Just ask. Before writing any code that requires a certain utility, check whether `qznt` already has it, or for patterns around the repo that already use `qznt`. If it's generic enough that makes sense to add it upstream, suggest it to us.
+A PNPM workspace. `packages/*`, `packages/plugins/*`, and `templates/*`.
 
-# How we work
+- `@vimcord/core` in `packages/core` holds everything. All real work happens here.
+- `vimcord` in `packages/vimcord` is the public name users install. A one-line re-export of core.
+- `@vimcord/plugin-dotenv` in `packages/plugins/dotenv` loads env files through the plugin lifecycle.
+- `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`.
 
-Vimcord is used for high performance and large bots. That means every function, every system, every flow, and every API that it touches, should be designed in a clean, optimized way using professional techniques, and as easily scalable as possible. Less code is more, and simplicity wins over accounting for 100 edge cases that users will never hit. If it's not going to benefit the features we're building in the long run, we don't need it.
+Inside `packages/core/src`:
 
-Nevertheless, here are a few things that must be followed while working on the task you're given:
+- `client/`: the `Vimcord` client, its logger, status manager, and the managers under `client/managers` that own commands, events, and module loading.
+- `abstracts/`: `AbstractModule`, `AbstractModuleImporter`, and the command module base classes plus their type kit.
+- `modules/`: the concrete module types users extend: `EventModule`, and the four command modules under `modules/commands`.
+- `commands/`: command hooks and the permission system.
+- `cli/`: the `VimcordCLI`, its parser, logger, and the built-in command groups under `cli/commands`.
+- `ux/`: the user-facing helpers: `betterEmbed`, `BetterContainer`, `betterModal`, `betterCollector`, `paginator`, `prompt`, `dynaSend`, and the shared `uxConfig`.
+- `plugins/`, `errors/`, `types/`, `utils/`: the plugin manager, error classes, type helpers, and internal utilities.
 
-- PNPM must always be preferred over NPM, unless explicitly asked, or PNPM doesn't support what we're trying to do.
-- When verifying a completed task, run `pnpm format && pnpm check` and fix what it flags. If it flags something that is outside of the scope of the task at hand, state it briefly, and ask if we want you to fix it, instead of going off to fix it immediately.
-- If the task was to only make a small mechanical edit, only `pnpm format` should be used. It does not need a type check nor a build.
-- Whenever `pnpm format` is ran, don't revert its changes. Even if it changed files outside of the current scope.
-- This is a Discord bot, we don't need a series of test files to validate what could be caught with a simple type check or a focused smoke test for more complicated areas.
+New code goes in `core`. `packages/vimcord` only ever re-exports.
 
-# Hit every surface
+## Commands
 
-One common defect in this repo is changing one thing in one place, and forgetting to check for other paths that might not have been updated to match.
+Run from the repo root. PNPM, not NPM, unless PNPM cannot do the job.
 
-Let's say you change the way something is worded, and other commands all had a pattern they followed for the same kind of thing. There should be a distinction whether it was intentional to be different from the rest, or those other commands were just ignored.
+- `pnpm format` after any change, including a one-line mechanical edit. Keep whatever it rewrites, even in files outside the task, and say which unrelated files it touched.
+- `pnpm format && pnpm check` to verify real work. Fix what `check` flags inside the task. For anything it flags outside the task, say what it is in a sentence and ask before touching it.
+- A mechanical edit needs `pnpm format` alone. No type check, no build.
 
-Or, say you cleaned up the way one path handled some data, while there are other paths that also handle the same kind of data, but they were ignored instead of reaping the benefit of the new simpler way.
+Type checks and a focused smoke test cover this repo. Write a test when the changed logic has a realistic way to break, and say why the file needs to exist before adding it.
 
-This leads to inconsistency which is very bad, and makes other agents, and humans, go off the beaten road during future sessions. Slowing devolving into a repo full of slop that nobody can keep up with and maintain.
+## Hit every surface
 
-If you changed the way userIds were extracted, or you found a clever way of omitting a series of try-catches, if statements, or function shapes, the rest of the repo should reap the benefit of this instead of leaving them behind in the dust.
+The recurring defect here is a change landing in one place while its siblings keep the old shape.
 
-# Conventions
+When you change how something is worded, how data is extracted, or how a function is shaped, find the other paths doing the same thing and bring them along. If one of them should stay different, say that it is deliberate and why.
 
-- File names use `PascalCase` when exporting a main class, otherwise `camelCase`.
-- Classes and types use `PascalCase`, variables and functions use `camelCase`, while top level constants use `SCREAMING_SNAKE_CASE`.
-- Barrel-export new files only if the surrounding files are currently being re-exported through their nearest `index.ts`.
+Half-applied changes are what send the next agent down the wrong road, so treat the sweep as part of the task rather than a follow-up.
 
-# Planning
+## qznt
 
-When planning out a big feature, or implementing across multiple modules, use the following 3-step process:
+`qznt` is our own utility library, and we can patch it or add to it upstream on request. Today only `@vimcord/plugin-mongoose` depends on it; core runs on `discord.js`, `ansis`, and `human-id` alone.
 
-1. **Alignment phase.** This is the most important read-only, no-code phase where we ask questions and go over important details of how things should work. Important but not over-engineered edge-cases, sane defaults, and open questions for things that we may be unsure about. We need to be on the same page so something that wasn't asked for doesn't get implemented. Keep it simple, no technical details, no code examples unless explicitly asked for. Just how it would be implemented, what needs to be touched, any inconsistencies, creative questions, and concerns or things you noticed. Don't be afraid to suggest something bold if it benefits what we're trying to achieve. If the feature involves user-facing things, draft what messages, embeds, containers, formatting, etc, look like that you want to implement. That way we can iterate on design and copy if needed.
-2. **Technical phase.** This is also a read-only pass. Once we come to an agreement in the alignment phase, we'll talk about the technical details. Persistence, schemas, existing blockers, optimization, commands, services, etc. Don't write up a whole essay, keep it simple. We should be aligned on what needs to be implemented before continuing.
-3. **Implementation phase.** Once we're aligned in both of the previous stages and the plan is approved, this is when you actually write the code.
+Before hand-rolling a utility, check whether `qznt` already has it and how nearby code uses it. If the thing you need is generic enough to live upstream, say so. Adding `qznt` to a package that does not already depend on it is a call for us to make, so ask.
 
-# Taste
+## Conventions
 
-- Complexity belongs at in the internal layers. Orchestration stays pure.
-- Separate blocks of code into sections using a comment to help show each stage or part of an otherwise long read of code.
-- Don't use big fancy words to explain something. Don't reply using technical jargon, and don't give user-facing things explanations or descriptions with technical or advanced english details that only our repo maintainers would understand. We can't assume the user knows what "Size is a width x height grid" is supposed to mean when describing what "3x2" means.
-- If a rule here fights the task in front of you, say so loudly and ask for permission before breaking it.
-- If you find that a rule here is broken while working on a task, say it loudly and let us know your plan, wait for permission so we know what was caught, then fix it. Continue the effort to clean up and keep things clean. Don't allow a pattern of broken rules to continue existing.
+- File names are `PascalCase` when the file's main export is a class, `camelCase` otherwise.
+- `PascalCase` for classes and types, `camelCase` for variables and functions, `SCREAMING_SNAKE_CASE` for top-level constants.
+- Add a file to its nearest `index.ts` barrel when the files around it are already re-exported there.
+- Order inside a file: imports, types and interfaces, constants, helpers, main export. A helper sits above what uses it.
+- `type` for unions, `interface` for object shapes. Annotate return types on exports; let internal helpers infer. `unknown` for input you have not checked yet, then narrow it.
+- Return early. Past three levels of nesting, rewrite with guard clauses.
+- Comment the function, not the line: what it is for and how it is used. Break a long function into stages with a `// --- Name the stage ---` header, and move a comment in the same edit that changes the code under it.
 
-# Hard rules
+## Working with us
 
-- Never read `.env` files. `.env.example` files are fine as they should not have sensitive secrets inside of them to better understand the environment shape.
+Complexity belongs in the internal layers. Orchestration stays flat and readable.
+
+Write plainly. No jargon in replies, and none in user-facing strings either. A user reading "size is a width x height grid" learns nothing about what `3x2` means, so write the sentence that tells them.
+
+Leave out what was not asked for: extra abstractions, options, compatibility shims, defensive checks, adjacent fixes. Mention what you left out only when its absence leaves a real limit. If a bold idea would make the work better, say it loudly, then wait.
+
+If a rule here fights the task, say so and ask before breaking it. If you find a rule already broken, name it, say what you would do, and wait for the go-ahead. Cleaning up as we go is how this stays maintainable.
+
+If finishing the task needs a pile of workarounds nobody asked for, stop and say what you hit.
+
+## Planning a large change
+
+For a feature that spans modules, work in three phases and stop at the end of each.
+
+1. **Alignment.** Read-only, no code. How it should behave, what it touches, the edge cases worth handling, sane defaults, open questions, and anything inconsistent you noticed. No technical detail. If it has a user-facing side, draft the actual messages, embeds, and formatting so we can iterate on the copy first.
+2. **Technical.** Still read-only. Persistence, schemas, blockers, commands, services. Short.
+3. **Implementation.** Write the code once both are agreed and the plan is approved.
+
+## Hard rules
+
+- Read `.env.example` to learn the environment shape. Never read `.env` files.
 - Never read or touch a live production database.
-- Never hard-code secrets, tokens, or IDs.
+- Secrets, tokens, and IDs live in config or environment variables, never in source.

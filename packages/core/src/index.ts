@@ -3,7 +3,6 @@ export * from "./client/index.js";
 export * from "./cli/index.js";
 export * from "./commands/index.js";
 export * from "./errors/index.js";
-export * from "./events/index.js";
 export * from "./modules/index.js";
 export * from "./plugins/index.js";
 export * from "./types/index.js";
