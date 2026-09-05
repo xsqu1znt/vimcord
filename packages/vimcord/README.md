@@ -384,13 +384,12 @@ await dynaSend(interaction, {
 ### MongoDB Plugin
 
 ```ts
-import { createMongoPlugin, createMongoSchema, MongoosePlugin } from "@vimcord/plugin-mongoose";
+import { createMongoSchema, MongoosePlugin } from "@vimcord/plugin-mongoose";
 
 client.use(
     new MongoosePlugin({
-        connectionRefresh: {
-            interval: 60_000,
-            maxFailures: 2
+        connectOptions: {
+            dbName: "vimcord"
         }
     })
 );
@@ -398,23 +397,86 @@ client.use(
 const Users = createMongoSchema("Users", {
     userId: { type: String, required: true, unique: true },
     balance: { type: Number, default: 0 },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+    deletedAt: { type: Date, default: null }
 });
 
 const user = await Users.fetch({ userId: "123" }, undefined, { required: true });
 await Users.upsert({ userId: "123" }, { $inc: { balance: 100 } });
 
-const SoftDeletePlugin = createMongoPlugin(builder => {
-    builder.schema.add({ deletedAt: { type: Date, default: null } });
-    builder.extend({
-        async softDelete(filter) {
-            return this.update(filter, { deletedAt: new Date() });
-        }
-    });
-});
+// Add your own helpers as plain functions next to the schema
+const softDelete = (userId: string) => Users.update({ userId }, { deletedAt: new Date() });
 
-Users.use(SoftDeletePlugin);
+await softDelete("123");
 ```
+
+Reads return plain objects by default. Set `leanByDefault: false` in the schema options when you need hydrated Mongoose
+documents, or pass `{ lean: false }` for one query.
+
+Use `Object.assign(createMongoSchema(...), { ... })` if you want helpers with method syntax on the schema object.
+
+#### Sessions
+
+Builder calls inside `useSession` and `useTransaction` use that session automatically. Pass `{ session: null }` to run
+one call outside the active session. Await every operation started in the callback. Unawaited work keeps the session
+after the transaction ends and fails.
+
+```ts
+await Users.useTransaction(async () => {
+    await Users.update({ userId: "123" }, { $inc: { balance: -100 } });
+    await Bank.update({ userId: "123" }, { $inc: { balance: 100 } });
+});
+```
+
+#### Pagination
+
+`paginate` uses offset pagination. Deep pages are slower because MongoDB scans through skipped documents. Pair it with
+`Paginator` by loading a chapter in `beforeChapterChange` and replacing its placeholder pages with `hydrateChapter`:
+
+```ts
+import { BetterContainer, Paginator } from "vimcord";
+
+const firstPage = await Users.paginate();
+const paginator = new Paginator({ dynamic: true, idle: 60_000 });
+
+for (let page = 1; page <= firstPage.pages; page++) {
+    const pages = page === 1
+        ? firstPage.docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
+        : [new BetterContainer().addText("Loading...")];
+
+    paginator.addChapter(pages, { label: `Page ${page}` });
+}
+
+paginator.on("beforeChapterChange", async chapterIndex => {
+    const { docs } = await Users.paginate(undefined, undefined, { page: chapterIndex + 1 });
+    paginator.hydrateChapter(
+        chapterIndex,
+        docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user")),
+        true
+    );
+});
+```
+
+#### Read cache
+
+You can cache read-heavy documents on one schema path:
+
+```ts
+const Guilds = createMongoSchema("Guilds", { guildId: { type: String, required: true } }, {
+    cache: { key: "guildId", ttl: 60_000 }
+});
+```
+
+Only exact one-key lookups use the cache. Projections, multi-field filters, `$in`, sorts, hydrated reads, and reads with
+a session all bypass it. Cached reads return frozen documents. Copy the value first if you need to change it.
+
+The cache lives in one process. Under `ShardingManager`, each shard has its own cache and does not invalidate the others.
+Keep TTLs short. Guild-keyed data is usually safe because Discord routes a guild to one shard. User-keyed data can reach
+more than one shard. Writes from a dashboard, CLI, or another bot are also invisible to this cache.
+
+Entries expire when their key is read again. There is no size limit, so use a stable low-cardinality key and a short TTL.
+Guild settings and feature flags are good fits. A counter incremented on every command is not, because invalidation churn
+makes caching it worse than no cache.
 
 ### Client Logger
 

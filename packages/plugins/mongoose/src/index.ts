@@ -1,13 +1,13 @@
-import type { ClientSessionOptions } from "mongoose";
+import type { ClientSessionOptions, ConnectOptions } from "mongoose";
 import type { HealthProbeResult, VimcordPluginContext } from "@vimcord/core";
 
 import mongoose from "mongoose";
 import { retryPromise } from "qznt";
-import { Vimcord, VimcordPlugin } from "@vimcord/core";
+import { getPackageVersion, Vimcord, VimcordPlugin } from "@vimcord/core";
 import { MongoosePluginError } from "./MongoosePluginError.js";
+import { sessionContext } from "./sessionContext.js";
 
 export * from "./MongoSchemaBuilder.js";
-// export * from "./ServiceFactories.js";
 
 export interface MongooseOptions extends mongoose.MongooseOptions {
     /**
@@ -20,44 +20,18 @@ export interface MongooseOptions extends mongoose.MongooseOptions {
      * @default `3`
      */
     maxRetries?: number;
-    /** Automatic MongoDB connection health checks and reconnect behavior. @default true */
-    connectionRefresh?: boolean | Partial<MongooseConnectionRefreshOptions>;
-}
-
-export interface MongooseConnectionRefreshOptions {
-    /** Whether automatic MongoDB connection refresh checks are enabled. */
-    enabled: boolean;
-    /** Milliseconds between MongoDB health checks. */
-    interval: number;
-    /** Consecutive failed health checks required before reconnecting. */
-    maxFailures: number;
-    /** Maximum reconnect attempts per refresh cycle. */
-    maxRefreshAttempts: number;
+    /**
+     * Options passed to `mongoose.connect()`, such as `dbName` and `maxPoolSize`.
+     * For keys present in both option groups, the connect option wins over the global option.
+     */
+    connectOptions?: ConnectOptions;
+    /** Throw during install when the initial connection fails, instead of starting without a database. @default true */
+    requireConnection?: boolean;
 }
 
 export const PLUGIN_NAME = "mongoose";
 export const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
-export const PLUGIN_VERSION = "0.1.0";
-
-const DEFAULT_CONNECTION_REFRESH_OPTIONS: MongooseConnectionRefreshOptions = {
-    enabled: true,
-    interval: 60_000,
-    maxFailures: 2,
-    maxRefreshAttempts: 3
-};
-
-function resolveConnectionRefreshOptions(options: MongooseOptions["connectionRefresh"]): MongooseConnectionRefreshOptions {
-    if (options === false) return { ...DEFAULT_CONNECTION_REFRESH_OPTIONS, enabled: false };
-    if (options === true || options === undefined) return { ...DEFAULT_CONNECTION_REFRESH_OPTIONS };
-
-    return {
-        ...DEFAULT_CONNECTION_REFRESH_OPTIONS,
-        ...options,
-        interval: Math.max(1_000, options.interval ?? DEFAULT_CONNECTION_REFRESH_OPTIONS.interval),
-        maxFailures: Math.max(1, options.maxFailures ?? DEFAULT_CONNECTION_REFRESH_OPTIONS.maxFailures),
-        maxRefreshAttempts: Math.max(1, options.maxRefreshAttempts ?? DEFAULT_CONNECTION_REFRESH_OPTIONS.maxRefreshAttempts)
-    };
-}
+export const PLUGIN_VERSION = getPackageVersion("@vimcord/plugin-mongoose", "packages/plugins/mongoose") ?? "unknown";
 
 export class MongoosePlugin extends VimcordPlugin {
     override name = PLUGIN_NAME;
@@ -69,37 +43,45 @@ export class MongoosePlugin extends VimcordPlugin {
 
     private readonly uri: string | undefined;
     private readonly maxRetries: number;
-    private readonly mongooseOptions: mongoose.MongooseOptions;
-    private readonly connectionRefresh: MongooseConnectionRefreshOptions;
-    private connectionRefreshFailures = 0;
-    private connectionRefreshTimer: ReturnType<typeof setInterval> | null = null;
+    private readonly connectOptions: ConnectOptions | undefined;
+    private readonly requireConnection: boolean;
     private connectingPromise: Promise<boolean> | null = null;
-    private refreshingConnectionPromise: Promise<void> | null = null;
+    private readonly onDisconnected = (): void => {
+        this.client?.logger.plugin.log(this.name, "MongoDB disconnected");
+    };
+    private readonly onReconnected = (): void => {
+        this.client?.logger.plugin.success(this.name, "MongoDB reconnected");
+    };
 
     constructor(config: MongooseOptions = {}) {
         super();
 
-        const { uri, maxRetries = 3, connectionRefresh: autoRefresh, ...mongooseOptions } = config;
+        const { uri, maxRetries = 3, connectOptions, requireConnection = true, ...mongooseOptions } = config;
         this.uri = uri;
         this.maxRetries = maxRetries;
-        this.mongooseOptions = mongooseOptions;
-        this.connectionRefresh = resolveConnectionRefreshOptions(autoRefresh);
+        this.connectOptions = connectOptions;
+        this.requireConnection = requireConnection;
         this.mongoose = new mongoose.Mongoose(mongooseOptions);
     }
 
     override async install({ client, health }: VimcordPluginContext): Promise<void> {
         (this as { client: Vimcord | null }).client = client;
-        await this.connect();
+        this.mongoose.connection.on("disconnected", this.onDisconnected);
+        this.mongoose.connection.on("reconnected", this.onReconnected);
+        const connected = await this.connectInternal();
+        if (!connected && this.requireConnection) {
+            throw new MongoosePluginError("MongoDB connection is required but the initial connection failed");
+        }
         health.register({
             id: "mongodb",
             label: "MongoDB",
             check: ({ signal }) => this.checkMongoHealth(signal)
         });
-        this.startConnectionRefreshMonitor();
     }
 
     override async uninstall(): Promise<void> {
-        this.stopConnectionRefreshMonitor();
+        this.mongoose.connection.off("disconnected", this.onDisconnected);
+        this.mongoose.connection.off("reconnected", this.onReconnected);
         await this.disconnect();
     }
 
@@ -124,14 +106,10 @@ export class MongoosePlugin extends VimcordPlugin {
             this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
 
             try {
-                await retryPromise(
-                    () => this.mongoose.connect(connectionUri, { autoIndex: true, ...this.mongooseOptions }),
-                    {
-                        attempts: this.maxRetries
-                    }
-                );
+                await retryPromise(() => this.mongoose.connect(connectionUri, this.connectOptions), {
+                    attempts: this.maxRetries
+                });
 
-                this.connectionRefreshFailures = 0;
                 this.client.logger.plugin.success(this.name, "Connected to MongoDB");
                 return true;
             } catch (err) {
@@ -147,25 +125,6 @@ export class MongoosePlugin extends VimcordPlugin {
         })();
 
         return await this.connectingPromise;
-    }
-
-    private startConnectionRefreshMonitor(): void {
-        if (!this.connectionRefresh.enabled || this.connectionRefreshTimer || !this.client) return;
-
-        this.connectionRefreshTimer = setInterval(
-            () => void this.runConnectionRefreshCheck(),
-            this.connectionRefresh.interval
-        );
-        this.connectionRefreshTimer.unref?.();
-        this.client.logger.plugin.debug(this.name, "Started MongoDB connection health monitor");
-    }
-
-    private stopConnectionRefreshMonitor(): void {
-        if (!this.connectionRefreshTimer) return;
-
-        clearInterval(this.connectionRefreshTimer);
-        this.connectionRefreshTimer = null;
-        this.client?.logger.plugin.debug(this.name, "Stopped MongoDB connection health monitor");
     }
 
     private async checkMongoHealth(signal?: AbortSignal): Promise<HealthProbeResult> {
@@ -189,67 +148,6 @@ export class MongoosePlugin extends VimcordPlugin {
         }
     }
 
-    private async testMongoConnection(): Promise<boolean> {
-        return (await this.checkMongoHealth()).status === "healthy";
-    }
-
-    private async runConnectionRefreshCheck(): Promise<void> {
-        if (!this.client || this.refreshingConnectionPromise) return;
-
-        const healthy = await this.testMongoConnection();
-        if (healthy) {
-            this.connectionRefreshFailures = 0;
-            return;
-        }
-
-        this.connectionRefreshFailures++;
-        this.client.logger.plugin.log(
-            this.name,
-            `MongoDB health check failed (${this.connectionRefreshFailures}/${this.connectionRefresh.maxFailures})`
-        );
-
-        if (this.connectionRefreshFailures >= this.connectionRefresh.maxFailures) {
-            await this.refreshMongoConnection("health checks failed");
-        }
-    }
-
-    private async refreshMongoConnection(reason: string): Promise<void> {
-        if (this.refreshingConnectionPromise) return this.refreshingConnectionPromise;
-
-        this.refreshingConnectionPromise = (async () => {
-            if (!this.client) return;
-
-            this.client.logger.plugin.log(this.name, `Refreshing MongoDB connection: ${reason}`);
-            this.stopConnectionRefreshMonitor();
-
-            for (const attempt of Array.from(
-                { length: this.connectionRefresh.maxRefreshAttempts },
-                (_, index) => index + 1
-            )) {
-                await this.disconnect().catch(Boolean);
-
-                const connected = await this.connectInternal();
-                if (connected) {
-                    this.client.logger.plugin.success(this.name, `MongoDB connection refreshed on attempt ${attempt}`);
-                    return;
-                }
-            }
-
-            this.client.logger.plugin.error(
-                this.name,
-                `Failed to refresh MongoDB connection after ${this.connectionRefresh.maxRefreshAttempts} attempt${this.connectionRefresh.maxRefreshAttempts === 1 ? "" : "s"}`,
-                new MongoosePluginError("MongoDB refresh failed")
-            );
-        })();
-
-        try {
-            await this.refreshingConnectionPromise;
-        } finally {
-            this.refreshingConnectionPromise = null;
-            this.startConnectionRefreshMonitor();
-        }
-    }
-
     async connect(): Promise<void> {
         await this.connectInternal();
     }
@@ -262,13 +160,10 @@ export class MongoosePlugin extends VimcordPlugin {
         return this.mongoose.startSession(options);
     }
 
-    async useSession(
-        fn: (session: mongoose.ClientSession) => Promise<unknown>,
-        options?: ClientSessionOptions
-    ): Promise<void> {
+    async useSession<T>(fn: (session: mongoose.ClientSession) => Promise<T>, options?: ClientSessionOptions): Promise<T> {
         const session = await this.startSession(options);
         try {
-            await fn(session);
+            return await sessionContext.run(session, () => fn(session));
         } finally {
             await session.endSession();
         }
@@ -286,7 +181,7 @@ export class MongoosePlugin extends VimcordPlugin {
     ): Promise<T> {
         const session = await this.startSession();
         try {
-            return await session.withTransaction(() => fn(session), options);
+            return await session.withTransaction(() => sessionContext.run(session, () => fn(session)), options);
         } finally {
             await session.endSession();
         }
