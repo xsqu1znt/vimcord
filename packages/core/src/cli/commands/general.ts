@@ -1,9 +1,8 @@
 import type { CLICommand } from "../types.js";
 
 import { getVimcordPackageVersion } from "@/utils/packageVersion.js";
-import { formatCLIClientTarget } from "../CLILogger.js";
 import { hasCLIFlag } from "../parser.js";
-import { formatLatency, requireCLIClient } from "./helpers.js";
+import { requireCLIClient } from "./helpers.js";
 
 export function createGeneralCLICommands(): CLICommand[] {
     return [
@@ -49,63 +48,11 @@ export function createGeneralCLICommands(): CLICommand[] {
             }
         },
         {
-            name: "clients",
-            description: "Lists clients participating in this CLI.",
-            requiresClient: false,
-            supportsAllClients: false,
-            execute: ({ cli, logger, client, flags }) => {
-                const clients = cli.getClients();
-                const selected = cli.getSelectedClient();
-                const data = clients.map(client => ({
-                    selected: client === selected,
-                    id: client.id,
-                    identity: client.user?.tag ?? client.$name,
-                    state: client.isReady() ? "Ready" : "Not ready",
-                    ping: client.ws.ping >= 0 ? client.ws.ping : null
-                }));
-
-                logger.header("Clients", client);
-                if (hasCLIFlag(flags, "json")) {
-                    logger.json(data);
-                    return;
-                }
-                logger.table(
-                    [
-                        { key: "selected", label: "" },
-                        { key: "id", label: "Client" },
-                        { key: "identity", label: "Identity" },
-                        { key: "state", label: "State" },
-                        { key: "ping", label: "Ping", align: "right" }
-                    ],
-                    data.map(client => ({
-                        ...client,
-                        selected: client.selected ? "●" : "○",
-                        ping: client.ping === null ? "—" : formatLatency(client.ping)
-                    }))
-                );
-            }
-        },
-        {
-            name: "use",
-            description: "Changes the active client used by subsequent commands.",
-            usage: "/use <client>",
-            requiresClient: false,
-            execute: ({ cli, logger, args }) => {
-                const query = args.join(" ");
-                if (!query) throw new Error("Usage: /use <client>");
-
-                const client = cli.selectClient(query);
-                logger.header("Client Selected", client);
-                logger.line(`Active client: ${logger.styles.target(formatCLIClientTarget(client))}`);
-            }
-        },
-        {
             name: "version",
             description: "Displays application and runtime version information.",
             requiresClient: false,
             execute: ({ logger, client, flags }) => {
                 const data = {
-                    clientId: client?.id ?? null,
                     application: client?.$name ?? null,
                     applicationVersion: client?.$version ? `v${client.$version}` : null,
                     vimcordVersion: `v${getVimcordPackageVersion()}`,
@@ -116,7 +63,7 @@ export function createGeneralCLICommands(): CLICommand[] {
                 if (hasCLIFlag(flags, "json")) logger.json(data);
                 else {
                     logger.fields([
-                        ["Application", data.application ?? "No client selected"],
+                        ["Application", data.application ?? "No client attached"],
                         ["App version", data.applicationVersion ? `v${data.applicationVersion}` : "—"],
                         ["Vimcord", `v${data.vimcordVersion}`],
                         ["Node", data.node]
@@ -126,7 +73,7 @@ export function createGeneralCLICommands(): CLICommand[] {
         },
         {
             name: "plugins",
-            description: "Lists plugins registered on the selected client.",
+            description: "Lists plugins registered on the attached client.",
             usage: "/plugins [--json]",
             execute: context => {
                 const client = requireCLIClient(context);
@@ -187,12 +134,11 @@ export function createGeneralCLICommands(): CLICommand[] {
         },
         {
             name: "exit",
-            description: "Destroys participating clients and stops the CLI.",
+            description: "Destroys the attached client and stops the CLI.",
             usage: "/exit --confirm",
             requiresClient: false,
             execute: async ({ cli, logger, flags }) => {
-                const clients = cli.getClients();
-                if (hasCLIFlag(flags, "client")) throw new Error("/exit always applies to every participating client");
+                const client = cli.getClient();
                 const unknownFlags = Array.from(flags.keys()).filter(flag => flag !== "confirm");
                 if (unknownFlags.length) {
                     throw new Error(
@@ -201,21 +147,19 @@ export function createGeneralCLICommands(): CLICommand[] {
                 }
                 if ((flags.get("confirm") ?? []).length) throw new Error("--confirm does not accept a value");
                 if (!hasCLIFlag(flags, "confirm")) {
-                    logger.header("Exit", cli.getSelectedClient());
-                    logger.line(
-                        `This will destroy ${clients.length} participating client${clients.length === 1 ? "" : "s"}.`
-                    );
+                    logger.header("Exit", client);
+                    logger.line(client ? "This will destroy the attached client." : "This will stop the CLI.");
                     logger.line(`Run ${logger.styles.command("/exit --confirm")} to continue.`);
                     return;
                 }
 
-                const loader = logger.commandLoader("Stopping Vimcord clients");
+                const loader = logger.commandLoader(client ? "Stopping Vimcord client" : "Stopping CLI", client);
                 try {
-                    await Promise.all(clients.map(client => client.destroy()));
-                    loader.succeed("Stopped Vimcord clients");
+                    if (client) await client.destroy();
+                    loader.succeed(client ? "Stopped Vimcord client" : "Stopped CLI");
                     cli.stop();
                 } catch (error) {
-                    loader.fail("Failed to stop Vimcord clients", error);
+                    loader.fail(client ? "Failed to stop Vimcord client" : "Failed to stop CLI", error);
                 }
             }
         }

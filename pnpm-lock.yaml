@@ -71,16 +71,6 @@ importers:
         specifier: ^25.8.0
         version: 25.9.4
 
-  packages/plugins/multi-instance:
-    dependencies:
-      '@vimcord/core':
-        specifier: workspace:*
-        version: link:../../core
-    devDependencies:
-      '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.4
-
   packages/vimcord:
     dependencies:
       '@vimcord/core':

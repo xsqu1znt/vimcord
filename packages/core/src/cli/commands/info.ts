@@ -20,8 +20,7 @@ export function createInfoCLICommands(): CLICommand[] {
         {
             name: "ping",
             description: "Displays Discord latency and plugin-provided service health.",
-            usage: "/ping [--client <client|all>] [--json]",
-            supportsAllClients: true,
+            usage: "/ping [--json]",
             execute: async context => {
                 const client = requireCLIClient(context);
                 const probes = client.plugins.getHealthProbes();
@@ -30,7 +29,6 @@ export function createInfoCLICommands(): CLICommand[] {
                 loader?.stop();
 
                 const data = {
-                    clientId: client.id,
                     discord: {
                         status: client.isReady() ? "healthy" : "unavailable",
                         latencyMs: client.ws.ping >= 0 ? client.ws.ping : null,
@@ -77,8 +75,7 @@ export function createInfoCLICommands(): CLICommand[] {
         {
             name: "stats",
             description: "Displays client, process, module, cache, and service statistics.",
-            usage: "/stats [--client <client|all>] [--json]",
-            supportsAllClients: true,
+            usage: "/stats [--json]",
             execute: async context => {
                 const client = requireCLIClient(context);
                 const loader = client.plugins.getHealthProbes().length
@@ -88,7 +85,6 @@ export function createInfoCLICommands(): CLICommand[] {
                 const memory = process.memoryUsage();
                 const data = {
                     client: {
-                        id: client.id,
                         application: client.$name,
                         applicationVersion: client.$version,
                         discordUser: client.user?.tag ?? null,
@@ -172,7 +168,7 @@ export function createInfoCLICommands(): CLICommand[] {
         },
         {
             name: "guildinfo",
-            description: "Fetches information about a guild available to the selected client.",
+            description: "Fetches information about a guild available to the attached client.",
             usage: "/guildinfo <id|name> [--json]",
             execute: async context => {
                 const client = requireCLIClient(context);

@@ -92,8 +92,6 @@ function deepFreeze<T>(value: T): T {
 }
 
 export interface MongoSchemaBuilderOptions extends SchemaOptions {
-    /** The Vimcord client ID to attach to. Leave blank to use the default. */
-    clientId?: string;
     /** Return plain objects instead of hydrated Mongoose documents. @default true */
     leanByDefault?: boolean;
     /** Opt-in read cache keyed on a single schema path. Entries expire when their key is read again and have no size limit. */
@@ -146,15 +144,15 @@ export class MongoSchemaBuilder<
         definition: Def,
         options: Opts
     ): BuilderSchema<Def, Opts> {
-        const { clientId, leanByDefault, cache, ...schemaOptions } = options;
+        const { leanByDefault, cache, ...schemaOptions } = options;
         const schema = new Schema(definition, { versionKey: false, ...schemaOptions });
         return schema as BuilderSchema<Def, Opts>;
     }
 
     private getClient(): Vimcord {
-        const client = this.client ?? Vimcord.getInstance(this.options.clientId);
+        const client = this.client ?? Vimcord.getInstance();
         if (!client) {
-            throw new MongoosePluginError(`Client instance (${this.options.clientId ?? "DEFAULT"}) does not exist`);
+            throw new MongoosePluginError("Vimcord client does not exist");
         }
 
         if (!this.client) {

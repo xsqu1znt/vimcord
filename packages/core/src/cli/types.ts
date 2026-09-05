@@ -25,10 +25,8 @@ export interface CLICommandContext {
     cli: VimcordCLI;
     /** Dedicated CLI output and formatting API. */
     logger: CLILogger;
-    /** Current execution target, or `null` for target-independent commands. */
+    /** Attached client, or `null` for client-independent commands. */
     client: Vimcord | null;
-    /** Snapshot of all participating clients. */
-    clients: readonly Vimcord[];
     /** Parsed positional arguments. */
     args: readonly string[];
     /** Parsed long flags. */
@@ -47,10 +45,8 @@ export interface CLICommand {
     usage?: string;
     /** Additional lowercase command triggers. */
     aliases?: readonly string[];
-    /** Whether a selected client is required. Plugin commands should leave this enabled. @default true */
+    /** Whether the attached client is required. Plugin commands should leave this enabled. @default true */
     requiresClient?: boolean;
-    /** Allows `--client all` to execute the command once for each participating client. */
-    supportsAllClients?: boolean;
     /** Executes the command for its resolved target. */
     execute(context: CLICommandContext): Promise<void> | void;
 }
