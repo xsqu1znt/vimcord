@@ -1,4 +1,7 @@
 import type {
+    ApplicationCommandOptionChoiceData,
+    AutocompleteFocusedOption,
+    AutocompleteInteraction,
     ChatInputCommandInteraction,
     ContextMenuCommandBuilder,
     GuildResolvable,
@@ -9,6 +12,7 @@ import type {
     SlashCommandSubcommandsOnlyBuilder,
     UserContextMenuCommandInteraction
 } from "discord.js";
+import type { Vimcord } from "@/client/Vimcord.js";
 import type { CommandModulePermissions, PermissionTestResult } from "@/commands/commandPermissions.js";
 import type { ModuleContext, ModuleHookContext, ModuleHooks, ModuleMetadata, ModuleOptions } from "../AbstractModule.js";
 
@@ -22,6 +26,18 @@ export enum CommandModuleType {
 export type SlashCommandBuilderResolvable =
     SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder;
 
+export interface SlashCommandAutocompleteContext {
+    client: Vimcord<true>;
+    interaction: AutocompleteInteraction;
+    /** The option the user is currently typing in. */
+    focused: AutocompleteFocusedOption;
+}
+
+/** Returns the choices to respond with, or responds directly and returns nothing. */
+export type SlashCommandAutocompleteHandler = (
+    ctx: SlashCommandAutocompleteContext
+) => Promise<ApplicationCommandOptionChoiceData[] | void> | ApplicationCommandOptionChoiceData[] | void;
+
 interface CommandTypeMap {
     // Slash Command
     [CommandModuleType.Slash]: {
@@ -29,6 +45,7 @@ interface CommandTypeMap {
         optionExtras: AppCommandModuleOptionExtras & {
             builder: SlashCommandBuilderResolvable | ((builder: SlashCommandBuilder) => SlashCommandBuilderResolvable);
             routes?: SlashCommandModuleRoute[];
+            autocomplete?: SlashCommandAutocompleteHandler;
         };
         contextExtras: { interaction: ChatInputCommandInteraction };
         hookContextExtras: Record<never, never>;
@@ -96,8 +113,6 @@ export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
     CommandModuleHookContext<T>
 > & {
     /** @defaultBehavior Alias for `onError`. */
-    onUsedWhenDisabled?(ctx: CommandModuleHookContext<T>): Promise<void>;
-    /** @defaultBehavior Alias for `onError`. */
     onPermissionTestFail?(ctx: CommandModuleHookContext<T>): Promise<void>;
 } & CommandTypeMap[T]["hookExtras"];
 
@@ -129,6 +144,9 @@ export interface CommandModuleMetadata extends ModuleMetadata {
      * @default false
      */
     hidden?: boolean;
+    /** Log this command's usage when it runs through the built-in dispatchers.
+     * @default true */
+    logUsage?: boolean;
 }
 
 // --- App Command Module Types ---
@@ -160,4 +178,6 @@ export interface SlashCommandModuleRoute {
     deferReply?: AppCommandModuleOptionExtras["deferReply"];
     /** Slash command route handler. This is what gets executed. */
     handler(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
+    /** Autocomplete handler for this route's options. */
+    autocomplete?: SlashCommandAutocompleteHandler;
 }

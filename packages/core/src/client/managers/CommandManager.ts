@@ -1,11 +1,14 @@
 import type {
+    AutocompleteInteraction,
     ChatInputCommandInteraction,
     ContextMenuCommandInteraction,
+    Guild,
     Interaction,
     Message,
-    RESTPostAPIApplicationCommandsJSONBody
+    RESTPostAPIApplicationCommandsJSONBody,
+    User
 } from "discord.js";
-import type { CommandModuleType } from "@/abstracts/index.js";
+import type { CommandModuleMetadata, CommandModuleType, ModuleRunResult } from "@/abstracts/index.js";
 import type {
     MessageContextCommandModule,
     PrefixCommandModule,
@@ -17,6 +20,8 @@ import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } fr
 import type { CommandFilter } from "./BaseCommandManager.js";
 
 import { Routes } from "discord.js";
+import { mapWithConcurrency } from "@/utils/arr.js";
+import { resolveGuildId } from "@/utils/clientUtils.js";
 import {
     createApplicationCommandKey,
     createApplicationCommandUpdatePayload,
@@ -26,7 +31,14 @@ import { BaseCommandManager } from "./BaseCommandManager.js";
 
 type RestRoute = `/${string}`;
 
+export interface DispatchMessageOptions {
+    /** Treat a mention of the bot as a prefix.
+     * @default false */
+    allowMention?: boolean;
+}
+
 const COMMAND_MANAGER_LOGGER = "CommandManager";
+const GUILD_SYNC_CONCURRENCY = 5;
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
     constructor(client: Vimcord) {
@@ -52,6 +64,9 @@ export class CommandManager {
     readonly prefix: PrefixCommandManager;
     readonly slash: SlashCommandManager;
     readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
+
+    private cachedMentionUserId: string | undefined;
+    private cachedMentionPrefixes: string[] = [];
 
     constructor(readonly client: Vimcord) {
         this.prefix = new PrefixCommandManager(client);
@@ -142,7 +157,7 @@ export class CommandManager {
         const client = await this.getReadyClient("push app commands by guild");
         if (!client) return false;
 
-        const commands = this.getAllAppCommands(options).map(command => command.builder.toJSON());
+        const commands = this.getAllAppCommands(options);
         if (!commands.length) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to register");
             return false;
@@ -150,30 +165,48 @@ export class CommandManager {
 
         // Default to every cached guild when the caller does not provide a narrower target list
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
+
+        // A command with `registration.guilds` set is pushed only to those guilds
+        const payloadsByGuild = new Map(
+            guildIds.map(guildId => [
+                guildId,
+                commands
+                    .filter(command => {
+                        const targets = command.registration.guilds;
+                        return !targets?.length || targets.map(resolveGuildId).includes(guildId);
+                    })
+                    .map(command => command.builder.toJSON())
+            ])
+        );
+
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
             `↑ Pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`
         );
 
-        // Sync guilds in parallel because Discord keeps each guild command registry separate
-        await Promise.all(
-            guildIds.map(async guildId => {
-                const existing = (await client.rest.get(
-                    Routes.applicationGuildCommands(client.user.id, guildId)
-                )) as RemoteApplicationCommand[];
-                const result = await this.upsertApplicationCommands(commands, existing, {
-                    scope: "guild",
-                    createRoute: Routes.applicationGuildCommands(client.user.id, guildId),
-                    editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
-                });
-                const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pushed app commands to ${guildName} (${guildId})`);
-                this.client.logger.module(
-                    COMMAND_MANAGER_LOGGER,
-                    `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
-                );
-            })
-        );
+        // Sync guilds with bounded concurrency; a large guild count would otherwise fire every REST request at once
+        await mapWithConcurrency(guildIds, GUILD_SYNC_CONCURRENCY, async guildId => {
+            const payload = payloadsByGuild.get(guildId) ?? [];
+            if (!payload.length) {
+                this.client.logger.debug(`[${COMMAND_MANAGER_LOGGER}] Skipping ${guildId}, no commands target this guild`);
+                return;
+            }
+
+            const existing = (await client.rest.get(
+                Routes.applicationGuildCommands(client.user.id, guildId)
+            )) as RemoteApplicationCommand[];
+            const result = await this.upsertApplicationCommands(payload, existing, {
+                scope: "guild",
+                createRoute: Routes.applicationGuildCommands(client.user.id, guildId),
+                editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
+            });
+            const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
+            this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pushed app commands to ${guildName} (${guildId})`);
+            this.client.logger.module(
+                COMMAND_MANAGER_LOGGER,
+                `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
+            );
+        });
 
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
@@ -198,13 +231,11 @@ export class CommandManager {
             `↓ Pulling app commands from ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`
         );
 
-        await Promise.all(
-            guildIds.map(async guildId => {
-                await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
-                const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-                this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pulled app commands from ${guildName} (${guildId})`);
-            })
-        );
+        await mapWithConcurrency(guildIds, GUILD_SYNC_CONCURRENCY, async guildId => {
+            await client.rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: [] });
+            const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
+            this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pulled app commands from ${guildName} (${guildId})`);
+        });
 
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
@@ -226,14 +257,26 @@ export class CommandManager {
             return await this.dispatchContext(interaction);
         }
 
+        if (interaction.isAutocomplete()) {
+            return await this.dispatchAutocomplete(interaction);
+        }
+
         return false;
     }
 
     /**
      * Dispatches a Discord message to the matching prefix command module.
      */
-    async dispatchMessage(message: Message, allowedPrefixes: string[]): Promise<boolean> {
-        const prefix = allowedPrefixes.find(p => message.content.startsWith(p));
+    async dispatchMessage(
+        message: Message,
+        allowedPrefixes: string[],
+        options: DispatchMessageOptions = {}
+    ): Promise<boolean> {
+        const prefix = this.findLongestPrefix(
+            message.content,
+            allowedPrefixes,
+            options.allowMention ? this.getMentionPrefixes() : []
+        );
         if (!prefix) return false;
 
         // The first token after the prefix is the command name or alias
@@ -243,36 +286,19 @@ export class CommandManager {
         const command = this.prefix.getByTrigger(trigger);
         if (!command) return false;
 
-        const startedAt = performance.now();
-        const result = await command.runWithResult(message, prefix, trigger);
-        if (result.executed && (command.metadata.logUsage ?? true)) {
-            this.client.logger.commandUsed({
-                commandName: command.name,
-                userName: message.author.username,
-                guildName: message.guild?.name,
-                guildId: message.guild?.id,
-                durationMs: performance.now() - startedAt
-            });
-        }
-        return true;
+        return await this.runCommand(
+            command,
+            () => command.runWithResult(message, prefix, trigger),
+            message.author,
+            message.guild
+        );
     }
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<boolean> {
         const command = this.slash.getByName(interaction.commandName);
         if (!command) return false;
 
-        const startedAt = performance.now();
-        const result = await command.runWithResult(interaction);
-        if (result.executed && (command.metadata.logUsage ?? true)) {
-            this.client.logger.commandUsed({
-                commandName: command.name,
-                userName: interaction.user.username,
-                guildName: interaction.guild?.name,
-                guildId: interaction.guild?.id,
-                durationMs: performance.now() - startedAt
-            });
-        }
-        return true;
+        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
@@ -280,36 +306,74 @@ export class CommandManager {
             const command = this.context.message.getByName(interaction.commandName);
             if (!command) return false;
 
-            const startedAt = performance.now();
-            const result = await command.runWithResult(interaction);
-            if (result.executed && (command.metadata.logUsage ?? true)) {
-                this.client.logger.commandUsed({
-                    commandName: command.name,
-                    userName: interaction.user.username,
-                    guildName: interaction.guild?.name,
-                    guildId: interaction.guild?.id,
-                    durationMs: performance.now() - startedAt
-                });
-            }
-            return true;
+            return await this.runCommand(
+                command,
+                () => command.runWithResult(interaction),
+                interaction.user,
+                interaction.guild
+            );
         }
 
         if (!interaction.isUserContextMenuCommand()) return false;
         const command = this.context.user.getByName(interaction.commandName);
         if (!command) return false;
 
+        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
+    }
+
+    /** Autocomplete skips the module pipeline and never emits a usage log; it fires per keystroke. */
+    private async dispatchAutocomplete(interaction: AutocompleteInteraction): Promise<boolean> {
+        const command = this.slash.getByName(interaction.commandName);
+        if (!command) return false;
+
+        return await command.handleAutocomplete(interaction);
+    }
+
+    /** Runs a matched command and emits its usage log. Always returns true, because a command was matched. */
+    private async runCommand(
+        command: { name: string; metadata: CommandModuleMetadata },
+        run: () => Promise<ModuleRunResult>,
+        user: User,
+        guild: Guild | null
+    ): Promise<boolean> {
         const startedAt = performance.now();
-        const result = await command.runWithResult(interaction);
+        const result = await run();
+
         if (result.executed && (command.metadata.logUsage ?? true)) {
             this.client.logger.commandUsed({
                 commandName: command.name,
-                userName: interaction.user.username,
-                guildName: interaction.guild?.name,
-                guildId: interaction.guild?.id,
-                durationMs: performance.now() - startedAt
+                userName: user.username,
+                guildName: guild?.name,
+                guildId: guild?.id,
+                durationMs: performance.now() - startedAt,
+                failed: Boolean(result.error)
             });
         }
+
         return true;
+    }
+
+    /** Mention forms Discord may send for this bot. Rebuilt only if the client user changes. */
+    private getMentionPrefixes(): string[] {
+        const userId = this.client.user?.id;
+        if (!userId) return [];
+
+        if (this.cachedMentionUserId !== userId) {
+            this.cachedMentionUserId = userId;
+            this.cachedMentionPrefixes = [`<@${userId}>`, `<@!${userId}>`];
+        }
+        return this.cachedMentionPrefixes;
+    }
+
+    /** Returns the longest prefix the content starts with, so "!!" wins over "!". */
+    private findLongestPrefix(content: string, ...groups: readonly string[][]): string | undefined {
+        let match: string | undefined;
+        for (const group of groups) {
+            for (const candidate of group) {
+                if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
+            }
+        }
+        return match;
     }
 
     private async getReadyClient(action: string): Promise<Vimcord<true> | null> {

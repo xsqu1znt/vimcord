@@ -55,12 +55,9 @@ export class UserContextCommandModule extends AbstractCommandModule<CommandModul
     }
 
     protected override createHookCTX(
+        moduleCTX: CommandModuleContext<CommandModuleType.UserContext>,
         args: CommandModuleArgs<CommandModuleType.UserContext>
     ): CommandModuleHookContext<CommandModuleType.UserContext> {
-        return {
-            ...this.createModuleCTX(args),
-            module: this as any,
-            args
-        };
+        return { ...moduleCTX, module: this as any, args };
     }
 }

@@ -64,6 +64,8 @@ type EventListener<K extends keyof ClientEvents> = (...args: ClientEvents[K]) =>
 
 export class EventManager extends AbstractModuleImporter<EventModule, EventModuleIndexType> {
     private readonly mountedListeners = new Map<keyof ClientEvents, EventListener<keyof ClientEvents>>();
+    /** Events that have at least one `once` handler, so `executeEvents` knows when to copy before unregistering. */
+    private readonly onceEvents = new Set<keyof ClientEvents>();
 
     constructor(client: Vimcord) {
         super(client);
@@ -94,12 +96,14 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
 
     protected override reindex(): void {
         super.reindex();
+        this.onceEvents.clear();
 
         const eventIndex = this.indexes.get("event");
         if (!eventIndex?.isArray) return;
 
-        for (const events of eventIndex.map.values()) {
+        for (const [event, events] of eventIndex.map) {
             events.sort((a, b) => b.priority - a.priority);
+            if (events.some(e => e.once)) this.onceEvents.add(event as keyof ClientEvents);
         }
     }
 
@@ -188,13 +192,19 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     async executeEvents<K extends keyof ClientEvents>(event: K, ...args: ClientEvents[K]): Promise<void> {
-        const events = [...this.getByEvent(event)] as unknown as EventModule[];
-        if (!events.length) return;
+        const indexed = this.getByEvent(event) as unknown as EventModule[];
+        if (!indexed.length) return;
 
-        const onceIds = events.filter(e => e.once).map(e => e.id);
-        if (onceIds.length) this.unregister(...onceIds);
+        // Unregistering rebuilds the index mid-dispatch, so copy only when that can happen
+        const hasOnce = this.onceEvents.has(event);
+        const events = hasOnce ? [...indexed] : indexed;
+        if (hasOnce) {
+            const onceIds = events.filter(e => e.once).map(e => e.id);
+            if (onceIds.length) this.unregister(...onceIds);
+        }
 
-        await Promise.allSettled(
+        // `Promise.all` is safe here because the callback below never rejects
+        await Promise.all(
             events.map(async e => {
                 try {
                     await e.run(...args);

@@ -52,6 +52,8 @@ export interface VimcordCommandLogData {
     guildId?: string;
     /** Total execution time in milliseconds. */
     durationMs?: number;
+    /** Whether the command threw while executing. */
+    failed?: boolean;
 }
 
 /** Vimcord-specific logger for startup, command, module, and plugin output. */
@@ -170,14 +172,15 @@ export class VimcordLogger extends Logger {
     }
 
     /** Logs a completed command execution. */
-    commandUsed({ commandName, userName, guildName, guildId, durationMs }: VimcordCommandLogData): void {
+    commandUsed({ commandName, userName, guildName, guildId, durationMs, failed }: VimcordCommandLogData): void {
         const { colors } = this.options;
         this.log(
             ansis.hex(colors.muted)("COMMAND"),
             ansis.yellow(`/${commandName}`),
             `used by ${userName}`,
             ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}${guildId ? ` (${guildId})` : ""}`),
-            ...(durationMs === undefined ? [] : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)])
+            ...(durationMs === undefined ? [] : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)]),
+            ...(failed ? [ansis.hex(colors.error)("| failed")] : [])
         );
     }
 

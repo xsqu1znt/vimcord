@@ -13,6 +13,7 @@ import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/in
 import type { StaffGlobals } from "@/client/globals.js";
 
 import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
+import { resolveGuildId } from "@/utils/clientUtils.js";
 
 export enum MissingPermissionReason {
     User = "User",
@@ -90,12 +91,6 @@ function resolveUserId(user: UserResolvable): string {
 
 function resolveRoleId(role: RoleResolvable): string {
     return typeof role === "string" ? role : role.id;
-}
-
-function resolveGuildId(guild: GuildResolvable): string | null {
-    if (typeof guild === "string") return guild;
-    if ("guild" in guild) return guild.guild?.id ?? null;
-    return guild.id;
 }
 
 function getMemberRoleIds(member: CommandMember): string[] {

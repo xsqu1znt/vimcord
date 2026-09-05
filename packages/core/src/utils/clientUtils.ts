@@ -1,4 +1,4 @@
-import type { FetchGuildOptions, User, UserResolvable } from "discord.js";
+import type { FetchGuildOptions, GuildResolvable, User, UserResolvable } from "discord.js";
 import type { Vimcord } from "@/client/index.js";
 
 /**
@@ -21,4 +21,11 @@ export async function fetchUser(client: Vimcord, user: UserResolvable | null | u
     if (user === null || user === undefined) return null;
     const fetch = async () => await client.users.fetch(user, { cache: true }).catch(() => null);
     return typeof user === "string" ? (client.users.cache.get(user) ?? (await fetch())) : await fetch();
+}
+
+/** Resolves a guild-like value down to its id. */
+export function resolveGuildId(guild: GuildResolvable): string | null {
+    if (typeof guild === "string") return guild;
+    if ("guild" in guild) return guild.guild?.id ?? null;
+    return guild.id;
 }

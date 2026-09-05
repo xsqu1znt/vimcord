@@ -13,6 +13,8 @@ export interface ModuleRunResult {
     executed: boolean;
     /** Value returned by the module's main execute function. */
     response: unknown;
+    /** Error thrown by the module's main execute function, if any. */
+    error?: Error;
 }
 
 // - - - - - - - - - - - - - - -
@@ -236,7 +238,7 @@ export abstract class AbstractModule<
             return false;
         }
 
-        if (!this.requiresReady) return true;
+        if (!this.requiresReady || this.client.isReady()) return true;
 
         const ready = await this.client.awaitReady();
         if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
@@ -252,6 +254,16 @@ export abstract class AbstractModule<
         return this.hooks[hook];
     }
 
+    /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
+    private async timed<T>(message: string, fn: () => Promise<T> | T): Promise<T> {
+        if (!this.client?.logger.options.verbose) return await fn();
+
+        const startedAt = performance.now();
+        const result = await fn();
+        this.client.logger.debug(`[Module] ${message} in ${(performance.now() - startedAt).toFixed(1)}ms`);
+        return result;
+    }
+
     /** Runs a hook with relevant context and an optional fallback. */
     async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
         hook: K,
@@ -263,19 +275,9 @@ export abstract class AbstractModule<
 
         try {
             if (hookFn) {
-                const debug_hook_start = Date.now();
-                await hookFn(ctx);
-                const debug_hook_end = Date.now();
-                this.client?.logger.debug(
-                    `[Module] Ran hook '${String(hook)}' for '${this.buildName()}' in ${debug_hook_end - debug_hook_start}ms`
-                );
+                await this.timed(`Ran hook '${String(hook)}' for '${this.buildName()}'`, () => hookFn(ctx));
             } else if (fallback) {
-                const debug_fallback_start = Date.now();
-                await fallback(ctx);
-                const debug_fallback_end = Date.now();
-                this.client?.logger.debug(
-                    `[Module] Ran fallback hook '${String(hook)}' for '${this.buildName()}' in ${debug_fallback_end - debug_fallback_start}ms`
-                );
+                await this.timed(`Ran fallback hook '${String(hook)}' for '${this.buildName()}'`, () => fallback(ctx));
             }
         } catch (err) {
             this.client!.logger.error(`[Module] Hook '${String(hook)}' failed for '${this.buildName()}'`, err as Error);
@@ -302,7 +304,7 @@ export abstract class AbstractModule<
         let executed = false;
         if (!(await this.checkInjection())) return { executed, response: undefined };
         const moduleCTX = this.createModuleCTX(args);
-        const hookCTX = this.createHookCTX(args);
+        const hookCTX = this.createHookCTX(moduleCTX, args);
 
         try {
             const valid = this.validate();
@@ -315,11 +317,8 @@ export abstract class AbstractModule<
                 ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
             if (preExecute) {
                 let next = false;
-                const debug_preExecute_start = Date.now();
-                await preExecute(hookCTX, () => (next = true));
-                const debug_preExecute_end = Date.now();
-                this.client?.logger.debug(
-                    `[Module] Ran hook 'preExecute' for '${this.buildName()}' in ${debug_preExecute_end - debug_preExecute_start}ms`
+                await this.timed(`Ran hook 'preExecute' for '${this.buildName()}'`, () =>
+                    preExecute(hookCTX, () => (next = true))
                 );
 
                 if (!next) {
@@ -329,21 +328,13 @@ export abstract class AbstractModule<
             }
 
             executed = true;
-            const debug_execute_start = Date.now();
-            const executeResponse = await this.execute(moduleCTX);
-            const debug_execute_end = Date.now();
-            this.client?.logger.debug(
-                `[Module] Executed '${this.buildName()}' in ${debug_execute_end - debug_execute_start}ms`
-            );
+            const executeResponse = await this.timed(`Executed '${this.buildName()}'`, () => this.execute(moduleCTX));
 
             const postExecute = this.getHook("postExecute" as keyof Hooks) as
                 ((ctx: HookCTX, executeResponse: unknown) => Promise<void>) | undefined;
             if (postExecute) {
-                const debug_postExecute_start = Date.now();
-                await postExecute(hookCTX, executeResponse);
-                const debug_postExecute_end = Date.now();
-                this.client?.logger.debug(
-                    `[Module] Ran hook 'postExecute' for '${this.buildName()}' in ${debug_postExecute_end - debug_postExecute_start}ms`
+                await this.timed(`Ran hook 'postExecute' for '${this.buildName()}'`, () =>
+                    postExecute(hookCTX, executeResponse)
                 );
             }
 
@@ -353,7 +344,7 @@ export abstract class AbstractModule<
             await this.runHook("onError", hookCTX, async () =>
                 this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
             );
-            return { executed, response: undefined };
+            return { executed, response: undefined, error: err as Error };
         }
     }
 
@@ -361,5 +352,5 @@ export abstract class AbstractModule<
     protected abstract validate(): boolean;
 
     protected abstract createModuleCTX(args: Args): ModuleCTX;
-    protected abstract createHookCTX(args: Args): HookCTX;
+    protected abstract createHookCTX(moduleCTX: ModuleCTX, args: Args): HookCTX;
 }

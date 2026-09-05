@@ -163,6 +163,32 @@ export default new SlashCommandModule({
 });
 ```
 
+### Autocomplete
+
+Autocomplete handlers run outside the module pipeline (no permissions, no hooks), since Discord gives them 3 seconds and the interaction can't report an error.
+
+```ts
+import { SlashCommandBuilder } from "discord.js";
+import { SlashCommandModule } from "vimcord";
+
+export default new SlashCommandModule({
+    builder: new SlashCommandBuilder()
+        .setName("wiki")
+        .setDescription("Search the wiki")
+        .addStringOption(option => option.setName("query").setDescription("Search term").setAutocomplete(true)),
+
+    async autocomplete({ focused }) {
+        return ["Guide", "Getting Started", "FAQ"]
+            .filter(name => name.toLowerCase().includes(focused.value.toLowerCase()))
+            .map(name => ({ name, value: name }));
+    },
+
+    async execute({ interaction }) {
+        await interaction.reply(`Searching for "${interaction.options.getString("query")}"...`);
+    }
+});
+```
+
 ### Prefix Commands
 
 ```ts
@@ -659,6 +685,8 @@ export default new EventModule({
     }
 });
 ```
+
+Pass `{ allowMention: true }` as a third argument to also treat a mention of the bot as a prefix.
 
 ### Bot Staff Checks
 
