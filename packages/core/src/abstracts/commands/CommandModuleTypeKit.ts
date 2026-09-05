@@ -14,7 +14,14 @@ import type {
 } from "discord.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { CommandModulePermissions, PermissionTestResult } from "@/commands/commandPermissions.js";
-import type { ModuleContext, ModuleHookContext, ModuleHooks, ModuleMetadata, ModuleOptions } from "../AbstractModule.js";
+import type {
+    ModuleConditionFn,
+    ModuleContext,
+    ModuleHookContext,
+    ModuleHooks,
+    ModuleMetadata,
+    ModuleOptions
+} from "../AbstractModule.js";
 
 export enum CommandModuleType {
     Slash = "Slash",
@@ -48,7 +55,6 @@ interface CommandTypeMap {
             autocomplete?: SlashCommandAutocompleteHandler;
         };
         contextExtras: { interaction: ChatInputCommandInteraction };
-        hookContextExtras: Record<never, never>;
         hookExtras: {
             onUnknownRoute?(
                 ctx: CommandModuleHookContext<CommandModuleType.Slash>,
@@ -71,7 +77,6 @@ interface CommandTypeMap {
             trigger: string;
             splitContent: (options?: { separator?: string; lowercase?: boolean; uppercase?: boolean }) => string[];
         };
-        hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
 
@@ -84,7 +89,6 @@ interface CommandTypeMap {
             builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
         };
         contextExtras: { interaction: MessageContextMenuCommandInteraction };
-        hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
 
@@ -95,7 +99,6 @@ interface CommandTypeMap {
             builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
         };
         contextExtras: { interaction: UserContextMenuCommandInteraction };
-        hookContextExtras: Record<never, never>;
         hookExtras: Record<never, never>;
     };
 }
@@ -106,7 +109,7 @@ export type CommandModuleContext<T extends CommandModuleType> = ModuleContext & 
 export type CommandModuleHookContext<T extends CommandModuleType> = CommandModuleContext<T> &
     ModuleHookContext<CommandModuleArgs<T>> & {
         permissionTestResult?: PermissionTestResult;
-    } & CommandTypeMap[T]["hookContextExtras"];
+    };
 
 export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
     CommandModuleArgs<T>,
@@ -117,24 +120,22 @@ export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
 } & CommandTypeMap[T]["hookExtras"];
 
 // --- Command Module Options ---
-export type CommandModuleOptions<T extends CommandModuleType> = ModuleOptions<
-    CommandModuleArgs<T>,
-    CommandModuleContext<T>,
-    CommandModuleHookContext<T>,
-    CommandModuleHooks<T>
+export type CommandModuleOptions<T extends CommandModuleType> = Omit<
+    ModuleOptions<CommandModuleArgs<T>, CommandModuleContext<T>, CommandModuleHookContext<T>, CommandModuleHooks<T>>,
+    "singleInvocation"
 > & {
     metadata?: CommandModuleMetadata;
     /** The permissions of the module. */
     permissions?: CommandModulePermissions;
     hooks?: CommandModuleHooks<T>;
+    /**
+     * Skip a new invocation while a matching one is still running. Off by default.
+     * `true` keys on the module and the invoking user. Pass a `key` function for custom scoping.
+     */
+    singleInvocation?: boolean | { key(ctx: CommandModuleHookContext<T>): string };
 } & CommandTypeMap[T]["optionExtras"];
 
 export interface CommandModuleMetadata extends ModuleMetadata {
-    /**
-     * Command category emoji.
-     * @remarks I recommend mapping your own category emojis separately instead of using this.
-     */
-    categoryEmoji?: string;
     /** Command emoji. */
     emoji?: string;
     /** Command usage examples. */
@@ -175,7 +176,15 @@ interface AppCommandRegistrationRules {
 export interface SlashCommandModuleRoute {
     /** Subcommand route path. Use `group:subcommand` for grouped subcommands. */
     path: string;
+    /**
+     * Defer this route's reply. Falls back to the command's `deferReply` when omitted.
+     * Set explicitly to `false` to disable deferral for this route even if the command defers.
+     */
     deferReply?: AppCommandModuleOptionExtras["deferReply"];
+    /** Condition checks for this route only. Run after the command's own conditions pass. */
+    conditions?: ModuleConditionFn<CommandModuleHookContext<CommandModuleType.Slash>>[];
+    /** Permission checks for this route only. Run after the command's own permissions pass. */
+    permissions?: CommandModulePermissions;
     /** Slash command route handler. This is what gets executed. */
     handler(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> | unknown;
     /** Autocomplete handler for this route's options. */

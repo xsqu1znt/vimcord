@@ -179,6 +179,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             this.logger.log("Logging in to Discord...");
             return await super.login(token);
         } catch (err) {
+            // Plugin install failures already clean up after themselves; this catches plugins that
+            // installed successfully before a later step (or another plugin) failed.
+            try {
+                await this.plugins.unload();
+            } catch (cleanupError) {
+                this.logger.error("[Vimcord] Failed to clean up plugins after a failed login", cleanupError as Error);
+            }
+
             this.startupBannerHandle?.clear();
             this.startupBannerHandle = undefined;
             throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");

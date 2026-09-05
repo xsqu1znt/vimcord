@@ -19,13 +19,13 @@ export interface ModuleRunResult {
 
 // - - - - - - - - - - - - - - -
 
-export interface ModuleContext {
-    client: Vimcord<true>;
+export interface ModuleContext<Ready extends boolean = true> {
+    client: Vimcord<Ready>;
 }
 
-export interface ModuleHookContext<Args extends unknown[] = unknown[]> {
+export interface ModuleHookContext<Args extends unknown[] = unknown[], Ready extends boolean = true> {
     module: AbstractModule<Args>;
-    client: Vimcord<true>;
+    client: Vimcord<Ready>;
     args: Args;
     error?: Error;
     deploymentTestResult?: ModuleTestResult;
@@ -35,8 +35,8 @@ export interface ModuleHookContext<Args extends unknown[] = unknown[]> {
 // --- Module Options ---
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
-    ModuleCTX extends ModuleContext = ModuleContext,
-    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
+    ModuleCTX extends ModuleContext<boolean> = ModuleContext,
+    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>,
     Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
     /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
@@ -63,6 +63,14 @@ export interface ModuleOptions<
     deployment?: ModuleDeploymentRules;
     /** Optional condition rules of the module. Conditions are tested in the order they are defined. */
     conditions?: ModuleConditionFn<HookCTX>[];
+    /**
+     * Skip a new invocation while a matching one (same key) is still running. Off by default.
+     * @remarks Coordinates work in-memory, within this process only.
+     */
+    singleInvocation?: {
+        /** Returns the identity key for an invocation. Invocations sharing a key never run concurrently. */
+        key(ctx: HookCTX): string;
+    };
 
     // --- Hooks ---
     /** Optional hooks of the module. */
@@ -91,7 +99,7 @@ export interface ModuleDeploymentRules {
 
 export interface ModuleHooks<
     Args extends unknown[] = unknown[],
-    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>
+    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>
 > {
     /** @defaultBehavior Alias for `onError`. */
     onDeploymentTestFail?(ctx: HookCTX): Promise<void>;
@@ -107,13 +115,16 @@ export interface ModuleHooks<
     ): Promise<void>;
     /** @defaultBehavior Does nothing. */
     postExecute?(ctx: HookCTX, executeResponse: unknown): Promise<void>;
+    /** Runs when an invocation is skipped because a matching `singleInvocation` invocation is already running.
+     * @defaultBehavior Does nothing; the invocation is silently skipped. */
+    onAlreadyRunning?(ctx: HookCTX): Promise<void>;
 }
 
 // --- Abstract Module ---
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
-    ModuleCTX extends ModuleContext = ModuleContext,
-    HookCTX extends ModuleHookContext<Args> = ModuleHookContext<Args>,
+    ModuleCTX extends ModuleContext<boolean> = ModuleContext,
+    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>,
     Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
 > {
     readonly client: Vimcord | null = null;
@@ -127,12 +138,27 @@ export abstract class AbstractModule<
     readonly requiresReady: boolean;
     readonly deployment: ModuleDeploymentRules;
     readonly conditions: ModuleConditionFn<HookCTX>[];
+    readonly singleInvocation: { key(ctx: HookCTX): string } | undefined;
     readonly hooks: Hooks;
+
+    /** Keys of invocations currently running, when `singleInvocation` is configured. */
+    private readonly activeInvocationKeys = new Set<string>();
 
     protected readonly execute: (ctx: ModuleCTX) => unknown;
 
     constructor(options: ModuleOptions<Args, ModuleCTX, HookCTX, Hooks>) {
-        const { customId, name, metadata, enabled, requiresReady, deployment, conditions, hooks, execute } = options;
+        const {
+            customId,
+            name,
+            metadata,
+            enabled,
+            requiresReady,
+            deployment,
+            conditions,
+            singleInvocation,
+            hooks,
+            execute
+        } = options;
         this.id = customId ?? createHumanId();
         this.name = name;
         this.metadata = metadata ?? {};
@@ -141,6 +167,7 @@ export abstract class AbstractModule<
         this.requiresReady = requiresReady ?? true;
         this.deployment = { environment: "both", ...deployment };
         this.conditions = conditions ?? [];
+        this.singleInvocation = singleInvocation;
 
         this.hooks = (hooks ?? {}) as Hooks;
         this.execute = execute;
@@ -153,7 +180,7 @@ export abstract class AbstractModule<
     }
 
     // --- Tests & Rules ---
-    protected async testDeployment(ctx: HookCTX): Promise<ModuleTestResult> {
+    protected testDeployment(ctx: HookCTX): ModuleTestResult {
         if (this.deployment.environment === "both") {
             return { passed: true };
         }
@@ -198,9 +225,7 @@ export abstract class AbstractModule<
      * `testConditions` -> `hook:onConditionTestFail`
      */
     protected async performTests(ctx: HookCTX): Promise<boolean> {
-        if (!this.enabled) return false;
-
-        const deploymentTestResult = await this.testDeployment(ctx);
+        const deploymentTestResult = this.testDeployment(ctx);
         if (!deploymentTestResult.passed) {
             ctx.deploymentTestResult = deploymentTestResult;
 
@@ -287,7 +312,7 @@ export abstract class AbstractModule<
     /**
      * Execute order:
      *
-     * try:`performTests` -> `hook:preExecute` -> `execute` -> `hook:postExecute`
+     * try:`performTests` -> `hook:preExecute` -> `singleInvocation` check -> `execute` -> `hook:postExecute`
      *
      * catch:`hook:onError`
      */
@@ -302,6 +327,7 @@ export abstract class AbstractModule<
      */
     async runWithResult(...args: Args): Promise<ModuleRunResult> {
         let executed = false;
+        if (!this.enabled) return { executed, response: undefined };
         if (!(await this.checkInjection())) return { executed, response: undefined };
         const moduleCTX = this.createModuleCTX(args);
         const hookCTX = this.createHookCTX(moduleCTX, args);
@@ -327,8 +353,23 @@ export abstract class AbstractModule<
                 }
             }
 
+            let invocationKey: string | undefined;
+            if (this.singleInvocation) {
+                invocationKey = this.singleInvocation.key(hookCTX);
+                if (this.activeInvocationKeys.has(invocationKey)) {
+                    await this.runHook("onAlreadyRunning", hookCTX);
+                    return { executed, response: undefined };
+                }
+                this.activeInvocationKeys.add(invocationKey);
+            }
+
             executed = true;
-            const executeResponse = await this.timed(`Executed '${this.buildName()}'`, () => this.execute(moduleCTX));
+            let executeResponse: unknown;
+            try {
+                executeResponse = await this.timed(`Executed '${this.buildName()}'`, () => this.execute(moduleCTX));
+            } finally {
+                if (invocationKey !== undefined) this.activeInvocationKeys.delete(invocationKey);
+            }
 
             const postExecute = this.getHook("postExecute" as keyof Hooks) as
                 ((ctx: HookCTX, executeResponse: unknown) => Promise<void>) | undefined;

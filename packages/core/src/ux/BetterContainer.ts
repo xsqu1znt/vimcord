@@ -10,7 +10,7 @@ import type {
 import type { DynaSendOptions, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 
 import { ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, resolveColor, ThumbnailBuilder } from "discord.js";
-import { dynaSend } from "./dynaSend.js";
+import { addMessageFlag, dynaSend } from "./dynaSend.js";
 import { resolveGlobalEmbedColor } from "./uxConfig.js";
 
 export interface BetterContainerOptions {
@@ -52,17 +52,6 @@ function normalizeText(text: string | (string | null | undefined)[]): string {
     return text.filter(line => line != null).join("\n");
 }
 
-function addComponentsV2Flag(flags: DynaSendOptions["flags"]): DynaSendOptions["flags"] {
-    if (Array.isArray(flags)) {
-        return flags.includes(MessageFlags.IsComponentsV2) ? flags : [...flags, MessageFlags.IsComponentsV2];
-    }
-
-    if (typeof flags === "number") return flags | MessageFlags.IsComponentsV2;
-    if (!flags) return [MessageFlags.IsComponentsV2];
-
-    return [flags, MessageFlags.IsComponentsV2];
-}
-
 export class BetterContainer {
     private container = new ContainerBuilder();
     private data: BetterContainerState;
@@ -76,13 +65,13 @@ export class BetterContainer {
     }
 
     private resolveColor(): number | null {
-        if (!this.data.color) return null;
+        if (this.data.color === null) return null;
 
         const color = Array.isArray(this.data.color)
             ? (this.data.color[Math.floor(Math.random() * this.data.color.length)] ?? null)
             : this.data.color;
 
-        if (!color) return null;
+        if (color === null) return null;
         return resolveColor(color);
     }
 
@@ -97,11 +86,15 @@ export class BetterContainer {
     }
 
     /**
-     * Creates a new BetterContainer using this container's data with optional overrides.
+     * Creates a new BetterContainer with an independent copy of this container's components (text, media,
+     * sections, action rows) and color, with optional color override. Mutating the clone never mutates this container.
      * @param overrides Data to override on the cloned container
      */
     clone(overrides: Partial<BetterContainerOptions> = {}): BetterContainer {
-        return new BetterContainer({ ...this.data, ...overrides });
+        const cloned = new BetterContainer({ color: overrides.color === undefined ? this.data.color : overrides.color });
+        cloned.container = new ContainerBuilder(this.toJSON());
+        cloned.build();
+        return cloned;
     }
 
     /**
@@ -229,7 +222,7 @@ export class BetterContainer {
             ...options,
             withResponse: options.withResponse ?? true,
             components: [this.container, ...(options.components ?? [])],
-            flags: addComponentsV2Flag(options.flags)
+            flags: addMessageFlag(options.flags, MessageFlags.IsComponentsV2)
         };
 
         return dynaSend(handler, sendOptions);

@@ -12,7 +12,7 @@ export function createGeneralCLICommands(): CLICommand[] {
             usage: "/help [command]",
             requiresClient: false,
             execute: ({ cli, logger, client, args }) => {
-                const commands = cli.getAvailableCommands(client);
+                const commands = cli.getAvailableCommands();
                 const requested = args[0]?.replace(/^\//, "").toLowerCase();
                 if (requested) {
                     const command = commands.find(
@@ -80,7 +80,7 @@ export function createGeneralCLICommands(): CLICommand[] {
                 const plugins = client.plugins.getAll().map(plugin => ({
                     name: plugin.name,
                     version: plugin.version,
-                    status: plugin.installed ? "Installed" : "Registered",
+                    status: client.plugins.isInstalled(plugin.name) ? "Installed" : "Registered",
                     description: plugin.description
                 }));
 

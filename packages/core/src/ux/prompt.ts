@@ -1,33 +1,23 @@
 import type { CommandInteraction, Message } from "discord.js";
 import type { BetterModalSubmitResult } from "./betterModal.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
-import type { Participant } from "./shared.js";
+import type { Participant, TimingOptions } from "./shared.js";
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, TextInputStyle } from "discord.js";
-import { BetterCollector, CollectorMode } from "./betterCollector.js";
+import { BetterCollector } from "./betterCollector.js";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
-import { handleResolveAction, ResolveAction } from "./shared.js";
+import { handleResolveAction, ResolveAction, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 export type PromptCollector = BetterCollector<ComponentType.Button>;
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
-/** One prompt resolution action or an ordered list of actions. */
-export type PromptResolveAction = ResolveAction | ResolveAction[];
+export type PromptTimingOptions = TimingOptions;
 
-export type PromptTimingOptions =
-    | {
-          /** Absolute time in milliseconds before the prompt ends. */
-          timeout: number;
-          /** Idle time in milliseconds before the prompt ends; overrides timeout when provided. */
-          idle?: number;
-      }
-    | {
-          /** Absolute time in milliseconds before the prompt ends. */
-          timeout?: number;
-          /** Idle time in milliseconds before the prompt ends; overrides timeout when provided. */
-          idle: number;
-      };
+/** How a button prompt was answered. `"timeout"` also covers a collector stopped externally with no user decision. */
+export type PromptStatus = "confirmed" | "rejected" | "timeout";
+/** How a modal prompt was answered. `"invalid"` means the submitted text was neither a yes nor a no. */
+export type PromptModalStatus = PromptStatus | "invalid";
 
 /** User-facing confirm and reject button overrides. */
 export interface PromptMessageButtonOptions {
@@ -51,18 +41,18 @@ export interface PromptMessageBaseOptions {
     additionalButtons?: ButtonBuilder[];
     /** Receives the internal collector before waiting so extra button listeners can be registered. */
     onCollector?: (collector: PromptCollector) => void | Promise<void>;
-    /** Resolve actions applied after confirmation.
+    /** Resolve action applied after confirmation.
      * @default ResolveAction.DeleteMessage
      */
-    onConfirm?: PromptResolveAction;
-    /** Resolve actions applied after rejection.
+    onConfirm?: ResolveAction;
+    /** Resolve action applied after rejection.
      * @default ResolveAction.DeleteMessage
      */
-    onReject?: PromptResolveAction;
-    /** Resolve actions applied after the prompt times out.
+    onReject?: ResolveAction;
+    /** Resolve action applied when the prompt ends without a decision (timeout or external stop).
      * @default ResolveAction.DeleteMessage
      */
-    onTimeout?: PromptResolveAction;
+    onTimeout?: ResolveAction;
     /** Whether DisableComponents should keep the selected prompt button colored. */
     highlightSelectedButton?: boolean;
 }
@@ -71,14 +61,10 @@ export type PromptMessageOptions = PromptMessageBaseOptions & PromptTimingOption
 
 /** Result returned by a button-based confirmation prompt. */
 export interface PromptMessageResult {
-    /** Prompt message returned by dynaSend when Discord provides one */
+    /** How the prompt was answered. */
+    status: PromptStatus;
+    /** Prompt message returned by dynaSend when Discord provides one. */
     message?: Message;
-    /** Whether the prompt was answered with confirm or reject */
-    replied: boolean;
-    /** Whether the prompt was confirmed */
-    confirmed: boolean;
-    /** Whether the prompt was rejected */
-    denied: boolean;
 }
 
 /** Options for prompting with a yes/no modal. */
@@ -93,15 +79,9 @@ export interface PromptModalOptions {
 
 /** Result returned by a yes/no modal prompt. */
 export interface PromptModalResult {
-    /** Whether the submitted value was yes or no */
-    valid: boolean | null;
-    /** Whether the modal was submitted */
-    replied: boolean;
-    /** Whether the submitted value was yes */
-    confirmed: boolean | null;
-    /** Whether the submitted value was no */
-    denied: boolean | null;
-    /** BetterModal submit result for the submitted modal */
+    /** How the modal was answered. */
+    status: PromptModalStatus;
+    /** BetterModal submit result for the submitted modal. Absent only when `status` is `"timeout"`. */
     submitResult?: BetterModalSubmitResult;
 }
 
@@ -110,13 +90,6 @@ const PROMPT_CUSTOM_IDS = {
     reject: "prompt:reject",
     input: "prompt:input"
 } as const;
-
-function createPromptCollectorTiming(options: PromptMessageOptions): { idle: number } | { timeout: number } {
-    if (options.idle !== undefined) return { idle: options.idle };
-    if (options.timeout !== undefined) return { timeout: options.timeout };
-
-    throw new Error("[Prompt] Either idle or timeout must be provided");
-}
 
 /**
  * Sends a confirmation prompt and waits for confirm or reject.
@@ -129,10 +102,7 @@ export async function promptMessage(
     options: PromptMessageOptions,
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
-    if (options.idle === undefined && options.timeout === undefined) {
-        throw new Error("[Prompt] Either idle or timeout must be provided");
-    }
-
+    resolveTiming(options);
     const config = getGlobalUxConfig().prompt;
     const additionalButtons = options.additionalButtons ?? [];
 
@@ -145,32 +115,35 @@ export async function promptMessage(
     }
 
     // --- Message ---
+    // A fresh interaction reply needs `withResponse: true` or Discord never returns the message the
+    // collector attaches to; force it so the caller's own send options can never silently disable this.
     const message = await dynaSend(handler, {
         ...sendOptions,
         content: options.content ?? sendOptions?.content,
         embeds: [
             options.embed ?? new EmbedBuilder().setTitle(config.defaultTitle).setDescription(config.defaultDescription)
         ],
-        components: [buildPromptRow(confirmButton, rejectButton, additionalButtons)]
+        components: [buildPromptRow(confirmButton, rejectButton, additionalButtons)],
+        withResponse: true
     } satisfies RequiredDynaSendOptions);
 
-    if (!message) return { replied: false, confirmed: false, denied: false };
+    if (!message) return { status: "timeout" };
 
     // --- Collector ---
-    const result = { replied: false, confirmed: false, denied: false };
+    let replied = false;
+    let confirmed = false;
     const collector = new BetterCollector(message, {
+        ...options,
         type: ComponentType.Button,
         participants: options.participants,
-        ...createPromptCollectorTiming(options),
-        mode: CollectorMode.Sequential,
         onResolve: ResolveAction.DoNothing
     });
 
     collector.on(
         PROMPT_CUSTOM_IDS.confirm,
         async () => {
-            result.replied = true;
-            result.confirmed = true;
+            replied = true;
+            confirmed = true;
             collector.stop("confirmed");
         },
         { defer: { update: true } }
@@ -179,40 +152,39 @@ export async function promptMessage(
     collector.on(
         PROMPT_CUSTOM_IDS.reject,
         async () => {
-            result.replied = true;
-            result.denied = true;
+            replied = true;
+            confirmed = false;
             collector.stop("rejected");
         },
         { defer: { update: true } }
     );
 
+    // Register completion before awaiting onCollector: if that callback stops the collector (or it
+    // times out) before returning, "end" must not fire while nothing is listening yet.
+    const ended = new Promise<void>(resolve => collector.onEnd(() => resolve()));
     await options.onCollector?.(collector);
+    await ended;
 
-    const endReason = await new Promise<string>(resolve => {
-        collector.onEnd((_collected, reason) => resolve(reason));
-    });
-
-    if (!result.replied && (endReason === "time" || endReason === "idle")) {
-        result.denied = true;
-    }
+    // Any ending without an explicit confirm/reject click - a real timeout or a collector stopped
+    // externally (e.g. from onCollector) - is reported as "timeout"; only a click is a decision.
+    const status: PromptStatus = !replied ? "timeout" : confirmed ? "confirmed" : "rejected";
 
     // --- Resolution ---
-    const confirmed = result.confirmed ? true : result.replied && result.denied ? false : null;
-    const resolveActions =
-        confirmed === true
-            ? resolvePromptActions(options.onConfirm, ResolveAction.DeleteMessage)
-            : confirmed === false
-              ? resolvePromptActions(options.onReject, ResolveAction.DeleteMessage)
-              : resolvePromptActions(options.onTimeout, ResolveAction.DeleteMessage);
+    const resolveAction =
+        status === "confirmed"
+            ? (options.onConfirm ?? ResolveAction.DeleteMessage)
+            : status === "rejected"
+              ? (options.onReject ?? ResolveAction.DeleteMessage)
+              : (options.onTimeout ?? ResolveAction.DeleteMessage);
 
     await handlePromptResolve(
         message,
-        confirmed,
-        resolveActions,
+        status,
+        resolveAction,
         options.highlightSelectedButton ?? config.highlightSelectedButton
     );
 
-    return { message, ...result };
+    return { status, message };
 }
 
 /**
@@ -236,13 +208,13 @@ export async function promptModal(
     });
 
     const submitResult = await modal.showAndAwait(interaction, { timeout: options.timeout });
-    if (!submitResult) return { valid: null, replied: false, confirmed: null, denied: null };
+    if (!submitResult) return { status: "timeout" };
 
-    const value = (submitResult.getField<string>(PROMPT_CUSTOM_IDS.input) ?? "").trim().toLowerCase();
-    const confirmed = value === "yes" || value === "y";
-    const denied = value === "no" || value === "n";
+    const value = submitResult.getField(PROMPT_CUSTOM_IDS.input, ComponentType.TextInput).trim().toLowerCase();
+    const status: PromptModalStatus =
+        value === "yes" || value === "y" ? "confirmed" : value === "no" || value === "n" ? "rejected" : "invalid";
 
-    return { valid: confirmed || denied, replied: true, confirmed, denied, submitResult };
+    return { status, submitResult };
 }
 
 function createPromptButton(fallback: ButtonBuilder, customId: string, override?: PromptButtonResolvable): ButtonBuilder {
@@ -270,42 +242,20 @@ function getButtonCustomId(button: ButtonBuilder): string | null {
     return typeof customId === "string" ? customId : null;
 }
 
-function resolvePromptActions(actions: PromptResolveAction | undefined, fallback: ResolveAction): ResolveAction[] {
-    if (!actions) return [fallback];
-    return Array.isArray(actions) ? actions : [actions];
-}
-
 async function handlePromptResolve(
     message: Message,
-    confirmed: boolean | null,
-    onResolve: ResolveAction[],
+    status: PromptStatus,
+    action: ResolveAction,
     highlightSelectedButton: boolean
 ): Promise<void> {
-    for (const action of onResolve) {
-        if (action === ResolveAction.DeleteMessageOnConfirm && confirmed !== true) continue;
-        if (action === ResolveAction.DeleteMessageOnReject && confirmed !== false) continue;
-        if (action === ResolveAction.DoNothing) continue;
+    if (action === ResolveAction.DoNothing) return;
 
-        if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
-            await disablePromptComponents(message, confirmed);
-            continue;
-        }
-
-        await handleResolveAction(
-            message,
-            action === ResolveAction.DeleteMessageOnConfirm || action === ResolveAction.DeleteMessageOnReject
-                ? ResolveAction.DeleteMessage
-                : action
-        );
-
-        if (
-            action === ResolveAction.DeleteMessage ||
-            action === ResolveAction.DeleteMessageOnConfirm ||
-            action === ResolveAction.DeleteMessageOnReject
-        ) {
-            return;
-        }
+    if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
+        await disablePromptComponents(message, status === "confirmed" ? true : status === "rejected" ? false : null);
+        return;
     }
+
+    await handleResolveAction(message, action);
 }
 
 async function disablePromptComponents(message: Message, confirmed: boolean | null): Promise<void> {

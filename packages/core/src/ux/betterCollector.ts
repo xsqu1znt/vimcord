@@ -5,10 +5,9 @@ import type {
     MessageComponentInteraction,
     MessageComponentType
 } from "discord.js";
-import type { Participant } from "./shared.js";
-import type { UxCollectorMode } from "./uxConfig.js";
+import type { Participant, TimingOptions } from "./shared.js";
 
-import { handleResolveAction, ResolveAction, resolveParticipantId } from "./shared.js";
+import { handleResolveAction, ResolveAction, resolveParticipantId, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 type ListenerFn = (interaction: MessageComponentInteraction) => unknown;
@@ -16,12 +15,8 @@ type CollectorEventHandler<K extends keyof CollectorEventMap> = (...args: Collec
 
 interface Listener {
     fn: ListenerFn;
+    customId?: string;
     options?: ListenerOptions;
-}
-
-interface ListenerGroup {
-    global: Listener[];
-    byId: Map<string, Listener[]>;
 }
 
 interface CollectorEventMap {
@@ -29,40 +24,16 @@ interface CollectorEventMap {
     end: [MessageComponentInteraction[], string];
 }
 
-export type CollectorTimingOptions =
-    | {
-          /** Absolute time in milliseconds before the collector ends. */
-          timeout: number;
-          /** Idle time in milliseconds before the collector ends; overrides timeout when provided. */
-          idle?: number;
-      }
-    | {
-          /** Absolute time in milliseconds before the collector ends. */
-          timeout?: number;
-          /** Idle time in milliseconds before the collector ends; overrides timeout when provided. */
-          idle: number;
-      };
-
-/**
- * Execution mode for listeners.
- * - Sequential: Listeners run one after another in order
- * - Parallel: All listeners run concurrently
- */
-export enum CollectorMode {
-    Sequential = "sequential",
-    Parallel = "parallel"
-}
+export type CollectorTimingOptions = TimingOptions;
 
 /**
  * Options for configuring individual listener behavior.
  */
 export interface ListenerOptions {
-    /** Only allow interactions from these users. */
+    /** Only allow interactions from these users. Falls back to the collector's global participants when omitted. */
     participants?: Participant[];
     /** Defer the interaction. */
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
-    /** Runs after the listener's function is executed. */
-    finally?: (interaction: MessageComponentInteraction) => void;
 }
 
 /**
@@ -71,7 +42,6 @@ export interface ListenerOptions {
 interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType> {
     type?: ComponentType | null;
     participants?: Participant[];
-    mode?: CollectorMode;
     userLock?: boolean;
     userLockMessage?: string;
     max?: number | null;
@@ -83,7 +53,7 @@ interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType>
 }
 
 export type BetterCollectorOptions<ComponentType extends MessageComponentType> = BetterCollectorBaseOptions<ComponentType> &
-    CollectorTimingOptions;
+    TimingOptions;
 
 interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentType> extends Required<
     BetterCollectorBaseOptions<ComponentType>
@@ -92,15 +62,11 @@ interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentT
     timeout: number | null;
 }
 
-function resolveCollectorMode(mode: UxCollectorMode): CollectorMode {
-    return mode === "sequential" ? CollectorMode.Sequential : CollectorMode.Parallel;
-}
-
 /**
  * Enhanced message component collector with advanced features:
  * - Participant filtering
  * - User locking to prevent concurrent interactions
- * - Sequential or parallel listener execution
+ * - In-order listener execution
  * - Built-in deferral handling
  * - Custom resolution actions (edit/delete after collection)
  */
@@ -113,29 +79,23 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         stop(reason?: string): void;
     };
 
-    private readonly listeners: ListenerGroup = {
-        global: [],
-        byId: new Map()
-    };
+    private readonly listeners: Listener[] = [];
 
     private readonly endListeners: ((collected: MessageComponentInteraction[], reason: string) => unknown)[] = [];
     private readonly activeUsers = new Set<string>();
 
     constructor(message: Message | null | undefined, options: BetterCollectorOptions<C>) {
         if (!message) throw new Error("Message is null or undefined");
-        if (options.idle === undefined && options.timeout === undefined) {
-            throw new Error("[BetterCollector] Either idle or timeout must be provided");
-        }
 
         this.message = message;
         const config = getGlobalUxConfig().collector;
+        const timing = resolveTiming(options);
 
         this.options = {
             type: options.type ?? null,
             participants: options.participants ?? [],
-            idle: options.idle ?? null,
-            timeout: options.idle === undefined ? (options.timeout ?? null) : null,
-            mode: options.mode ?? resolveCollectorMode(config.mode),
+            idle: timing.idle,
+            timeout: timing.timeout,
             userLock: options.userLock ?? false,
             userLockMessage: options.userLockMessage ?? config.userLockMessage,
             max: options.max ?? null,
@@ -163,7 +123,17 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         });
     }
 
+    /**
+     * Discord.js-level filter. Rejecting here (participant or user-lock) keeps the interaction from
+     * ever being "collected", so it does not count toward `max`/`maxUsers` or reset idle time.
+     */
     private async filterInteraction(interaction: CollectedMessageInteraction): Promise<boolean> {
+        const matching = this.getMatchingListeners(interaction.customId);
+        if (matching.length && !this.filterByParticipants(interaction, matching).length) {
+            await this.replyNotAParticipant(interaction);
+            return false;
+        }
+
         if (!this.options.userLock) return true;
 
         // Acquire the lock before Discord.js records the interaction so rejected clicks do not affect limits or idle time.
@@ -215,23 +185,14 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
                 return;
             }
 
-            const validListeners = await this.filterByParticipants(interaction, targetListeners);
-
-            // No valid listeners means the component exists, but this user cannot use it
-            if (validListeners.length === 0) {
-                await this.replyNotAParticipant(interaction);
-                return;
-            }
+            // `filterInteraction` already guaranteed at least one participant-allowed listener exists.
+            const validListeners = this.filterByParticipants(interaction, targetListeners);
 
             // Optionally defer the interaction before executing listeners
             await this.maybeDefer(interaction, validListeners);
 
-            // Execute listeners based on mode (sequential or parallel)
-            if (this.options.mode === CollectorMode.Sequential) {
-                await this.executeSequential(interaction, validListeners);
-            } else {
-                await this.executeParallel(interaction, validListeners);
-            }
+            // Run matching listeners in order
+            await this.executeListeners(interaction, validListeners);
         } finally {
             // Release user lock
             if (this.options.userLock) {
@@ -241,9 +202,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     }
 
     private getMatchingListeners(customId: string): Listener[] {
-        // Get listeners registered for this specific customId, plus global listeners
-        const idListeners = this.listeners.byId.get(customId) ?? [];
-        return [...this.listeners.global, ...idListeners];
+        return this.listeners.filter(listener => listener.customId === undefined || listener.customId === customId);
     }
 
     private async replyNotAParticipant(interaction: CollectedMessageInteraction): Promise<void> {
@@ -263,29 +222,16 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             });
     }
 
-    private async filterByParticipants(
-        interaction: CollectedMessageInteraction,
-        listeners: Listener[]
-    ): Promise<Listener[]> {
-        // No participants configured - allow all listeners
-        if (!this.options.participants.length) {
-            return listeners;
-        }
-
-        const valid: Listener[] = [];
-
-        // Filter listeners based on participant permissions
-        for (const listener of listeners) {
-            // Use listener-specific participants or fall back to global participants
+    private filterByParticipants(interaction: CollectedMessageInteraction, listeners: Listener[]): Listener[] {
+        return listeners.filter(listener => {
+            // Per-listener participants fall back to the collector's global participants.
+            // A listener with no restriction at either level allows every participant.
             const listenerParticipants = listener.options?.participants ?? this.options.participants;
-            const isAllowed = listenerParticipants.some(p => resolveParticipantId(p) === interaction.user.id);
-
-            if (isAllowed) {
-                valid.push(listener);
-            }
-        }
-
-        return valid;
+            return (
+                !listenerParticipants.length ||
+                listenerParticipants.some(p => resolveParticipantId(p) === interaction.user.id)
+            );
+        });
     }
 
     private async maybeDefer(interaction: MessageComponentInteraction, listeners: Listener[]): Promise<void> {
@@ -308,32 +254,15 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         }
     }
 
-    private async executeSequential(interaction: MessageComponentInteraction, listeners: Listener[]): Promise<void> {
-        // Execute each listener one at a time, in order
+    private async executeListeners(interaction: MessageComponentInteraction, listeners: Listener[]): Promise<void> {
+        // Execute each listener one at a time, in registration order
         for (const listener of listeners) {
             try {
                 await listener.fn(interaction);
             } catch (err) {
                 console.error("[BetterCollector] Listener error:", err);
-            } finally {
-                listener.options?.finally?.(interaction);
             }
         }
-    }
-
-    private async executeParallel(interaction: MessageComponentInteraction, listeners: Listener[]): Promise<void> {
-        // Execute all listeners concurrently
-        await Promise.allSettled(
-            listeners.map(async listener => {
-                try {
-                    await listener.fn(interaction);
-                } catch (err) {
-                    console.error("[BetterCollector] Listener error:", err);
-                } finally {
-                    listener.options?.finally?.(interaction);
-                }
-            })
-        );
     }
 
     private async handleEnd(collected: MessageComponentInteraction[], reason: string): Promise<void> {
@@ -354,20 +283,20 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
      * Register a listener for component interactions.
      * @param customId - The customId of the component to listen for, or a global listener if omitted
      * @param fn - The function to run when the component is interacted with
-     * @param options - Listener configuration (participants, defer, finally)
+     * @param options - Listener configuration (participants, defer)
      */
     on(customId: string, fn: ListenerFn, options?: ListenerOptions): this;
 
     /**
      * Register a global listener for all component interactions.
      * @param fn - The function to run when any component is interacted with
-     * @param options - Listener configuration (participants, defer, finally)
+     * @param options - Listener configuration (participants, defer)
      */
     on(fn: ListenerFn, options?: ListenerOptions): this;
 
     on(customIdOrFn: string | ListenerFn, fnOrOptions?: ListenerFn | ListenerOptions, options?: ListenerOptions): this {
         if (typeof customIdOrFn === "function") {
-            this.listeners.global.push({
+            this.listeners.push({
                 fn: customIdOrFn,
                 options: fnOrOptions as ListenerOptions | undefined
             });
@@ -376,12 +305,11 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
                 throw new Error("[BetterCollector] Second argument must be a function when customId is provided");
             }
 
-            const existing = this.listeners.byId.get(customIdOrFn) ?? [];
-            existing.push({
+            this.listeners.push({
+                customId: customIdOrFn,
                 fn: fnOrOptions,
                 options
             });
-            this.listeners.byId.set(customIdOrFn, existing);
         }
 
         return this;

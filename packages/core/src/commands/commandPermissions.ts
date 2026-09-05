@@ -222,6 +222,16 @@ async function hasStaffBypassRole(
     return entries.some(entry => entry.roleIds?.some(id => roleIds.includes(id)));
 }
 
+function resolveCommandSource<K extends CommandModuleType>(ctx: CommandModuleHookContext<K>) {
+    return "message" in ctx ? ctx.message : ctx.interaction;
+}
+
+/** Returns the user who invoked the command, whether it came in as a message or an interaction. */
+export function resolveInvokingUser<K extends CommandModuleType>(ctx: CommandModuleHookContext<K>): User {
+    const source = resolveCommandSource(ctx);
+    return "author" in source ? source.author : source.user;
+}
+
 function hasConfiguredGrants(permissions: CommandModulePermissions): boolean {
     return Boolean(
         permissions.user?.length ||
@@ -244,7 +254,7 @@ export async function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleHookContext<K>,
     permissions: CommandModulePermissions
 ): Promise<PermissionTestResult> {
-    const source = "message" in ctx ? ctx.message : ctx.interaction;
+    const source = resolveCommandSource(ctx);
     const isMessage = "author" in source;
     const user = isMessage ? source.author : source.user;
     const guildId = source.guildId;

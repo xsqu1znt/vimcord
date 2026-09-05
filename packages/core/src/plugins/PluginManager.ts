@@ -1,35 +1,31 @@
-import type { CLICommand, HealthProbe, RegisteredCLICommand, RegisteredHealthProbe } from "@/cli/types.js";
+import type { HealthProbe, RegisteredHealthProbe } from "@/cli/types.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { VimcordPlugin, VimcordPluginContext } from "./Plugin.js";
 
-import { CORE_CLI_COMMAND_NAMES } from "@/cli/constants.js";
 import { PluginError } from "@/errors/PluginError.js";
-
-interface PluginContributions {
-    commands: Map<string, CLICommand>;
-    healthProbes: Map<string, HealthProbe>;
-}
 
 export class PluginManager {
     private plugins: Map<string, VimcordPlugin> = new Map();
-    private readonly contributions = new Map<string, PluginContributions>();
+    /** Manager-owned installation state. Plugins never expose or mutate this themselves. */
+    private readonly installedNames = new Set<string>();
+    private readonly healthProbes = new Map<string, Map<string, HealthProbe>>();
 
     constructor(private client: Vimcord) {}
 
     async load(): Promise<void> {
         let installedCount = 0;
         for (const plugin of this.resolveLoadOrder()) {
-            if (plugin.installed) continue;
+            if (this.installedNames.has(plugin.name)) continue;
 
             const context = this.createPluginContext(plugin.name);
             try {
                 await plugin.install(context);
-                plugin.installed = true;
+                this.installedNames.add(plugin.name);
                 installedCount++;
             } catch (error) {
                 // A failed install may already own resources, so give the plugin its normal cleanup opportunity.
                 try {
-                    await plugin.uninstall(context);
+                    await plugin.uninstall?.();
                 } catch (cleanupError) {
                     this.client.logger.plugin.error(
                         plugin.name,
@@ -37,8 +33,8 @@ export class PluginManager {
                         cleanupError
                     );
                 } finally {
-                    plugin.installed = false;
-                    this.contributions.delete(plugin.name);
+                    this.installedNames.delete(plugin.name);
+                    this.healthProbes.delete(plugin.name);
                 }
                 throw error;
             }
@@ -49,37 +45,18 @@ export class PluginManager {
         }
     }
 
-    async unload(name?: string): Promise<void> {
-        if (name) {
-            const plugin = this.plugins.get(name);
-            if (!plugin) return;
-            const dependent = this.getAll(true).find(p => p.dependencies?.includes(name));
-            if (dependent) {
-                throw new PluginError(`Plugin '${name}' cannot be unloaded while '${dependent.name}' depends on it`);
-            }
-
-            if (plugin.installed) {
-                try {
-                    await plugin.uninstall(this.createPluginContext(plugin.name));
-                } finally {
-                    plugin.installed = false;
-                    this.contributions.delete(plugin.name);
-                }
-            }
-            this.plugins.delete(plugin.name);
-            return;
-        }
-
+    /** Uninstalls every installed plugin in reverse dependency order and clears the registry. */
+    async unload(): Promise<void> {
         const errors: unknown[] = [];
         for (const plugin of this.resolveLoadOrder().reverse()) {
-            if (plugin.installed) {
+            if (this.installedNames.has(plugin.name)) {
                 try {
-                    await plugin.uninstall(this.createPluginContext(plugin.name));
+                    await plugin.uninstall?.();
                 } catch (error) {
                     errors.push(error);
                 } finally {
-                    plugin.installed = false;
-                    this.contributions.delete(plugin.name);
+                    this.installedNames.delete(plugin.name);
+                    this.healthProbes.delete(plugin.name);
                 }
             }
             this.plugins.delete(plugin.name);
@@ -108,37 +85,32 @@ export class PluginManager {
     get<T extends VimcordPlugin>(name: string, installed?: boolean): T | undefined;
     get<T extends VimcordPlugin>(name: string, installed?: boolean): T | undefined {
         const plugin = this.plugins.get(name) as T | undefined;
-        if (installed && !plugin?.installed) {
+        if (installed && !this.isInstalled(name)) {
             throw new PluginError(`Plugin '${name}' is not installed on '${this.client.$name}'`);
         }
 
-        return plugin as T | undefined;
+        return plugin;
     }
 
-    getAll<T extends VimcordPlugin[] = VimcordPlugin[]>(installed?: boolean): T {
+    getAll(installed?: boolean): VimcordPlugin[] {
         return Array.from(this.plugins.values()).filter(p =>
-            installed === undefined ? true : p.installed === installed
-        ) as T;
+            installed === undefined ? true : this.isInstalled(p.name) === installed
+        );
     }
 
     has(name: string): boolean {
         return this.plugins.has(name);
     }
 
-    /** Returns installed plugin CLI commands with their owners. */
-    getCLICommands(): RegisteredCLICommand[] {
-        return this.getAll(true).flatMap(plugin =>
-            Array.from(this.contributions.get(plugin.name)?.commands.values() ?? []).map(command => ({
-                pluginName: plugin.name,
-                command
-            }))
-        );
+    /** Whether the named plugin has completed installation on this client. */
+    isInstalled(name: string): boolean {
+        return this.installedNames.has(name);
     }
 
     /** Returns installed plugin health probes with their owners. */
     getHealthProbes(): RegisteredHealthProbe[] {
         return this.getAll(true).flatMap(plugin =>
-            Array.from(this.contributions.get(plugin.name)?.healthProbes.values() ?? []).map(probe => ({
+            Array.from(this.healthProbes.get(plugin.name)?.values() ?? []).map(probe => ({
                 pluginName: plugin.name,
                 probe
             }))
@@ -146,36 +118,21 @@ export class PluginManager {
     }
 
     private createPluginContext(pluginName: string): VimcordPluginContext {
-        const contributions = this.getPluginContributions(pluginName);
+        const probes = this.getPluginHealthProbes(pluginName);
 
         return {
             client: this.client,
-            cli: {
-                registerCommand: command => {
-                    this.validateCLICommand(pluginName, command);
-                    contributions.commands.set(command.name, command);
-
-                    let registered = true;
-                    return () => {
-                        if (!registered) return;
-                        registered = false;
-                        if (contributions.commands.get(command.name) === command) {
-                            contributions.commands.delete(command.name);
-                        }
-                    };
-                }
-            },
             health: {
                 register: probe => {
                     if (!probe.id.trim())
                         throw new PluginError(`Plugin '${pluginName}' registered a health probe without an id`);
-                    if (contributions.healthProbes.has(probe.id)) {
+                    if (probes.has(probe.id)) {
                         throw new PluginError(`Plugin '${pluginName}' already registered health probe '${probe.id}'`);
                     }
 
                     // Probe ids are client-wide so combined `/ping` output is stable and unambiguous.
-                    const owner = Array.from(this.contributions.entries()).find(
-                        ([ownerName, values]) => ownerName !== pluginName && values.healthProbes.has(probe.id)
+                    const owner = Array.from(this.healthProbes.entries()).find(
+                        ([ownerName, values]) => ownerName !== pluginName && values.has(probe.id)
                     );
                     if (owner) {
                         throw new PluginError(
@@ -183,57 +140,19 @@ export class PluginManager {
                         );
                     }
 
-                    contributions.healthProbes.set(probe.id, probe);
-                    let registered = true;
-                    return () => {
-                        if (!registered) return;
-                        registered = false;
-                        if (contributions.healthProbes.get(probe.id) === probe) {
-                            contributions.healthProbes.delete(probe.id);
-                        }
-                    };
+                    probes.set(probe.id, probe);
                 }
             }
         };
     }
 
-    private getPluginContributions(pluginName: string): PluginContributions {
-        const existing = this.contributions.get(pluginName);
+    private getPluginHealthProbes(pluginName: string): Map<string, HealthProbe> {
+        const existing = this.healthProbes.get(pluginName);
         if (existing) return existing;
 
-        const contributions: PluginContributions = {
-            commands: new Map(),
-            healthProbes: new Map()
-        };
-        this.contributions.set(pluginName, contributions);
-        return contributions;
-    }
-
-    private validateCLICommand(pluginName: string, command: CLICommand): void {
-        const triggers = [command.name, ...(command.aliases ?? [])];
-        if (new Set(triggers).size !== triggers.length) {
-            throw new PluginError(`Plugin '${pluginName}' registered duplicate triggers for CLI command '/${command.name}'`);
-        }
-
-        for (const trigger of triggers) {
-            if (!/^[a-z][a-z0-9-]*$/.test(trigger)) {
-                throw new PluginError(
-                    `Plugin '${pluginName}' registered invalid CLI command trigger '${trigger}'; use lowercase letters, numbers, and hyphens`
-                );
-            }
-            if (CORE_CLI_COMMAND_NAMES.has(trigger)) {
-                throw new PluginError(`Plugin '${pluginName}' cannot replace core CLI command '/${trigger}'`);
-            }
-
-            const collision = Array.from(this.contributions.entries()).find(([, values]) =>
-                Array.from(values.commands.values()).some(entry => [entry.name, ...(entry.aliases ?? [])].includes(trigger))
-            );
-            if (collision) {
-                throw new PluginError(
-                    `Plugin '${pluginName}' cannot register CLI trigger '/${trigger}'; it is already provided by '${collision[0]}'`
-                );
-            }
-        }
+        const probes = new Map<string, HealthProbe>();
+        this.healthProbes.set(pluginName, probes);
+        return probes;
     }
 
     private resolveLoadOrder(): VimcordPlugin[] {

@@ -2,11 +2,8 @@ import type { ColorResolvable } from "discord.js";
 import type { PartialDeep } from "../types/helpers.js";
 
 import { ButtonBuilder, ButtonStyle } from "discord.js";
+import { ResolveAction } from "./shared.js";
 
-/** Determines whether collector listeners may overlap. */
-export type UxCollectorMode = "sequential" | "parallel";
-/** Supported paginator actions when collection times out. */
-export type UxPaginatorTimeoutAction = "DisableComponents" | "ClearComponents" | "DeleteMessage" | "DoNothing";
 /** A Discord custom emoji descriptor. */
 export interface UxCustomEmojiConfig {
     /** Emoji name. */
@@ -56,9 +53,7 @@ export interface UxConfig {
     embedColorDev: ColorResolvable | ColorResolvable[] | null;
     /** Collector behavior and access messages. */
     collector: {
-        /** Default listener execution mode. */
-        mode: UxCollectorMode;
-        /** Ephemeral message shown while a user's prior sequential action is running. */
+        /** Ephemeral message shown while a user's prior action is running. */
         userLockMessage: string;
         /** Message shown to users who are not collector participants. */
         notAParticipantMessage: string | null;
@@ -67,16 +62,18 @@ export interface UxConfig {
     paginator: {
         /** Default number of pages moved by skip controls. */
         skipSize: number;
-        /** Minimum page count that displays the page-jump control. */
-        jumpableThreshold: number;
-        /** Page count at which long navigation is preferred. */
-        longThreshold: number;
         /** Default timeout resolution action. */
-        onTimeout: UxPaginatorTimeoutAction;
+        onTimeout: ResolveAction;
         /** Message shown to users who are not paginator participants. */
         notAParticipantMessage: string | null;
         /** Page-jump modal defaults. */
         jumpModal: UxPaginatorJumpModalConfig;
+        /** Optional paginator status responses. `null` acknowledges silently. */
+        messages: {
+            loadFailed: string | null;
+            expired: string | null;
+            chapterChanged: string | null;
+        };
         /** Appearance defaults keyed by paginator button ID. */
         buttons: Record<UxPaginatorButtonId, UxPaginatorButtonConfig>;
     };
@@ -127,15 +124,12 @@ function createDefaultUxConfig(): UxConfig {
         embedColor: null,
         embedColorDev: null,
         collector: {
-            mode: "parallel",
             userLockMessage: "Please wait, your previous action is still processing.",
             notAParticipantMessage: "You are not allowed to use this."
         },
         paginator: {
             skipSize: 5,
-            jumpableThreshold: 5,
-            longThreshold: 4,
-            onTimeout: "ClearComponents",
+            onTimeout: ResolveAction.ClearComponents,
             notAParticipantMessage: "You are not allowed to use this.",
             jumpModal: {
                 title: "Jump to Page",
@@ -144,6 +138,11 @@ function createDefaultUxConfig(): UxConfig {
                 placeholder: "Page number",
                 timeout: 60_000,
                 invalidPageMessage: "Enter a page number between 1 and $MAX_PAGE."
+            },
+            messages: {
+                loadFailed: null,
+                expired: null,
+                chapterChanged: null
             },
             buttons: {
                 first: { label: "<<" },
