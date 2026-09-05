@@ -163,6 +163,22 @@ export default new SlashCommandModule({
 });
 ```
 
+### Command Permissions
+
+```ts
+permissions: {
+    user: [PermissionFlagsBits.BanMembers],
+    users: ["123456789012345678"],
+    roles: ["234567890123456789"],
+    guildOwner: true,
+    botOwner: true,
+    botStaff: true,
+    userBlacklist: ["345678901234567890"]
+}
+```
+
+`user`, `users`, `roles`, `guildOwner`, `botOwner`, and `botStaff` are access grants. Any one of them can allow a command. `guildOnly`, `guildWhitelist`, `guildBlacklist`, `userBlacklist`, `roleBlacklist`, `client`, and `allowBots` are hard restrictions. They all must pass. With no access grants, anyone who passes the hard restrictions can use the command.
+
 ### Autocomplete
 
 Autocomplete handlers run outside the module pipeline (no permissions, no hooks), since Discord gives them 3 seconds and the interaction can't report an error.
@@ -696,6 +712,8 @@ if (!isStaff) {
     await interaction.reply({ content: "This is staff-only.", flags: "Ephemeral" });
 }
 ```
+
+`staff.bypassesStaff` grants named users and configured staff-guild roles access only to commands that use `botStaff: true`. `staff.bypassesGuildAdmin` can remove the `Administrator` requirement for configured staff. Other required user permissions still apply.
 
 ---
 

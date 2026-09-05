@@ -87,8 +87,8 @@ export interface StaffGlobals {
     superUsers: string[];
     /** Discord role IDs granted superuser privileges. */
     superUserRoles: string[];
-    /** Per-command user/role ID overrides that bypass normal permission checks. */
-    bypassers: { commandName: string; userIds?: string[]; roleIds?: string[] }[];
+    /** Per-command user/role ID grants for bot staff commands. */
+    bypassesStaff: { commandName: string; userIds?: string[]; roleIds?: string[] }[];
     /** Controls which staff roles bypass guild administrator permission checks. */
     bypassesGuildAdmin: {
         /** Applies to all staff roles. */
@@ -97,7 +97,7 @@ export interface StaffGlobals {
         botOwner: boolean;
         /** Applies to superusers. */
         superUsers: boolean;
-        /** Applies to bypassers. */
+        /** Applies to matching `bypassesStaff` entries. */
         bypassers: boolean;
     };
     /** The bot's associated Discord guild. */
@@ -118,7 +118,7 @@ export const defaultStaffGlobals = (): StaffGlobals => {
         ownerId: null,
         superUsers: [],
         superUserRoles: [],
-        bypassers: [],
+        bypassesStaff: [],
         bypassesGuildAdmin: {
             allBotStaff: false,
             botOwner: false,

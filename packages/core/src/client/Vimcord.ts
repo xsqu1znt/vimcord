@@ -8,7 +8,6 @@ import EventEmitter from "node:events";
 import { Client } from "discord.js";
 import { syncCLIClient } from "@/cli/clientState.js";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
-import { defineGlobalCommandHooks } from "@/commands/commandHooks.js";
 import { VimcordError } from "@/errors/VimcordError.js";
 import { PluginManager } from "@/plugins/index.js";
 import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
@@ -283,15 +282,13 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             if (!this.warnedMissingStaffGuild) {
                 this.warnedMissingStaffGuild = true;
                 this.logger.warn(
-                    "[Staff] `staff.guild.id` is not configured, so staff-guild role checks (superUserRoles, bypasser roleIds) can never match anyone."
+                    "[Staff] `staff.guild.id` is not configured, so staff-guild role checks (superUserRoles, bypassesStaff.roleIds) can never match anyone."
                 );
             }
             return [];
         }
 
-        // Permission checks for the same user can overlap within one dispatch, or across concurrent
-        // commands. This only shares the in-flight promise; it is not a cache and holds no TTL,
-        // since discord.js already caches the fetched member itself.
+        // Concurrent command checks for one user share the pending lookup. The result is not cached.
         const pending = this.pendingStaffRoleLookups.get(userId);
         if (pending) return await pending;
 
