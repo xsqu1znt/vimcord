@@ -59,9 +59,10 @@ export class StatusManager {
     private lastActivity: VimcordStatusActivity | null = null;
     private lastActivityIndex = 0;
     private rotationTimer: ReturnType<typeof setInterval> | null = null;
+    private version = 0;
 
     private readonly handleReady = (): void => {
-        if (this.currentProfile) void this.applyProfile(this.currentProfile);
+        if (this.currentProfile) void this.applyProfile(this.currentProfile, this.version);
     };
 
     /** Creates a status manager attached to a Vimcord client. */
@@ -120,17 +121,26 @@ export class StatusManager {
         return formattedName;
     }
 
-    private async setActivity(activity: VimcordStatusActivity): Promise<void> {
+    private isCurrent(version: number): boolean {
+        return version === this.version;
+    }
+
+    private async setActivity(activity: VimcordStatusActivity, version: number): Promise<boolean> {
         const client = await this.getReadyClient();
-        if (!client?.user) return;
+        if (!client?.user || !this.isCurrent(version)) return false;
 
-        const { status = "online", streamUrl, ...activityOptions } = activity;
+        const { status = "online", streamUrl, shardId, ...activityOptions } = activity;
         const name = await this.formatActivityName(activity.name);
+        if (!client.isReady() || !client.user || !this.isCurrent(version)) return false;
 
-        client.user.setStatus(status);
-        client.user.setActivity({ ...activityOptions, name, url: activityOptions.url ?? streamUrl });
+        client.user.setPresence({
+            status,
+            activities: [{ ...activityOptions, name, url: activityOptions.url ?? streamUrl }],
+            shardId
+        });
         this.lastActivity = activity;
         this.emitter.emit("changed", activity);
+        return true;
     }
 
     private pickNextActivity(profile: VimcordStatusProfile): VimcordStatusActivity {
@@ -145,22 +155,25 @@ export class StatusManager {
         return activities[this.lastActivityIndex]!;
     }
 
-    private async rotate(profile: VimcordStatusProfile): Promise<void> {
+    private async rotate(profile: VimcordStatusProfile, version: number): Promise<void> {
+        if (!this.isCurrent(version)) return;
+
         const activity = this.pickNextActivity(profile);
-        await this.setActivity(activity);
-        this.emitter.emit("rotation", activity);
+        if (await this.setActivity(activity, version)) this.emitter.emit("rotation", activity);
     }
 
-    private async applyProfile(profile: VimcordStatusProfile): Promise<void> {
+    private async applyProfile(profile: VimcordStatusProfile, version: number): Promise<void> {
+        if (!this.isCurrent(version)) return;
+
         const activities = this.getActivityList(profile);
         const firstActivity = activities[0];
         if (!firstActivity) return;
 
         this.pause();
         this.lastActivityIndex = 0;
-        await this.setActivity(firstActivity);
+        await this.setActivity(firstActivity, version);
 
-        if (profile.interval && activities.length > 1) this.start();
+        if (this.isCurrent(version) && profile.interval && activities.length > 1) this.start();
     }
 
     private resolveProfile(status: VimcordStatusConfig): VimcordStatusProfile | null {
@@ -175,10 +188,11 @@ export class StatusManager {
         if (this.rotationTimer || !this.currentProfile?.interval) return this;
 
         const profile = this.currentProfile;
+        const version = this.version;
         const activities = this.getActivityList(profile);
         if (activities.length < 2) return this;
 
-        this.rotationTimer = setInterval(() => void this.rotate(profile), profile.interval);
+        this.rotationTimer = setInterval(() => void this.rotate(profile, version), profile.interval);
         this.rotationTimer.unref?.();
         this.emitter.emit("started");
         return this;
@@ -199,16 +213,18 @@ export class StatusManager {
         const profile = this.resolveProfile(status);
         if (!profile) return this.clear();
 
+        const version = ++this.version;
         this.currentProfile = profile;
 
         if (!this.client.isReady()) return this;
 
-        await this.applyProfile(this.currentProfile);
+        await this.applyProfile(this.currentProfile, version);
         return this;
     }
 
     /** Clears the current activity and stops rotation. */
     async clear(): Promise<this> {
+        this.version++;
         this.pause();
         this.currentProfile = null;
         this.lastActivity = null;

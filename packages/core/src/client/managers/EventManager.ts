@@ -92,6 +92,17 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         return Array.from(this.modules.values());
     }
 
+    protected override reindex(): void {
+        super.reindex();
+
+        const eventIndex = this.indexes.get("event");
+        if (!eventIndex?.isArray) return;
+
+        for (const events of eventIndex.map.values()) {
+            events.sort((a, b) => b.priority - a.priority);
+        }
+    }
+
     getByEvent<K extends keyof ClientEvents>(event: K): EventModule<K>[] {
         return this.getIndex("event", event, true) as unknown as EventModule<K>[];
     }
@@ -109,35 +120,34 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     register(...events: EventModule[]): void {
-        events.forEach(e => {
-            if (this.modules.has(e.id)) return;
+        const registered = events.filter(e => {
+            if (this.modules.has(e.id)) return false;
 
             e.inject(this.client);
             this.modules.set(e.id, e);
+            return true;
         });
+        if (!registered.length) return;
+
         this.reindex();
-        events.forEach(e =>
+        registered.forEach(e =>
             this.client.logger.debug(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
-        new Set(events.map(e => e.event)).forEach(event => {
-            this.unmount(event);
-            this.mount(event);
-        });
+        new Set(registered.map(e => e.event)).forEach(event => this.mount(event));
     }
 
     unregister(...ids: string[]): void {
         const events = ids.map(id => this.modules.get(id)).filter((e): e is EventModule => e !== undefined);
         if (!events.length) return;
-        const mountedEvents = new Set(events.map(e => e.event).filter(event => this.mountedListeners.has(event)));
+        const affectedEvents = new Set(events.map(e => e.event));
 
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
         events.forEach(e =>
             this.client.logger.debug(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
         );
-        mountedEvents.forEach(event => {
-            this.unmount(event);
-            this.mount(event);
+        affectedEvents.forEach(event => {
+            if (!this.getByEvent(event).length) this.unmount(event);
         });
     }
 
@@ -178,12 +188,14 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
     }
 
     async executeEvents<K extends keyof ClientEvents>(event: K, ...args: ClientEvents[K]): Promise<void> {
-        const events = this.getByEvent(event) as unknown as EventModule[];
+        const events = [...this.getByEvent(event)] as unknown as EventModule[];
         if (!events.length) return;
 
-        const sortedEvents = [...events].sort((a, b) => b.priority - a.priority);
+        const onceIds = events.filter(e => e.once).map(e => e.id);
+        if (onceIds.length) this.unregister(...onceIds);
+
         await Promise.allSettled(
-            sortedEvents.map(async e => {
+            events.map(async e => {
                 try {
                     await e.run(...args);
                 } catch (err) {
@@ -191,8 +203,6 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
                         `[EventManager] Failed to execute '${e.name}' (${e.id}) for EventType '${e.event}'`,
                         err as Error
                     );
-                } finally {
-                    if (e.once) this.unregister(e.id);
                 }
             })
         );

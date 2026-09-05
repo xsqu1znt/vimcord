@@ -71,13 +71,13 @@ export class ModuleManager {
         if (imports.events) {
             const { dir, suffix } = imports.events;
             await this.events.importFrom(dir, suffix);
-            this.events.register(...this.events.getAll());
+            this.events.mount();
         }
     }
 
     /** Unloads all modules. */
     unload(): void {
-        this.events.unmount();
+        this.events.clear();
         this.commands.slash.clear();
         this.commands.prefix.clear();
         this.commands.context.message.clear();

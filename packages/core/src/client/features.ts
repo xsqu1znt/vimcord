@@ -15,9 +15,6 @@ export interface VimcordFeatures {
      * }
      * ``` */
     enableCommandErrorMessage?: boolean | CommandErrorMessageOptions;
-
-    /** The maximum number of attempts to log into Discord @default `3` */
-    maxLoginAttempts?: number;
 }
 
 export interface CommandErrorMessageOptions {
