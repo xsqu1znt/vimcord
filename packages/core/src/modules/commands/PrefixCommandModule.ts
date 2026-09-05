@@ -48,11 +48,7 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
         const source = args[0];
 
         const message = source as Message;
-        const messageContent = message.content.trim();
-
-        // Strips the prefix and trigger out of the message content
-        const contentStart = args[1].length + args[2].length;
-        const strippedContent = messageContent.slice(contentStart).trim();
+        const strippedContent = message.content.slice(args[1].length).trimStart().slice(args[2].length).trim();
 
         return {
             client,

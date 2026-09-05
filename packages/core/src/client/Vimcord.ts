@@ -63,7 +63,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     readonly modules: ModuleManager;
     readonly status: StatusManager;
 
-    private awaitReadyPromise: Promise<boolean> | null | undefined;
+    private readonly awaitReadyWaiters = new Set<(ready: boolean) => void>();
+    private readonly handleAwaitReady = (): void => this.resolveAwaitReady(true);
     private startupBannerHandle: VimcordStartupBannerHandle | undefined;
     private warnedMissingStaffGuild = false;
 
@@ -211,12 +212,34 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     override async destroy(): Promise<void> {
         this.startupBannerHandle?.clear();
         this.startupBannerHandle = undefined;
-        await this.status.destroy();
-        this.modules.unload();
-        await this.plugins.unload();
-        await super.destroy();
+        this.resolveAwaitReady(false);
+
+        const errors: unknown[] = [];
+        try {
+            await this.status.destroy();
+        } catch (error) {
+            errors.push(error);
+        }
+        try {
+            this.modules.unload();
+        } catch (error) {
+            errors.push(error);
+        }
+        try {
+            await this.plugins.unload();
+        } catch (error) {
+            errors.push(error);
+        }
+        try {
+            await super.destroy();
+        } catch (error) {
+            errors.push(error);
+        }
+
         if (Vimcord.instance === this) Vimcord.instance = undefined;
         Vimcord.$events.emit("destroy", this);
+
+        if (errors.length) throw new AggregateError(errors, "Failed to destroy Vimcord cleanly");
     }
 
     /**
@@ -225,22 +248,28 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      */
     async awaitReady(timeout: number = 60_000): Promise<boolean> {
         if (this.isReady()) return true;
-        if (this.awaitReadyPromise) return this.awaitReadyPromise;
 
-        this.awaitReadyPromise = new Promise(resolve => {
-            const _timeout = setTimeout(() => {
-                this.awaitReadyPromise = null;
-                resolve(false);
-            }, timeout);
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = (ready: boolean): void => {
+                if (settled) return;
 
-            this.once("clientReady", () => {
-                clearTimeout(_timeout);
-                this.awaitReadyPromise = null;
-                resolve(true);
-            });
+                settled = true;
+                clearTimeout(timer);
+                this.awaitReadyWaiters.delete(finish);
+                if (!this.awaitReadyWaiters.size) this.off("clientReady", this.handleAwaitReady);
+                resolve(ready);
+            };
+            const timer = setTimeout(() => finish(false), timeout);
+
+            const listen = !this.awaitReadyWaiters.size;
+            this.awaitReadyWaiters.add(finish);
+            if (listen) this.on("clientReady", this.handleAwaitReady);
         });
+    }
 
-        return this.awaitReadyPromise;
+    private resolveAwaitReady(ready: boolean): void {
+        for (const finish of [...this.awaitReadyWaiters]) finish(ready);
     }
 
     /**

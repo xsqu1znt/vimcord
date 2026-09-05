@@ -13,32 +13,20 @@ import type {
     UserContextCommandModule
 } from "@/modules/index.js";
 import type { Vimcord } from "../Vimcord.js";
+import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } from "./applicationCommandData.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
 
 import { Routes } from "discord.js";
+import {
+    createApplicationCommandKey,
+    createApplicationCommandUpdatePayload,
+    hasApplicationCommandChanged
+} from "./applicationCommandData.js";
 import { BaseCommandManager } from "./BaseCommandManager.js";
-
-interface RemoteApplicationCommand {
-    id: string;
-    name: string;
-    type?: number;
-    description?: string;
-    options?: unknown[];
-    default_member_permissions?: string | null;
-    dm_permission?: boolean;
-    contexts?: number[] | null;
-    integration_types?: number[] | null;
-    nsfw?: boolean;
-    name_localizations?: Record<string, string> | null;
-    description_localizations?: Record<string, string> | null;
-}
 
 type RestRoute = `/${string}`;
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
-const DEFAULT_APPLICATION_COMMAND_CONTEXTS = [0, 1, 2];
-const DEFAULT_APPLICATION_COMMAND_GUILD_CONTEXTS = [0];
-const DEFAULT_APPLICATION_COMMAND_INTEGRATION_TYPES = [0];
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
     constructor(client: Vimcord) {
@@ -51,26 +39,14 @@ export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.P
     }
 }
 
-export class SlashCommandManager extends BaseCommandManager<CommandModuleType.Slash, SlashCommandModule> {
-    constructor(client: Vimcord) {
-        super(client);
-    }
-}
+export class SlashCommandManager extends BaseCommandManager<CommandModuleType.Slash, SlashCommandModule> {}
 
 export class MessageContextCommandManager extends BaseCommandManager<
     CommandModuleType.MessageContext,
     MessageContextCommandModule
-> {
-    constructor(client: Vimcord) {
-        super(client);
-    }
-}
+> {}
 
-export class UserContextCommandManager extends BaseCommandManager<CommandModuleType.UserContext, UserContextCommandModule> {
-    constructor(client: Vimcord) {
-        super(client);
-    }
-}
+export class UserContextCommandManager extends BaseCommandManager<CommandModuleType.UserContext, UserContextCommandModule> {}
 
 export class CommandManager {
     readonly prefix: PrefixCommandManager;
@@ -131,6 +107,7 @@ export class CommandManager {
         // --- Remote Sync ---
         const existing = (await client.rest.get(Routes.applicationCommands(client.user.id))) as RemoteApplicationCommand[];
         const result = await this.upsertApplicationCommands(commands, existing, {
+            scope: "global",
             createRoute: Routes.applicationCommands(client.user.id),
             editRoute: commandId => Routes.applicationCommand(client.user.id, commandId)
         });
@@ -185,6 +162,7 @@ export class CommandManager {
                     Routes.applicationGuildCommands(client.user.id, guildId)
                 )) as RemoteApplicationCommand[];
                 const result = await this.upsertApplicationCommands(commands, existing, {
+                    scope: "guild",
                     createRoute: Routes.applicationGuildCommands(client.user.id, guildId),
                     editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
                 });
@@ -265,30 +243,43 @@ export class CommandManager {
         const command = this.prefix.getByTrigger(trigger);
         if (!command) return false;
 
-        try {
-            const startedAt = performance.now();
-            const result = await command.runWithResult(message, prefix, trigger);
-            if (result.executed && (command.metadata.logUsage ?? true)) {
-                this.client.logger.commandUsed({
-                    commandName: command.name,
-                    userName: message.author.username,
-                    guildName: message.guild?.name,
-                    guildId: message.guild?.id,
-                    durationMs: performance.now() - startedAt
-                });
-            }
-        } catch (err) {
-            throw err;
-        } finally {
-            return true;
+        const startedAt = performance.now();
+        const result = await command.runWithResult(message, prefix, trigger);
+        if (result.executed && (command.metadata.logUsage ?? true)) {
+            this.client.logger.commandUsed({
+                commandName: command.name,
+                userName: message.author.username,
+                guildName: message.guild?.name,
+                guildId: message.guild?.id,
+                durationMs: performance.now() - startedAt
+            });
         }
+        return true;
     }
 
     private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<boolean> {
         const command = this.slash.getByName(interaction.commandName);
         if (!command) return false;
 
-        try {
+        const startedAt = performance.now();
+        const result = await command.runWithResult(interaction);
+        if (result.executed && (command.metadata.logUsage ?? true)) {
+            this.client.logger.commandUsed({
+                commandName: command.name,
+                userName: interaction.user.username,
+                guildName: interaction.guild?.name,
+                guildId: interaction.guild?.id,
+                durationMs: performance.now() - startedAt
+            });
+        }
+        return true;
+    }
+
+    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
+        if (interaction.isMessageContextMenuCommand()) {
+            const command = this.context.message.getByName(interaction.commandName);
+            if (!command) return false;
+
             const startedAt = performance.now();
             const result = await command.runWithResult(interaction);
             if (result.executed && (command.metadata.logUsage ?? true)) {
@@ -300,53 +291,25 @@ export class CommandManager {
                     durationMs: performance.now() - startedAt
                 });
             }
-        } catch (err) {
-            throw err;
-        } finally {
             return true;
         }
-    }
 
-    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
-        const messageContextCommand = this.context.message.getByName(interaction.commandName);
-        const userContextCommand = this.context.user.getByName(interaction.commandName);
-        if (!messageContextCommand && !userContextCommand) return false;
+        if (!interaction.isUserContextMenuCommand()) return false;
+        const command = this.context.user.getByName(interaction.commandName);
+        if (!command) return false;
 
-        try {
-            if (messageContextCommand && interaction.isMessageContextMenuCommand()) {
-                const startedAt = performance.now();
-                const result = await messageContextCommand.runWithResult(interaction);
-                if (result.executed && (messageContextCommand.metadata.logUsage ?? true)) {
-                    this.client.logger.commandUsed({
-                        commandName: messageContextCommand.name,
-                        userName: interaction.user.username,
-                        guildName: interaction.guild?.name,
-                        guildId: interaction.guild?.id,
-                        durationMs: performance.now() - startedAt
-                    });
-                }
-                return false;
-            }
-
-            if (userContextCommand && interaction.isUserContextMenuCommand()) {
-                const startedAt = performance.now();
-                const result = await userContextCommand.runWithResult(interaction);
-                if (result.executed && (userContextCommand.metadata.logUsage ?? true)) {
-                    this.client.logger.commandUsed({
-                        commandName: userContextCommand.name,
-                        userName: interaction.user.username,
-                        guildName: interaction.guild?.name,
-                        guildId: interaction.guild?.id,
-                        durationMs: performance.now() - startedAt
-                    });
-                }
-                return false;
-            }
-        } catch (err) {
-            throw err;
-        } finally {
-            return true;
+        const startedAt = performance.now();
+        const result = await command.runWithResult(interaction);
+        if (result.executed && (command.metadata.logUsage ?? true)) {
+            this.client.logger.commandUsed({
+                commandName: command.name,
+                userName: interaction.user.username,
+                guildName: interaction.guild?.name,
+                guildId: interaction.guild?.id,
+                durationMs: performance.now() - startedAt
+            });
         }
+        return true;
     }
 
     private async getReadyClient(action: string): Promise<Vimcord<true> | null> {
@@ -364,6 +327,7 @@ export class CommandManager {
         commands: RESTPostAPIApplicationCommandsJSONBody[],
         existing: RemoteApplicationCommand[],
         routes: {
+            scope: ApplicationCommandRegistrationScope;
             createRoute: RestRoute;
             editRoute(commandId: string): RestRoute;
         }
@@ -384,9 +348,11 @@ export class CommandManager {
                 continue;
             }
 
-            if (hasApplicationCommandChanged(command, existingCommand)) {
+            if (hasApplicationCommandChanged(command, existingCommand, routes.scope)) {
                 // Patch changed commands so unchanged command ids and permissions stay intact
-                await this.client.rest.patch(routes.editRoute(existingCommand.id), { body: command });
+                await this.client.rest.patch(routes.editRoute(existingCommand.id), {
+                    body: createApplicationCommandUpdatePayload(command, routes.scope)
+                });
                 updated++;
                 continue;
             }
@@ -396,107 +362,4 @@ export class CommandManager {
 
         return { created, updated, unchanged };
     }
-}
-
-function createApplicationCommandKey(command: RESTPostAPIApplicationCommandsJSONBody | RemoteApplicationCommand): string {
-    return `${command.type ?? 1}:${command.name}`;
-}
-
-function hasApplicationCommandChanged(
-    local: RESTPostAPIApplicationCommandsJSONBody,
-    remote: RemoteApplicationCommand
-): boolean {
-    return (
-        stableStringify(normalizeApplicationCommandData(local)) !== stableStringify(normalizeApplicationCommandData(remote))
-    );
-}
-
-function normalizeApplicationCommandData(
-    command: RESTPostAPIApplicationCommandsJSONBody | RemoteApplicationCommand
-): Record<string, unknown> {
-    const type = command.type ?? 1;
-    const dmPermission = "dm_permission" in command ? command.dm_permission : undefined;
-    const nsfw = "nsfw" in command ? command.nsfw : undefined;
-    const contexts = "contexts" in command ? command.contexts : undefined;
-    const integrationTypes = "integration_types" in command ? command.integration_types : undefined;
-
-    // Compare only command fields Discord accepts from both local builders and remote REST payloads
-    return normalizeRecord({
-        name: command.name,
-        type,
-        description: type === 1 && "description" in command ? command.description : undefined,
-        options: type === 1 && "options" in command ? command.options : undefined,
-        default_member_permissions: "default_member_permissions" in command ? command.default_member_permissions : undefined,
-        dm_permission: dmPermission === true ? undefined : dmPermission,
-        contexts: isDefaultApplicationCommandContexts(contexts) ? undefined : contexts,
-        integration_types: isDefaultApplicationCommandIntegrationTypes(integrationTypes) ? undefined : integrationTypes,
-        nsfw: nsfw === false ? undefined : nsfw,
-        name_localizations: "name_localizations" in command ? command.name_localizations : undefined,
-        description_localizations: "description_localizations" in command ? command.description_localizations : undefined
-    });
-}
-
-function normalizeRecord(record: Record<string, unknown>): Record<string, unknown> {
-    return Object.fromEntries(
-        Object.entries(record)
-            .map(([key, value]) => [key, normalizeValue(value)] as const)
-            .filter(([, value]) => value !== undefined)
-    );
-}
-
-function normalizeValue(value: unknown): unknown {
-    if (value === undefined || value === null) return undefined;
-
-    if (Array.isArray(value)) {
-        const values = value.map(normalizeValue).filter(item => item !== undefined);
-        return values.length ? values : undefined;
-    }
-
-    if (typeof value === "object") {
-        const record = normalizeRecord(value as Record<string, unknown>);
-        if ("required" in record && record.required === false) delete record.required;
-        if ("autocomplete" in record && record.autocomplete === false) delete record.autocomplete;
-
-        return Object.keys(record).length ? record : undefined;
-    }
-
-    return value;
-}
-
-function stableStringify(value: unknown): string {
-    // Deterministic JSON keeps field order from causing false-positive command updates
-    return JSON.stringify(sortValue(value));
-}
-
-function isDefaultApplicationCommandContexts(value: unknown): boolean {
-    return (
-        isNumberSet(value, DEFAULT_APPLICATION_COMMAND_CONTEXTS) ||
-        isNumberSet(value, DEFAULT_APPLICATION_COMMAND_GUILD_CONTEXTS)
-    );
-}
-
-function isDefaultApplicationCommandIntegrationTypes(value: unknown): boolean {
-    return isNumberSet(value, DEFAULT_APPLICATION_COMMAND_INTEGRATION_TYPES);
-}
-
-function isNumberSet(value: unknown, expected: number[]): boolean {
-    if (!Array.isArray(value) || value.length !== expected.length) return false;
-
-    const numbers = value.filter((item): item is number => typeof item === "number");
-    if (numbers.length !== value.length) return false;
-
-    const sortedValues = [...numbers].sort((a, b) => a - b);
-    const sortedExpected = [...expected].sort((a, b) => a - b);
-    return sortedValues.every((item, index) => item === sortedExpected[index]);
-}
-
-function sortValue(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortValue);
-    if (!value || typeof value !== "object") return value;
-
-    return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([key, val]) => [key, sortValue(val)])
-    );
 }

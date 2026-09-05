@@ -70,10 +70,13 @@ export class PluginManager {
             return;
         }
 
+        const errors: unknown[] = [];
         for (const plugin of this.resolveLoadOrder().reverse()) {
             if (plugin.installed) {
                 try {
                     await plugin.uninstall(this.createPluginContext(plugin.name));
+                } catch (error) {
+                    errors.push(error);
                 } finally {
                     plugin.installed = false;
                     this.contributions.delete(plugin.name);
@@ -81,6 +84,8 @@ export class PluginManager {
             }
             this.plugins.delete(plugin.name);
         }
+
+        if (errors.length) throw new AggregateError(errors, "Failed to unload one or more plugins");
     }
 
     use(plugin: VimcordPlugin): void {
