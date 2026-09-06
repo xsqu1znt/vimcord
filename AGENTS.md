@@ -1,6 +1,6 @@
 # Vimcord
 
-An opinionated Discord.js wrapper. It adds a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
+An opinionated Discord.js framework. It adds a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
 
 It does not hide Discord.js. Builders, intents, events, permissions, and interactions stay the Discord.js ones, used directly wherever that is the right tool.
 

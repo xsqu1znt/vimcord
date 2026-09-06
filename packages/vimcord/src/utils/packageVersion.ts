@@ -53,7 +53,7 @@ export function getPackageVersion(packageName: string, workspacePath: string): s
     return findWorkspacePackageVersion(packageName, workspacePath);
 }
 
-/** Resolves the installed Vimcord wrapper version, including monorepo development environments. */
+/** Resolves the installed Vimcord framework version, including monorepo development environments. */
 export function getVimcordPackageVersion(): string {
     return getPackageVersion("vimcord", "packages/vimcord") ?? "unknown";
 }

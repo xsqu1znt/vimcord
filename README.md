@@ -1,6 +1,6 @@
 # Vimcord
 
-An opinionated Discord.js wrapper: a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination. It does not hide Discord.js — builders, intents, events, permissions, and interactions stay the Discord.js ones.
+An opinionated Discord.js framework: a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination. It does not hide Discord.js — builders, intents, events, permissions, and interactions stay the Discord.js ones.
 
 See [`packages/vimcord/README.md`](packages/vimcord/README.md) for installation, quick start, and the full API reference. That's what ships to [npm](https://www.npmjs.com/package/vimcord).
 
