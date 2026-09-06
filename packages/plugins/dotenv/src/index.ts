@@ -1,8 +1,8 @@
 import type { DotenvConfigOptions } from "dotenv";
-import type { VimcordPluginContext } from "@vimcord/core";
+import type { VimcordPluginContext } from "vimcord";
 
 import { configDotenv } from "dotenv";
-import { getPackageVersion, VimcordPlugin } from "@vimcord/core";
+import { getPackageVersion, VimcordPlugin } from "vimcord";
 
 export const PLUGIN_NAME = "dotenv";
 export const PLUGIN_DESCRIPTION = "Configures dotEnv to inject environment variables.";

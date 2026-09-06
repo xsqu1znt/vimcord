@@ -22,7 +22,7 @@ import type {
 } from "mongoose";
 
 import mongoose, { Schema } from "mongoose";
-import { Vimcord } from "@vimcord/core";
+import { Vimcord } from "vimcord";
 import { MongoosePlugin, PLUGIN_NAME } from "./index.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";

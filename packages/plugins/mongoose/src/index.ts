@@ -1,9 +1,9 @@
 import type { ClientSessionOptions, ConnectOptions } from "mongoose";
-import type { HealthProbeResult, VimcordPluginContext } from "@vimcord/core";
+import type { HealthProbeResult, VimcordPluginContext } from "vimcord";
 
 import mongoose from "mongoose";
 import { retryPromise } from "qznt";
-import { getPackageVersion, Vimcord, VimcordPlugin } from "@vimcord/core";
+import { getPackageVersion, Vimcord, VimcordPlugin } from "vimcord";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";
 

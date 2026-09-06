@@ -10,12 +10,11 @@ Vimcord runs large, high-traffic bots, so every API it exposes should read clean
 
 A PNPM workspace. `packages/*`, `packages/plugins/*`, and `templates/*`.
 
-- `@vimcord/core` in `packages/core` holds everything. All real work happens here.
-- `vimcord` in `packages/vimcord` is the public name users install. A one-line re-export of core.
+- `vimcord` in `packages/vimcord` holds everything and is the public name users install.
 - `@vimcord/plugin-dotenv` in `packages/plugins/dotenv` loads env files through the plugin lifecycle.
 - `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`.
 
-Inside `packages/core/src`:
+Inside `packages/vimcord/src`:
 
 - `client/`: the `Vimcord` client, its logger, status manager, and the managers under `client/managers` that own commands, events, and module loading.
 - `abstracts/`: `AbstractModule`, `AbstractModuleImporter`, and the command module base classes plus their type kit.
@@ -24,8 +23,6 @@ Inside `packages/core/src`:
 - `cli/`: the `VimcordCLI`, its parser, logger, and the built-in command groups under `cli/commands`.
 - `ux/`: the user-facing helpers: `betterEmbed`, `BetterContainer`, `betterModal`, `betterCollector`, `paginator`, `prompt`, `dynaSend`, and the shared `uxConfig`.
 - `plugins/`, `errors/`, `types/`, `utils/`: the plugin manager, error classes, type helpers, and internal utilities.
-
-New code goes in `core`. `packages/vimcord` only ever re-exports.
 
 ## Commands
 
@@ -47,7 +44,7 @@ Half-applied changes are what send the next agent down the wrong road, so treat 
 
 ## qznt
 
-`qznt` is our own utility library, and we can patch it or add to it upstream on request. Today only `@vimcord/plugin-mongoose` depends on it; core runs on `discord.js`, `ansis`, and `human-id` alone.
+`qznt` is our own utility library, and we can patch it or add to it upstream on request. Today only `@vimcord/plugin-mongoose` depends on it; `vimcord` runs on `discord.js`, `ansis`, and `human-id` alone.
 
 Before hand-rolling a utility, check whether `qznt` already has it and how nearby code uses it. If the thing you need is generic enough to live upstream, say so. Adding `qznt` to a package that does not already depend on it is a call for us to make, so ask.
 

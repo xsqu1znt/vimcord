@@ -30,7 +30,32 @@ importers:
         specifier: ^4.1.6
         version: 4.1.9(@types/node@25.9.4)(vite@8.1.2(@types/node@25.9.4)(esbuild@0.27.7)(tsx@4.22.4))
 
-  packages/core:
+  packages/plugins/dotenv:
+    dependencies:
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      vimcord:
+        specifier: workspace:*
+        version: link:../../vimcord
+
+  packages/plugins/mongoose:
+    dependencies:
+      mongoose:
+        specifier: ^9.7.1
+        version: 9.7.3
+      qznt:
+        specifier: ^2.0.0
+        version: 2.0.0
+      vimcord:
+        specifier: workspace:*
+        version: link:../../vimcord
+    devDependencies:
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.9.4
+
+  packages/vimcord:
     dependencies:
       ansis:
         specifier: ^4.3.0
@@ -45,37 +70,6 @@ importers:
       '@types/node':
         specifier: ^25.8.0
         version: 25.9.4
-
-  packages/plugins/dotenv:
-    dependencies:
-      '@vimcord/core':
-        specifier: workspace:*
-        version: link:../../core
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
-
-  packages/plugins/mongoose:
-    dependencies:
-      '@vimcord/core':
-        specifier: workspace:*
-        version: link:../../core
-      mongoose:
-        specifier: ^9.7.1
-        version: 9.7.3
-      qznt:
-        specifier: ^2.0.0
-        version: 2.0.0
-    devDependencies:
-      '@types/node':
-        specifier: ^25.8.0
-        version: 25.9.4
-
-  packages/vimcord:
-    dependencies:
-      '@vimcord/core':
-        specifier: workspace:*
-        version: link:../core
 
 packages:
 

@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
     resolve: {
         alias: {
-            "@": fileURLToPath(new URL("./packages/core/src", import.meta.url))
+            "@": fileURLToPath(new URL("./packages/vimcord/src", import.meta.url))
         }
     },
     test: {

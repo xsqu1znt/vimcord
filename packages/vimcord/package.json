@@ -20,7 +20,12 @@
         "check": "tsc --noEmit",
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
+    "devDependencies": {
+        "@types/node": "^25.8.0"
+    },
     "dependencies": {
-        "@vimcord/core": "workspace:*"
+        "ansis": "^4.3.0",
+        "discord.js": "^14.26.4",
+        "human-id": "^4.1.3"
     }
 }
