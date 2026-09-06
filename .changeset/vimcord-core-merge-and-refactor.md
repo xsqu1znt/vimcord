@@ -1,9 +1,10 @@
-# vimcord
-
-## 2.0.8
+---
+"vimcord": major
+---
 
 ### Breaking
 
+- `@vimcord/core` is merged into `vimcord`. There is no separate core package anymore; `vimcord` holds the full implementation.
 - Only one Vimcord client can exist per process. A second constructor call throws, `Vimcord.getInstance()` no longer takes a client ID, and `Vimcord.$instances`, `client.id`, the `customId` option, and `clone()` are gone. The `destroy` lifecycle event now returns the client instead of its ID.
 - Removed the client's `features` and `logger` options, along with `VimcordFeatures`, `maxLoginAttempts`, and `toOptions()`.
 - Removed the client's `connectionRefresh` option and `VimcordConnectionRefreshOptions`. Discord.js handles reconnects.

@@ -1,6 +1,6 @@
-# @vimcord/plugin-mongoose
-
-## 0.1.12
+---
+"@vimcord/plugin-mongoose": major
+---
 
 ### Breaking
 
@@ -9,6 +9,7 @@
 - Removed `MongoSchemaBuilder.extend()`. Use plain functions, or `Object.assign` when you want method syntax on the schema object.
 - Removed the plugin's `connectionRefresh` option and `MongooseConnectionRefreshOptions`. Mongoose and the MongoDB driver reconnect on their own.
 - Removed automatic ObjectId normalization from query filters. Mongoose now casts filters directly from the schema.
+- Now depends on `vimcord` instead of `@vimcord/core`, which is merged into it.
 
 ### Added
 
