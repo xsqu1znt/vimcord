@@ -3,16 +3,18 @@
     "private": true,
     "scripts": {
         "build": "pnpm -r build",
-        "format": "pnpm -r format && prettier --write \"scripts/**/*.ts\" \"vitest.config.ts\" \"package.json\" \"tsconfig.json\"",
+        "format": "pnpm -r format && prettier --write \"vitest.config.ts\" \"package.json\" \"tsconfig.json\"",
         "check": "pnpm -r check && tsc --noEmit -p tsconfig.json",
-        "publish:workspace": "tsx scripts/publishWorkspace.ts"
+        "changeset": "changeset",
+        "version-packages": "changeset version",
+        "release": "pnpm build && changeset publish"
     },
     "devDependencies": {
+        "@changesets/cli": "^2.29.7",
         "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
         "@types/node": "^25.8.0",
         "prettier": "^3.8.3",
         "tsup": "^8.5.1",
-        "tsx": "^4.22.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.6"
     }
