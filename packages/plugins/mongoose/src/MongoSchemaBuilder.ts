@@ -42,6 +42,13 @@ type HydDoc<Def, Opts, Doc = ObtainDocumentType<Def, any, SchemaOpts<Opts>>> = H
     SchemaOpts<Opts>
 >;
 
+/** The lean document type a `MongoSchemaBuilder` infers, for naming it as a consumer-facing interface. */
+export type InferDoc<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? LeanDoc<Def, Opts> : never;
+/** The hydrated document type a `MongoSchemaBuilder` infers, for typing values returned by `create()` or `{ lean: false }` reads. */
+export type InferHydratedDoc<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? HydDoc<Def, Opts> : never;
+/** The document shape accepted by a `MongoSchemaBuilder`'s `create()`, for hand-building literals such as `bulkWrite` operations. */
+export type CreateDocument<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? CreateDocInput<Def, Opts> : never;
+
 /** Per-call `lean` wins, then the builder's `leanByDefault`, then lean. */
 type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false }
     ? HydDoc<Def, Opts>
@@ -53,7 +60,7 @@ type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false }
 
 type BuilderSchema<Def, Opts> = Schema<LeanDoc<Def, Opts>>;
 type BuilderModel<Def, Opts> = Model<LeanDoc<Def, Opts>, {}, {}, {}, HydDoc<Def, Opts>, BuilderSchema<Def, Opts>>;
-type CreateDocument<Def, Opts> = Parameters<BuilderModel<Def, Opts>["create"]>[0];
+type CreateDocInput<Def, Opts> = Parameters<BuilderModel<Def, Opts>["create"]>[0];
 type BulkWriteOperations<Def, Opts> = Parameters<BuilderModel<Def, Opts>["bulkWrite"]>[0];
 type WithSession<Options> = Omit<Options, "session"> & { session?: mongoose.ClientSession | null };
 
@@ -373,10 +380,10 @@ export class MongoSchemaBuilder<
      * @param docs The documents to create
      * @param options The options to pass to Mongoose
      */
-    async create(doc: CreateDocument<Def, Opts>, options?: CreateOptions): Promise<HydDoc<Def, Opts>>;
-    async create(docs: CreateDocument<Def, Opts>[], options?: CreateOptions): Promise<HydDoc<Def, Opts>[]>;
+    async create(doc: CreateDocInput<Def, Opts>, options?: CreateOptions): Promise<HydDoc<Def, Opts>>;
+    async create(docs: CreateDocInput<Def, Opts>[], options?: CreateOptions): Promise<HydDoc<Def, Opts>[]>;
     async create(
-        docOrDocs: CreateDocument<Def, Opts> | CreateDocument<Def, Opts>[],
+        docOrDocs: CreateDocInput<Def, Opts> | CreateDocInput<Def, Opts>[],
         options?: CreateOptions
     ): Promise<HydDoc<Def, Opts> | HydDoc<Def, Opts>[]> {
         const model = this.compileModel();
