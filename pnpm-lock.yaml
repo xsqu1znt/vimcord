@@ -44,9 +44,6 @@ importers:
       mongoose:
         specifier: ^9.7.1
         version: 9.7.3
-      qznt:
-        specifier: ^2.0.0
-        version: 2.0.0
       vimcord:
         specifier: workspace:*
         version: link:../../vimcord
@@ -1456,9 +1453,6 @@ packages:
 
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
-
-  qznt@2.0.0:
-    resolution: {integrity: sha512-qkw/Gf22VJWNb9nJkenVEJVA3LB7srrdE39LO7Wo8bwkoUgrE0QxV5ZbHfzLtTDg+nOov/RS5fHurJ4tka1sNw==}
 
   read-yaml-file@1.1.0:
     resolution: {integrity: sha512-VIMnQi/Z4HT2Fxuwg5KrY174U1VdUIASQVWXXyqtNRtxSr9IYkn1rsI6Tb6HsrHCmB7gVpNwX6JxPTHcH6IoTA==}
@@ -2944,8 +2938,6 @@ snapshots:
   quansync@0.2.11: {}
 
   queue-microtask@1.2.3: {}
-
-  qznt@2.0.0: {}
 
   read-yaml-file@1.1.0:
     dependencies:

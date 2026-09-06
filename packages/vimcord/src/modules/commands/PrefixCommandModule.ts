@@ -3,7 +3,8 @@ import type {
     CommandModuleArgs,
     CommandModuleContext,
     CommandModuleHookContext,
-    CommandModuleOptions
+    CommandModuleOptions,
+    ModuleHookContext
 } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
 
@@ -58,6 +59,10 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
         moduleCTX: CommandModuleContext<CommandModuleType.Prefix>,
         args: CommandModuleArgs<CommandModuleType.Prefix>
     ): CommandModuleHookContext<CommandModuleType.Prefix> {
-        return { ...moduleCTX, module: this as any, args };
+        return {
+            ...moduleCTX,
+            module: this as unknown as ModuleHookContext<CommandModuleArgs<CommandModuleType.Prefix>>["module"],
+            args
+        };
     }
 }

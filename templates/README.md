@@ -1,1 +1,1 @@
-Here are a few example templates to showcase different vimcord use cases.
+Official templates will be added soon!

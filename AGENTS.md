@@ -13,6 +13,7 @@ A PNPM workspace. `packages/*`, `packages/plugins/*`, and `templates/*`.
 - `vimcord` in `packages/vimcord` holds everything and is the public name users install.
 - `@vimcord/plugin-dotenv` in `packages/plugins/dotenv` loads env files through the plugin lifecycle.
 - `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`.
+- `templates/*` is a placeholder for starter bot templates. Today it's a single README that says templates are coming; there's no template code to update yet.
 
 Inside `packages/vimcord/src`:
 
@@ -38,15 +39,11 @@ Type checks and a focused smoke test cover this repo. Write a test when the chan
 
 The recurring defect here is a change landing in one place while its siblings keep the old shape.
 
+`modules/commands` has four command module classes that all build a `HookContext` in `createHookCTX`. Three of them (`SlashCommandModule`, `MessageContextCommandModule`, `UserContextCommandModule`) cast the module reference with `this as unknown as ModuleHookContext<...>["module"]`. `PrefixCommandModule` had drifted to a bare `this as any`, quietly breaking the "`any` is the enemy" rule while its siblings stayed disciplined. That's the shape to watch for: a fix or a pattern applied to three of four command modules (or three of four UX helpers, or three of four CLI command groups) and never checked against the fourth.
+
 When you change how something is worded, how data is extracted, or how a function is shaped, find the other paths doing the same thing and bring them along. If one of them should stay different, say that it is deliberate and why.
 
 Half-applied changes are what send the next agent down the wrong road, so treat the sweep as part of the task rather than a follow-up.
-
-## qznt
-
-`qznt` is our own utility library, and we can patch it or add to it upstream on request. Today only `@vimcord/plugin-mongoose` depends on it; `vimcord` runs on `discord.js`, `ansis`, and `human-id` alone.
-
-Before hand-rolling a utility, check whether `qznt` already has it and how nearby code uses it. If the thing you need is generic enough to live upstream, say so. Adding `qznt` to a package that does not already depend on it is a call for us to make, so ask.
 
 ## Conventions
 
@@ -57,6 +54,17 @@ Before hand-rolling a utility, check whether `qznt` already has it and how nearb
 - `type` for unions, `interface` for object shapes. Annotate return types on exports; let internal helpers infer. `unknown` for input you have not checked yet, then narrow it.
 - Return early. Past three levels of nesting, rewrite with guard clauses.
 - Comment the function, not the line: what it is for and how it is used. Break a long function into stages with a `// --- Name the stage ---` header, and move a comment in the same edit that changes the code under it.
+- Only `packages/vimcord/src` resolves the `@/` alias (`@/*` maps to that package's own `src`). Nothing else in the workspace gets it: plugin packages import `vimcord` the same way an app would.
+- A test file sits next to what it tests, named `Foo.test.ts` for `Foo.ts`, and runs on Vitest. `Vimcord` is a one-per-process singleton (a second `new Vimcord()` throws), so any test that constructs one must `destroy()` it in `afterEach` before the next test can construct another; see `Vimcord.test.ts`.
+
+## Module registration
+
+`ModuleManager.load()` imports each module directory through `AbstractModuleImporter.importFrom(dir, suffix)`. The `suffix` option is a filename filter, not a required tag:
+
+- No `suffix` configured: every `.ts`/`.js` file in `dir` is imported as that import's module type. Dropping an `.event.ts` file into a `slashCommands.dir` folder with no suffix set will try to import it as a slash command.
+- A `suffix` (or list) configured: only filenames ending in one of those suffixes before `.ts`/`.js` are imported; everything else in the directory is silently skipped, no warning.
+
+Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.ts`, `.mctx.ts`, `.uctx.ts`, `.event.ts`. Pick whichever a project's `imports` config actually sets.
 
 ## Working with us
 

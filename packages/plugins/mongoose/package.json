@@ -22,8 +22,7 @@
     },
     "dependencies": {
         "vimcord": "workspace:*",
-        "mongoose": "^9.7.1",
-        "qznt": "^2.0.0"
+        "mongoose": "^9.7.1"
     },
     "devDependencies": {
         "@types/node": "^25.8.0"

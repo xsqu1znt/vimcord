@@ -2,7 +2,6 @@ import type { ClientSessionOptions, ConnectOptions } from "mongoose";
 import type { HealthProbeResult, VimcordPluginContext } from "vimcord";
 
 import mongoose from "mongoose";
-import { retryPromise } from "qznt";
 import { getPackageVersion, Vimcord, VimcordPlugin } from "vimcord";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";
@@ -32,6 +31,20 @@ export interface MongooseOptions extends mongoose.MongooseOptions {
 export const PLUGIN_NAME = "mongoose";
 export const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
 export const PLUGIN_VERSION = getPackageVersion("@vimcord/plugin-mongoose", "packages/plugins/mongoose") ?? "unknown";
+
+/** Retries `fn` with exponential backoff and jitter until `attempts` retries are exhausted. */
+async function retryWithBackoff<T>(fn: () => Promise<T>, attempts: number): Promise<T> {
+    let delay = 500;
+    for (let remaining = attempts; ; remaining--) {
+        try {
+            return await fn();
+        } catch (err) {
+            if (remaining <= 0) throw err;
+            await new Promise(resolve => setTimeout(resolve, delay + Math.random() * 200));
+            delay *= 2;
+        }
+    }
+}
 
 export class MongoosePlugin extends VimcordPlugin {
     override name = PLUGIN_NAME;
@@ -106,9 +119,7 @@ export class MongoosePlugin extends VimcordPlugin {
             this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
 
             try {
-                await retryPromise(() => this.mongoose.connect(connectionUri, this.connectOptions), {
-                    attempts: this.maxRetries
-                });
+                await retryWithBackoff(() => this.mongoose.connect(connectionUri, this.connectOptions), this.maxRetries);
 
                 this.client.logger.plugin.success(this.name, "Connected to MongoDB");
                 return true;

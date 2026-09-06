@@ -6,7 +6,3 @@ packages:
 allowBuilds:
   esbuild: true
   unicode-animations: true
-
-minimumReleaseAgeExclude:
-  - qznt@1.0.37
-  - qznt@2.0.0
