@@ -4,6 +4,11 @@
     "description": "",
     "author": "xsqu1znt",
     "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/xsqu1znt/vimcord.git",
+        "directory": "packages/plugins/mongoose"
+    },
     "main": "./dist/index.cjs",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
