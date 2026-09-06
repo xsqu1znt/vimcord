@@ -1,5 +1,11 @@
 # @vimcord/plugin-mongoose
 
+## 1.0.1
+
+### Patch Changes
+
+- 25cdf2a: Fix `InferDoc`, `InferHydratedDoc`, and `CreateDocument` failing to compile: a type name collision with the internal document type used by `create()`, and a missing `CreateDocInput` reference.
+
 ## 1.0.0
 
 ### Major Changes
