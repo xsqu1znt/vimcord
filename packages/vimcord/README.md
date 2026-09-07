@@ -549,6 +549,24 @@ if (result.status === "confirmed") {
 }
 ```
 
+Extra buttons can end the prompt too. Pass them in `additionalButtons`, turn on `resolveOnAdditionalButton`, and the result comes back with `status: "custom"` and the custom ID of the button that was pressed.
+
+```ts
+const result = await promptMessage(interaction, {
+    content: "Buy this item?",
+    additionalButtons: [
+        new ButtonBuilder().setCustomId("use_voucher").setLabel("Use voucher").setStyle(ButtonStyle.Secondary)
+    ],
+    resolveOnAdditionalButton: true,
+    onCustom: ResolveAction.DisableComponents,
+    timeout: 30_000
+});
+
+if (result.status === "custom" && result.customId === "use_voucher") {
+    await chargeVoucher();
+}
+```
+
 ### BetterModal
 
 ```ts
