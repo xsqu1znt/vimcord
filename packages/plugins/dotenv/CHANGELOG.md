@@ -1,5 +1,12 @@
 # @vimcord/plugin-dotenv
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [753c288]
+    - vimcord@3.1.0
+
 ## 0.1.9
 
 ### Patch Changes
