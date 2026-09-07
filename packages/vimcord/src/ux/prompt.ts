@@ -15,9 +15,9 @@ export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) =>
 export type PromptTimingOptions = TimingOptions;
 
 /** How a button prompt was answered. `"timeout"` also covers a collector stopped externally with no user decision. */
-export type PromptStatus = "confirmed" | "rejected" | "timeout";
+export type PromptStatus = "confirmed" | "rejected" | "custom" | "timeout";
 /** How a modal prompt was answered. `"invalid"` means the submitted text was neither a yes nor a no. */
-export type PromptModalStatus = PromptStatus | "invalid";
+export type PromptModalStatus = Exclude<PromptStatus, "custom"> | "invalid";
 
 /** User-facing confirm and reject button overrides. */
 export interface PromptMessageButtonOptions {
@@ -39,6 +39,12 @@ export interface PromptMessageBaseOptions {
     buttons?: PromptMessageButtonOptions;
     /** Extra buttons appended after reject without changing their custom IDs or styling. */
     additionalButtons?: ButtonBuilder[];
+    /** Whether pressing an additional button ends the prompt with `status: "custom"` and the pressed
+     * custom ID. Off by default so callers already driving those buttons through `onCollector` keep
+     * their current behavior.
+     * @default false
+     */
+    resolveOnAdditionalButton?: boolean;
     /** Receives the internal collector before waiting so extra button listeners can be registered. */
     onCollector?: (collector: PromptCollector) => void | Promise<void>;
     /** Resolve action applied after confirmation.
@@ -49,6 +55,11 @@ export interface PromptMessageBaseOptions {
      * @default ResolveAction.DeleteMessage
      */
     onReject?: ResolveAction;
+    /** Resolve action applied after an additional button ends the prompt. Only used when
+     * `resolveOnAdditionalButton` is on.
+     * @default ResolveAction.DeleteMessage
+     */
+    onCustom?: ResolveAction;
     /** Resolve action applied when the prompt ends without a decision (timeout or external stop).
      * @default ResolveAction.DeleteMessage
      */
@@ -63,6 +74,8 @@ export type PromptMessageOptions = PromptMessageBaseOptions & PromptTimingOption
 export interface PromptMessageResult {
     /** How the prompt was answered. */
     status: PromptStatus;
+    /** Custom ID of the pressed additional button. Only set when `status` is `"custom"`. */
+    customId?: string;
     /** Prompt message returned by dynaSend when Discord provides one. */
     message?: Message;
 }
@@ -110,9 +123,16 @@ export async function promptMessage(
     const confirmButton = createPromptButton(config.buttons.confirm, PROMPT_CUSTOM_IDS.confirm, options.buttons?.confirm);
     const rejectButton = createPromptButton(config.buttons.reject, PROMPT_CUSTOM_IDS.reject, options.buttons?.reject);
 
-    for (const button of additionalButtons) {
-        if (!getButtonCustomId(button)) throw new Error("[Prompt] Additional buttons must have a customId");
-    }
+    const additionalCustomIds = additionalButtons.map(button => {
+        const customId = getButtonCustomId(button);
+        if (!customId) throw new Error("[Prompt] Additional buttons must have a customId");
+
+        if (customId === PROMPT_CUSTOM_IDS.confirm || customId === PROMPT_CUSTOM_IDS.reject) {
+            throw new Error(`[Prompt] Additional buttons cannot use the reserved customId "${customId}"`);
+        }
+
+        return customId;
+    });
 
     // --- Message ---
     // A fresh interaction reply needs `withResponse: true` or Discord never returns the message the
@@ -130,8 +150,8 @@ export async function promptMessage(
     if (!message) return { status: "timeout" };
 
     // --- Collector ---
-    let replied = false;
-    let confirmed = false;
+    // The custom ID of the button that ended the prompt, or null if nothing was pressed.
+    let pressedCustomId: string | null = null;
     const collector = new BetterCollector(message, {
         ...options,
         type: ComponentType.Button,
@@ -142,8 +162,7 @@ export async function promptMessage(
     collector.on(
         PROMPT_CUSTOM_IDS.confirm,
         async () => {
-            replied = true;
-            confirmed = true;
+            pressedCustomId = PROMPT_CUSTOM_IDS.confirm;
             collector.stop("confirmed");
         },
         { defer: { update: true } }
@@ -152,12 +171,24 @@ export async function promptMessage(
     collector.on(
         PROMPT_CUSTOM_IDS.reject,
         async () => {
-            replied = true;
-            confirmed = false;
+            pressedCustomId = PROMPT_CUSTOM_IDS.reject;
             collector.stop("rejected");
         },
         { defer: { update: true } }
     );
+
+    if (options.resolveOnAdditionalButton) {
+        for (const customId of additionalCustomIds) {
+            collector.on(
+                customId,
+                async () => {
+                    pressedCustomId = customId;
+                    collector.stop("custom");
+                },
+                { defer: { update: true } }
+            );
+        }
+    }
 
     // Register completion before awaiting onCollector: if that callback stops the collector (or it
     // times out) before returning, "end" must not fire while nothing is listening yet.
@@ -165,9 +196,16 @@ export async function promptMessage(
     await options.onCollector?.(collector);
     await ended;
 
-    // Any ending without an explicit confirm/reject click - a real timeout or a collector stopped
-    // externally (e.g. from onCollector) - is reported as "timeout"; only a click is a decision.
-    const status: PromptStatus = !replied ? "timeout" : confirmed ? "confirmed" : "rejected";
+    // Any ending without a resolving click - a real timeout or a collector stopped externally
+    // (e.g. from onCollector) - is reported as "timeout"; only a click is a decision.
+    const status: PromptStatus =
+        pressedCustomId === PROMPT_CUSTOM_IDS.confirm
+            ? "confirmed"
+            : pressedCustomId === PROMPT_CUSTOM_IDS.reject
+              ? "rejected"
+              : pressedCustomId !== null
+                ? "custom"
+                : "timeout";
 
     // --- Resolution ---
     const resolveAction =
@@ -175,16 +213,18 @@ export async function promptMessage(
             ? (options.onConfirm ?? ResolveAction.DeleteMessage)
             : status === "rejected"
               ? (options.onReject ?? ResolveAction.DeleteMessage)
-              : (options.onTimeout ?? ResolveAction.DeleteMessage);
+              : status === "custom"
+                ? (options.onCustom ?? ResolveAction.DeleteMessage)
+                : (options.onTimeout ?? ResolveAction.DeleteMessage);
 
     await handlePromptResolve(
         message,
-        status,
+        pressedCustomId,
         resolveAction,
         options.highlightSelectedButton ?? config.highlightSelectedButton
     );
 
-    return { status, message };
+    return { status, customId: status === "custom" ? (pressedCustomId ?? undefined) : undefined, message };
 }
 
 /**
@@ -244,21 +284,22 @@ function getButtonCustomId(button: ButtonBuilder): string | null {
 
 async function handlePromptResolve(
     message: Message,
-    status: PromptStatus,
+    pressedCustomId: string | null,
     action: ResolveAction,
     highlightSelectedButton: boolean
 ): Promise<void> {
     if (action === ResolveAction.DoNothing) return;
 
     if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
-        await disablePromptComponents(message, status === "confirmed" ? true : status === "rejected" ? false : null);
+        await disablePromptComponents(message, pressedCustomId);
         return;
     }
 
     await handleResolveAction(message, action);
 }
 
-async function disablePromptComponents(message: Message, confirmed: boolean | null): Promise<void> {
+/** Greys out every confirm/reject button the user did not press, keyed off the pressed custom ID. */
+async function disablePromptComponents(message: Message, pressedCustomId: string | null): Promise<void> {
     if (!message.editable) return;
 
     try {
@@ -274,9 +315,10 @@ async function disablePromptComponents(message: Message, confirmed: boolean | nu
                 ...rowData,
                 components: rowData.components.map(component => {
                     const unchosenPromptButton =
-                        confirmed !== null &&
-                        ((confirmed && component.custom_id === PROMPT_CUSTOM_IDS.reject) ||
-                            (!confirmed && component.custom_id === PROMPT_CUSTOM_IDS.confirm));
+                        pressedCustomId !== null &&
+                        component.custom_id !== pressedCustomId &&
+                        (component.custom_id === PROMPT_CUSTOM_IDS.confirm ||
+                            component.custom_id === PROMPT_CUSTOM_IDS.reject);
 
                     return {
                         ...component,
