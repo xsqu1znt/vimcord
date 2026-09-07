@@ -26,10 +26,13 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "vimcord": "workspace:*",
         "mongoose": "^9.7.1"
     },
+    "peerDependencies": {
+        "vimcord": "^3.0.0"
+    },
     "devDependencies": {
+        "vimcord": "workspace:*",
         "@types/node": "^25.8.0"
     }
 }

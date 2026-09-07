@@ -19,7 +19,12 @@
         "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "dependencies": {
-        "vimcord": "workspace:*",
         "dotenv": "^17.4.2"
+    },
+    "peerDependencies": {
+        "vimcord": "^3.0.0"
+    },
+    "devDependencies": {
+        "vimcord": "workspace:*"
     }
 }
