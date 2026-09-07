@@ -1,5 +1,12 @@
 # @vimcord/plugin-mongoose
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [753c288]
+    - vimcord@3.1.0
+
 ## 1.0.1
 
 ### Patch Changes
