@@ -27,6 +27,13 @@ export interface PromptMessageButtonOptions {
     reject?: PromptButtonResolvable;
 }
 
+/** Extra prompt button with an optional style to use when it is selected. */
+export interface PromptAdditionalButtonOptions {
+    button: ButtonBuilder;
+    /** Style used when this button ends a highlighted prompt. Defaults to Primary. */
+    selectedStyle?: ButtonStyle;
+}
+
 /** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageBaseOptions {
     /** Users allowed to interact with the prompt. */
@@ -37,8 +44,8 @@ export interface PromptMessageBaseOptions {
     embed?: EmbedResolvable;
     /** Confirm and reject button overrides. */
     buttons?: PromptMessageButtonOptions;
-    /** Extra buttons appended after reject without changing their custom IDs or styling. */
-    additionalButtons?: ButtonBuilder[];
+    /** Extra buttons appended after reject. Wrap a button to override its selected style. */
+    additionalButtons?: (ButtonBuilder | PromptAdditionalButtonOptions)[];
     /** Whether pressing an additional button ends the prompt with `status: "custom"` and the pressed
      * custom ID. Off by default so callers already driving those buttons through `onCollector` keep
      * their current behavior.
@@ -117,13 +124,16 @@ export async function promptMessage(
 ): Promise<PromptMessageResult> {
     resolveTiming(options);
     const config = getGlobalUxConfig().prompt;
-    const additionalButtons = options.additionalButtons ?? [];
+    const additionalButtons: PromptAdditionalButtonOptions[] = (options.additionalButtons ?? []).map(item =>
+        item instanceof ButtonBuilder ? { button: item } : item
+    );
 
     // --- Buttons ---
     const confirmButton = createPromptButton(config.buttons.confirm, PROMPT_CUSTOM_IDS.confirm, options.buttons?.confirm);
     const rejectButton = createPromptButton(config.buttons.reject, PROMPT_CUSTOM_IDS.reject, options.buttons?.reject);
 
-    const additionalCustomIds = additionalButtons.map(button => {
+    const selectedAdditionalStyles = new Map<string, ButtonStyle>();
+    const additionalCustomIds = additionalButtons.map(({ button, selectedStyle }) => {
         const customId = getButtonCustomId(button);
         if (!customId) throw new Error("[Prompt] Additional buttons must have a customId");
 
@@ -131,6 +141,7 @@ export async function promptMessage(
             throw new Error(`[Prompt] Additional buttons cannot use the reserved customId "${customId}"`);
         }
 
+        selectedAdditionalStyles.set(customId, selectedStyle ?? ButtonStyle.Primary);
         return customId;
     });
 
@@ -221,7 +232,8 @@ export async function promptMessage(
         message,
         pressedCustomId,
         resolveAction,
-        options.highlightSelectedButton ?? config.highlightSelectedButton
+        options.highlightSelectedButton ?? config.highlightSelectedButton,
+        pressedCustomId === null ? undefined : selectedAdditionalStyles.get(pressedCustomId)
     );
 
     return { status, customId: status === "custom" ? (pressedCustomId ?? undefined) : undefined, message };
@@ -266,9 +278,9 @@ function createPromptButton(fallback: ButtonBuilder, customId: string, override?
 function buildPromptRow(
     confirmButton: ButtonBuilder,
     rejectButton: ButtonBuilder,
-    additionalButtons: ButtonBuilder[]
+    additionalButtons: PromptAdditionalButtonOptions[]
 ): ActionRowBuilder<ButtonBuilder> {
-    const buttons = [confirmButton, rejectButton, ...additionalButtons];
+    const buttons = [confirmButton, rejectButton, ...additionalButtons.map(({ button }) => button)];
 
     if (buttons.length > 5) throw new Error("[Prompt] Prompt rows cannot contain more than 5 buttons");
 
@@ -286,20 +298,25 @@ async function handlePromptResolve(
     message: Message,
     pressedCustomId: string | null,
     action: ResolveAction,
-    highlightSelectedButton: boolean
+    highlightSelectedButton: boolean,
+    selectedAdditionalStyle?: ButtonStyle
 ): Promise<void> {
     if (action === ResolveAction.DoNothing) return;
 
     if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
-        await disablePromptComponents(message, pressedCustomId);
+        await disablePromptComponents(message, pressedCustomId, selectedAdditionalStyle);
         return;
     }
 
     await handleResolveAction(message, action);
 }
 
-/** Greys out every confirm/reject button the user did not press, keyed off the pressed custom ID. */
-async function disablePromptComponents(message: Message, pressedCustomId: string | null): Promise<void> {
+/** Disables the prompt and colors the selected button while greying out unchosen confirm/reject buttons. */
+async function disablePromptComponents(
+    message: Message,
+    pressedCustomId: string | null,
+    selectedAdditionalStyle?: ButtonStyle
+): Promise<void> {
     if (!message.editable) return;
 
     try {
@@ -319,11 +336,17 @@ async function disablePromptComponents(message: Message, pressedCustomId: string
                         component.custom_id !== pressedCustomId &&
                         (component.custom_id === PROMPT_CUSTOM_IDS.confirm ||
                             component.custom_id === PROMPT_CUSTOM_IDS.reject);
+                    const selectedAdditionalButton =
+                        component.custom_id === pressedCustomId && selectedAdditionalStyle !== undefined;
 
                     return {
                         ...component,
                         disabled: true,
-                        style: unchosenPromptButton ? ButtonStyle.Secondary : component.style
+                        style: selectedAdditionalButton
+                            ? selectedAdditionalStyle
+                            : unchosenPromptButton
+                              ? ButtonStyle.Secondary
+                              : component.style
                     };
                 })
             };
