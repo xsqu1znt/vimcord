@@ -549,16 +549,21 @@ if (result.status === "confirmed") {
 }
 ```
 
-Extra buttons can end the prompt too. Pass them in `additionalButtons`, turn on `resolveOnAdditionalButton`, and the result comes back with `status: "custom"` and the custom ID of the button that was pressed.
+Extra buttons can end the prompt too. Pass them in `additionalButtons`, turn on `resolveOnAdditionalButton`, and the result comes back with `status: "custom"` and the custom ID of the button that was pressed. With `highlightSelectedButton` on, a selected extra button turns Primary by default. Wrap a button with `selectedStyle` to choose another style.
 
 ```ts
 const result = await promptMessage(interaction, {
     content: "Buy this item?",
     additionalButtons: [
-        new ButtonBuilder().setCustomId("use_voucher").setLabel("Use voucher").setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId("use_voucher").setLabel("Use voucher").setStyle(ButtonStyle.Secondary),
+        {
+            button: new ButtonBuilder().setCustomId("use_credit").setLabel("Use credit").setStyle(ButtonStyle.Secondary),
+            selectedStyle: ButtonStyle.Success
+        }
     ],
     resolveOnAdditionalButton: true,
     onCustom: ResolveAction.DisableComponents,
+    highlightSelectedButton: true,
     timeout: 30_000
 });
 
