@@ -1,5 +1,11 @@
 # @vimcord/plugin-mongoose
 
+## 1.0.3
+
+### Patch Changes
+
+- 11426a7: Publish the plugins with vimcord as a peer dependency so consumers use one vimcord version.
+
 ## 1.0.2
 
 ### Patch Changes

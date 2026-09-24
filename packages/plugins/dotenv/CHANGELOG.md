@@ -1,5 +1,11 @@
 # @vimcord/plugin-dotenv
 
+## 0.1.11
+
+### Patch Changes
+
+- 11426a7: Publish the plugins with vimcord as a peer dependency so consumers use one vimcord version.
+
 ## 0.1.10
 
 ### Patch Changes
