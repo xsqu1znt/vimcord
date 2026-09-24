@@ -1,5 +1,11 @@
 # vimcord
 
+## 3.1.1
+
+### Patch Changes
+
+- 41b7428: Selected additional prompt buttons now use Primary when highlighting is enabled. Each additional button can override its selected style.
+
 ## 3.1.0
 
 ### Minor Changes
