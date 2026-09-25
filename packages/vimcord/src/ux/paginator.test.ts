@@ -75,6 +75,24 @@ afterEach(() => {
 });
 
 describe("Paginator collection and navigation", () => {
+    it.each([ResolveAction.DisableComponents, ResolveAction.ClearComponents])(
+        "preserves reply mention settings when %s on timeout",
+        async onTimeout => {
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId("next").setLabel("Next").setStyle(ButtonStyle.Secondary)
+            );
+            const { message, collector } = createMessage([row]);
+            vi.mocked(dynaSend).mockResolvedValue(message as never);
+            const paginator = new Paginator({ pages: ["A"], timeout: 1000, onTimeout });
+
+            await paginator.send({} as never, { allowedMentions: { repliedUser: false } });
+            collector.emit("end", [], "time");
+            await settle();
+
+            expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ allowedMentions: { repliedUser: false } }));
+        }
+    );
+
     it("still cleans up and emits postTimeout when an in-flight refresh rejects", async () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
         const paginator = new Paginator({ pages: ["A"], timeout: 1000, onTimeout: ResolveAction.DeleteMessage });

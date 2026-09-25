@@ -1,4 +1,4 @@
-import type { GuildMember, Message, User } from "discord.js";
+import type { GuildMember, Message, MessageMentionOptions, User } from "discord.js";
 
 import { ComponentType } from "discord.js";
 
@@ -100,14 +100,17 @@ function clearComponent(component: ComponentLike): ComponentLike | null {
     return component;
 }
 
-async function resolveAction_disableComponents(message: Message | null | undefined): Promise<void> {
+async function resolveAction_disableComponents(
+    message: Message | null | undefined,
+    allowedMentions?: MessageMentionOptions
+): Promise<void> {
     if (!message?.editable || !message.components.length) return;
 
     try {
         const updatedRows = message.components.map(row => disableComponent(row.toJSON() as ComponentLike));
         const currentRows = message.components.map(row => row.toJSON());
         if (JSON.stringify(updatedRows) === JSON.stringify(currentRows)) return;
-        await message.edit({ components: updatedRows as never });
+        await message.edit({ components: updatedRows as never, allowedMentions });
     } catch (err) {
         if (err instanceof Error && !err.message.includes("Unknown Message")) {
             console.error("[ResolveAction] Failed to disable components:", err);
@@ -115,7 +118,10 @@ async function resolveAction_disableComponents(message: Message | null | undefin
     }
 }
 
-async function resolveAction_clearComponents(message: Message | null | undefined): Promise<void> {
+async function resolveAction_clearComponents(
+    message: Message | null | undefined,
+    allowedMentions?: MessageMentionOptions
+): Promise<void> {
     if (!message?.editable || !message.components.length) return;
 
     try {
@@ -124,7 +130,7 @@ async function resolveAction_clearComponents(message: Message | null | undefined
             .filter((c): c is ComponentLike => c !== null);
         const currentRows = message.components.map(row => row.toJSON());
         if (JSON.stringify(updatedRows) === JSON.stringify(currentRows)) return;
-        await message.edit({ components: updatedRows as never });
+        await message.edit({ components: updatedRows as never, allowedMentions });
     } catch (err) {
         if (err instanceof Error && !err.message.includes("Unknown Message")) {
             console.error("[ResolveAction] Failed to clear components:", err);
@@ -144,12 +150,16 @@ async function resolveAction_deleteMessage(message: Message | null | undefined):
     }
 }
 
-export async function handleResolveAction(message: Message | null | undefined, action: ResolveAction): Promise<void> {
+export async function handleResolveAction(
+    message: Message | null | undefined,
+    action: ResolveAction,
+    allowedMentions?: MessageMentionOptions
+): Promise<void> {
     switch (action) {
         case ResolveAction.DisableComponents:
-            return resolveAction_disableComponents(message);
+            return resolveAction_disableComponents(message, allowedMentions);
         case ResolveAction.ClearComponents:
-            return resolveAction_clearComponents(message);
+            return resolveAction_clearComponents(message, allowedMentions);
         case ResolveAction.DeleteMessage:
             return resolveAction_deleteMessage(message);
         case ResolveAction.DoNothing:
