@@ -29,7 +29,7 @@
         "mongoose": "^9.7.1"
     },
     "peerDependencies": {
-        "vimcord": "^3.1.1"
+        "vimcord": "^3.1.2"
     },
     "devDependencies": {
         "vimcord": "workspace:*",

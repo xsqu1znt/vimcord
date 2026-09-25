@@ -1,5 +1,11 @@
 # vimcord
 
+## 3.1.2
+
+### Patch Changes
+
+- a0e5ffa: Preserve allowed mentions when paginator timeout cleanup edits message components.
+
 ## 3.1.1
 
 ### Patch Changes
