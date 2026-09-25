@@ -659,7 +659,7 @@ export class Paginator {
         await this.navigationPromise?.catch(error => {
             console.error("[Paginator] Pending edit failed during timeout:", error);
         });
-        await handleResolveAction(this.state.message, this.options.onTimeout);
+        await handleResolveAction(this.state.message, this.options.onTimeout, this.state.sendOptions?.allowedMentions);
         await this.emit("postTimeout", this.state.message ?? message);
     }
 
