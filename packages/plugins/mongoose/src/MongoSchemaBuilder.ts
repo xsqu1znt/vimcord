@@ -18,7 +18,8 @@ import type {
     QueryOptions,
     SchemaDefinition,
     SchemaOptions,
-    UpdateQuery
+    UpdateQuery,
+    UpdateWithAggregationPipeline
 } from "mongoose";
 
 import mongoose, { Schema } from "mongoose";
@@ -57,6 +58,14 @@ type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false }
       : Opts extends { leanByDefault: false }
         ? HydDoc<Def, Opts>
         : LeanDoc<Def, Opts>;
+
+/**
+ * `update()` returns `null` when nothing matched. An upsert always yields a document, unless `returnDocument` can be
+ * `"before"`: an inserted document had no previous state.
+ */
+type UpdateResult<Def, Opts, QOpts> =
+    | ResolvedDoc<Def, Opts, QOpts>
+    | (QOpts extends { upsert: true } ? ("before" extends QOpts[keyof QOpts & "returnDocument"] ? null : never) : null);
 
 type BuilderSchema<Def, Opts> = Schema<LeanDoc<Def, Opts>>;
 type BuilderModel<Def, Opts> = Model<LeanDoc<Def, Opts>, {}, {}, {}, HydDoc<Def, Opts>, BuilderSchema<Def, Opts>>;
@@ -651,28 +660,33 @@ export class MongoSchemaBuilder<
     /**
      * Updates the first document that matches a filter and returns the updated document.
      *
+     * Pass an aggregation pipeline as `update` to compute the new values from the stored document in one atomic
+     * operation. Pipeline stages are not cast to the schema.
+     * Pass `{ returnDocument: "before" }` to get the document as it was before the update. With `upsert`, that is `null`
+     * when the document was inserted.
      * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
      * hydrated Mongoose document.
      *
      * @param filter The filter used to match the document
-     * @param update The update to apply
+     * @param update The update object or aggregation pipeline to apply
      * @param options The query options to pass to Mongoose
      */
-    async update<Options extends Omit<QueryOptions<LeanDoc<Def, Opts>>, "returnDocument">>(
+    async update<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
-        update: UpdateQuery<LeanDoc<Def, Opts>>,
+        update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: Options
-    ): Promise<ResolvedDoc<Def, Opts, Options> | null> {
+    ): Promise<UpdateResult<Def, Opts, Options>> {
         const model = this.compileModel();
         const queryOptions = this.resolveOptions(options);
         const result = await model.findOneAndUpdate(filter, update, {
             ...queryOptions,
             lean: queryOptions.lean ?? this.leanByDefault,
-            returnDocument: "after"
+            returnDocument: queryOptions.returnDocument ?? "after",
+            updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
         });
 
         this.invalidateCache(filter);
-        return result as ResolvedDoc<Def, Opts, Options> | null;
+        return result as UpdateResult<Def, Opts, Options>;
     }
 
     /**
