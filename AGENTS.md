@@ -35,16 +35,6 @@ Run from the repo root. PNPM, not NPM, unless PNPM cannot do the job.
 
 Type checks and a focused smoke test cover this repo. Write a test when the changed logic has a realistic way to break, and say why the file needs to exist before adding it. If a test would only confirm the implementation ran as written, verify it with a throwaway script instead of a committed test file.
 
-## Hit every surface
-
-The recurring defect here is a change landing in one place while its siblings keep the old shape.
-
-`modules/commands` has four command module classes that all build a `HookContext` in `createHookCTX`. Three of them (`SlashCommandModule`, `MessageContextCommandModule`, `UserContextCommandModule`) cast the module reference with `this as unknown as ModuleHookContext<...>["module"]`. `PrefixCommandModule` had drifted to a bare `this as any`, quietly breaking the "`any` is the enemy" rule while its siblings stayed disciplined. That's the shape to watch for: a fix or a pattern applied to three of four command modules (or three of four UX helpers, or three of four CLI command groups) and never checked against the fourth.
-
-When you change how something is worded, how data is extracted, or how a function is shaped, find the other paths doing the same thing and bring them along. If one of them should stay different, say that it is deliberate and why.
-
-Half-applied changes are what send the next agent down the wrong road, so treat the sweep as part of the task rather than a follow-up.
-
 ## Conventions
 
 - File names are `PascalCase` when the file's main export is a class, `camelCase` otherwise.
@@ -70,24 +60,14 @@ Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.
 
 Complexity belongs in the internal layers. Orchestration stays flat and readable.
 
-Write plainly. No jargon in replies, and none in user-facing strings either. A user reading "size is a width x height grid" learns nothing about what `3x2` means, so write the sentence that tells them.
-
-Leave out what was not asked for: extra abstractions, options, compatibility shims, defensive checks, adjacent fixes. Mention what you left out only when its absence leaves a real limit. If a bold idea would make the work better, say it loudly, then wait.
-
-If a rule here fights the task, say so and ask before breaking it. If you find a rule already broken, name it, say what you would do, and wait for the go-ahead. Cleaning up as we go is how this stays maintainable.
-
 If finishing the task needs a pile of workarounds nobody asked for, stop and say what you hit.
 
-## Planning a large change
+## Publishing
 
-For a feature that spans modules, work in three phases and stop at the end of each.
-
-1. **Alignment.** Read-only, no code. How it should behave, what it touches, the edge cases worth handling, sane defaults, open questions, and anything inconsistent you noticed. No technical detail. If it has a user-facing side, draft the actual messages, embeds, and formatting so we can iterate on the copy first.
-2. **Technical.** Still read-only. Persistence, schemas, blockers, commands, services. Short.
-3. **Implementation.** Write the code once both are agreed and the plan is approved.
+When told to publish the packages that were updated to NPM, open a PR with the correct changesets changelog and merge it, then wait for the changesets action to open a new PR, merging that one too if there's no issues, wait until the updated packages are verified to be live on NPM before calling the task complete. Delete the unused branches when done.
 
 ## Hard rules
 
 - Read `.env.example` to learn the environment shape. Never read `.env` files.
-- Never read or touch a live production database.
 - Secrets, tokens, and IDs live in config or environment variables, never in source.
+- Never read or touch a live production database.
