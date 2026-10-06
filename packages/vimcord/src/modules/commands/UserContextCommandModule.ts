@@ -42,7 +42,7 @@ export class UserContextCommandModule extends AbstractCommandModule<CommandModul
 
     private async executeApp(ctx: CommandModuleContext<CommandModuleType.UserContext>): Promise<unknown> {
         await applyDeferReply(ctx.interaction, this.deferReply);
-        return await this.configuredExecute(ctx);
+        return await this.runHandler(ctx, () => this.configuredExecute(ctx));
     }
 
     protected override validate(): boolean {

@@ -229,12 +229,13 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
             const route = this.routes.get(routePath);
             if (route) {
                 await applyDeferReply(interaction, resolveDeferReply(route.deferReply, this.deferReply));
-                return await route.handler(ctx);
+                return await this.runHandler(ctx, () => route.handler(ctx));
             }
         }
 
         await applyDeferReply(interaction, this.deferReply);
-        return await this.configuredExecute?.(ctx);
+        if (!this.configuredExecute) return;
+        return await this.runHandler(ctx, () => this.configuredExecute?.(ctx));
     }
 
     private async handleUnknownRoute(

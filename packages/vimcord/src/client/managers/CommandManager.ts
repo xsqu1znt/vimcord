@@ -15,6 +15,7 @@ import type {
     SlashCommandModule,
     UserContextCommandModule
 } from "@/modules/index.js";
+import type { CommandLoggingTiming } from "../globals.js";
 import type { Vimcord } from "../Vimcord.js";
 import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } from "./applicationCommandData.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
@@ -39,6 +40,8 @@ export interface DispatchMessageOptions {
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
 const GUILD_SYNC_CONCURRENCY = 5;
+// Used for commands following the default and explicit opt-ins when global logging is off.
+const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
     constructor(client: Vimcord) {
@@ -290,7 +293,8 @@ export class CommandManager {
             command,
             () => command.runWithResult(message, prefix, trigger),
             message.author,
-            message.guild
+            message.guild,
+            message.createdTimestamp
         );
     }
 
@@ -298,7 +302,13 @@ export class CommandManager {
         const command = this.slash.getByName(interaction.commandName);
         if (!command) return false;
 
-        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
+        return await this.runCommand(
+            command,
+            () => command.runWithResult(interaction),
+            interaction.user,
+            interaction.guild,
+            interaction.createdTimestamp
+        );
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
@@ -310,7 +320,8 @@ export class CommandManager {
                 command,
                 () => command.runWithResult(interaction),
                 interaction.user,
-                interaction.guild
+                interaction.guild,
+                interaction.createdTimestamp
             );
         }
 
@@ -318,7 +329,13 @@ export class CommandManager {
         const command = this.context.user.getByName(interaction.commandName);
         if (!command) return false;
 
-        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
+        return await this.runCommand(
+            command,
+            () => command.runWithResult(interaction),
+            interaction.user,
+            interaction.guild,
+            interaction.createdTimestamp
+        );
     }
 
     /** Autocomplete skips the module pipeline and never emits a usage log; it fires per keystroke. */
@@ -334,18 +351,32 @@ export class CommandManager {
         command: { name: string; metadata: CommandModuleMetadata },
         run: () => Promise<ModuleRunResult>,
         user: User,
-        guild: Guild | null
+        guild: Guild | null,
+        createdTimestamp: number
     ): Promise<boolean> {
         const startedAt = performance.now();
+        const recognizedAt = Date.now();
+        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
+        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
+        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
         const result = await run();
+        const durationMs = performance.now() - startedAt;
 
-        if (result.executed && (command.metadata.logUsage ?? true)) {
+        if (result.executed && logUsage) {
+            const deliveryMs = recognizedAt - createdTimestamp;
+            const timingValues: Record<CommandLoggingTiming, number | undefined> = {
+                delivery: deliveryMs < 0 ? undefined : deliveryMs,
+                preExecute: result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined,
+                execute: result.executionTiming?.durationMs,
+                total: durationMs
+            };
             this.client.logger.commandUsed({
                 commandName: command.name,
                 userName: user.username,
                 guildName: guild?.name,
                 guildId: guild?.id,
-                durationMs: performance.now() - startedAt,
+                durationMs,
+                timings: selected.map(t => ({ timing: t, durationMs: timingValues[t] })),
                 failed: Boolean(result.error)
             });
         }

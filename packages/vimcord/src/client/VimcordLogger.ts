@@ -1,24 +1,11 @@
 import type { LoggerOptions } from "@/utils/Logger.js";
+import type { CommandLoggingTiming } from "./globals.js";
 import type { Vimcord } from "./Vimcord.js";
 
 import ansis from "ansis";
 import { isCLIEnabledFor } from "@/cli/clientState.js";
 import { Logger, stripAnsi } from "@/utils/Logger.js";
 import { getVimcordPackageVersion } from "@/utils/packageVersion.js";
-
-const STARTUP_LINES = [
-    "Initializing Vimcord...",
-    "Reverse engineering the mainframe...",
-    "Activating really cool features...",
-    "Connecting to the matrix...",
-    "Revving up the engines...",
-    "Pouring a cup of coffee and feeding the cat...",
-    "Waiting for the matrix to respond...",
-    "Loading up a storm...",
-    "Combining the best of the best..."
-];
-
-const MIN_CONSOLE_WIDTH = 80;
 
 /** Controls the in-progress Vimcord startup banner. */
 export interface VimcordStartupBannerHandle {
@@ -48,13 +35,36 @@ export interface VimcordCommandLogData {
     userName: string;
     /** Guild name, when available. */
     guildName?: string;
-    /** Guild ID, when available. */
+    /** Guild ID, retained for existing callers; omitted from usage-log output. */
     guildId?: string;
-    /** Total execution time in milliseconds. */
+    /** Legacy module-pipeline duration in milliseconds. */
     durationMs?: number;
+    /** Selected timing values in display order. Undefined values display as `n/a`. */
+    timings?: readonly { timing: CommandLoggingTiming; durationMs?: number }[];
     /** Whether the command threw while executing. */
     failed?: boolean;
 }
+
+const STARTUP_LINES = [
+    "Initializing Vimcord...",
+    "Reverse engineering the mainframe...",
+    "Activating really cool features...",
+    "Connecting to the matrix...",
+    "Revving up the engines...",
+    "Pouring a cup of coffee and feeding the cat...",
+    "Waiting for the matrix to respond...",
+    "Loading up a storm...",
+    "Combining the best of the best..."
+];
+
+const MIN_CONSOLE_WIDTH = 80;
+
+const COMMAND_TIMING_LABELS = {
+    delivery: "delivery",
+    preExecute: "pre",
+    execute: "exec",
+    total: "total"
+} as const;
 
 /** Vimcord-specific logger for startup, command, module, and plugin output. */
 export class VimcordLogger extends Logger {
@@ -172,14 +182,23 @@ export class VimcordLogger extends Logger {
     }
 
     /** Logs a completed command execution. */
-    commandUsed({ commandName, userName, guildName, guildId, durationMs, failed }: VimcordCommandLogData): void {
+    commandUsed({ commandName, userName, guildName, durationMs, timings, failed }: VimcordCommandLogData): void {
         const { colors } = this.options;
+        const timingLabels = timings
+            ? timings.map(t =>
+                  ansis.dim(
+                      `| ${COMMAND_TIMING_LABELS[t.timing]} ${t.durationMs === undefined ? "n/a" : `${t.durationMs.toFixed(1)}ms`}`
+                  )
+              )
+            : durationMs === undefined
+              ? []
+              : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)];
         this.log(
             ansis.hex(colors.muted)("COMMAND"),
             ansis.yellow(`/${commandName}`),
             `used by ${userName}`,
-            ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}${guildId ? ` (${guildId})` : ""}`),
-            ...(durationMs === undefined ? [] : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)]),
+            ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}`),
+            ...timingLabels,
             ...(failed ? [ansis.hex(colors.error)("| failed")] : [])
         );
     }

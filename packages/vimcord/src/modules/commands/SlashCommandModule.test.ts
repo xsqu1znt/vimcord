@@ -2,6 +2,7 @@ import type { StaffGlobals } from "@/client/globals.js";
 
 import { SlashCommandBuilder } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
+import { defaultAppGlobals } from "@/client/globals.js";
 import { SlashCommandModule } from "./SlashCommandModule.js";
 
 const STAFF_DEFAULTS: StaffGlobals = {
@@ -17,7 +18,7 @@ function createClient() {
     return {
         isReady: () => true,
         logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn(), options: { verbose: false } },
-        globals: { hooks: undefined, staff: STAFF_DEFAULTS }
+        globals: { hooks: undefined, app: defaultAppGlobals(), staff: STAFF_DEFAULTS }
     } as any;
 }
 

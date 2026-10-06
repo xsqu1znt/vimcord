@@ -18,7 +18,8 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
     readonly aliases: string[];
 
     constructor(options: PrefixCommandModuleOptions) {
-        super(options);
+        const execute = options.execute;
+        super({ ...options, execute: ctx => this.runHandler(ctx, () => execute.call(this, ctx)) });
         this.aliases = options.aliases?.map(alias => alias.toLowerCase()) ?? [];
     }
 

@@ -8,6 +8,13 @@ export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends 
     : { passed: false; reason: string; error?: Error };
 export type ModuleConditionFn<CTX = ModuleHookContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
 
+export interface ModuleExecutionTiming {
+    /** Monotonic handler start timestamp. */
+    startedAt: number;
+    /** Handler wall-clock duration in milliseconds. */
+    durationMs: number;
+}
+
 export interface ModuleRunResult {
     /** Whether the module's main execute function was reached. */
     executed: boolean;
@@ -15,6 +22,8 @@ export interface ModuleRunResult {
     response: unknown;
     /** Error thrown by the module's main execute function, if any. */
     error?: Error;
+    /** Handler timing, when the command usage logger measures this invocation. */
+    executionTiming?: ModuleExecutionTiming;
 }
 
 // - - - - - - - - - - - - - - -
@@ -118,6 +127,15 @@ export interface ModuleHooks<
     /** Runs when an invocation is skipped because a matching `singleInvocation` invocation is already running.
      * @defaultBehavior Does nothing; the invocation is silently skipped. */
     onAlreadyRunning?(ctx: HookCTX): Promise<void>;
+}
+
+// Invocation contexts keep simultaneous command handlers' measurements independent.
+const EXECUTION_TIMINGS = new WeakMap<object, ModuleExecutionTiming>();
+
+function takeExecutionTiming(ctx: object) {
+    const timing = EXECUTION_TIMINGS.get(ctx);
+    EXECUTION_TIMINGS.delete(ctx);
+    return timing;
 }
 
 // --- Abstract Module ---
@@ -279,6 +297,18 @@ export abstract class AbstractModule<
         return this.hooks[hook];
     }
 
+    /** Measures a command handler independently of the surrounding pipeline, including waits and rejection. */
+    protected async measureExecution(ctx: ModuleCTX, execute: () => unknown): Promise<unknown> {
+        const timing = { startedAt: performance.now(), durationMs: 0 };
+        EXECUTION_TIMINGS.set(ctx, timing);
+
+        try {
+            return await execute();
+        } finally {
+            timing.durationMs = performance.now() - timing.startedAt;
+        }
+    }
+
     /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
     private async timed<T>(message: string, fn: () => Promise<T> | T): Promise<T> {
         if (!this.client?.logger.options.verbose) return await fn();
@@ -379,13 +409,18 @@ export abstract class AbstractModule<
                 );
             }
 
-            return { executed, response: executeResponse };
+            return { executed, response: executeResponse, executionTiming: takeExecutionTiming(moduleCTX) };
         } catch (err) {
             hookCTX.error = err as Error;
             await this.runHook("onError", hookCTX, async () =>
                 this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
             );
-            return { executed, response: undefined, error: err as Error };
+            return {
+                executed,
+                response: undefined,
+                error: err as Error,
+                executionTiming: takeExecutionTiming(moduleCTX)
+            };
         }
     }
 
