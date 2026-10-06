@@ -15,6 +15,7 @@ import type {
     SlashCommandModule,
     UserContextCommandModule
 } from "@/modules/index.js";
+import type { CommandLoggingTiming } from "../globals.js";
 import type { Vimcord } from "../Vimcord.js";
 import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } from "./applicationCommandData.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
@@ -24,12 +25,18 @@ import { mapWithConcurrency } from "@/utils/arr.js";
 import { resolveGuildId } from "@/utils/clientUtils.js";
 import {
     createApplicationCommandKey,
-    createApplicationCommandUpdatePayload,
-    hasApplicationCommandChanged
+    createApplicationCommandSignature,
+    createApplicationCommandUpdatePayload
 } from "./applicationCommandData.js";
 import { BaseCommandManager } from "./BaseCommandManager.js";
 
 type RestRoute = `/${string}`;
+
+interface PreparedCommand {
+    payload: RESTPostAPIApplicationCommandsJSONBody;
+    key: string;
+    signature: string;
+}
 
 export interface DispatchMessageOptions {
     /** Treat a mention of the bot as a prefix.
@@ -39,6 +46,8 @@ export interface DispatchMessageOptions {
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
 const GUILD_SYNC_CONCURRENCY = 5;
+// Used for commands following the default and explicit opt-ins when global logging is off.
+const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
     constructor(client: Vimcord) {
@@ -108,7 +117,7 @@ export class CommandManager {
         // --- Command Payloads ---
         const commands = this.getAllAppCommands(options)
             .filter(command => command.registration.global !== false)
-            .map(command => command.builder.toJSON());
+            .map(command => this.prepareCommand(command.builder.toJSON(), "global"));
         if (!commands.length) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to push");
             return false;
@@ -166,18 +175,10 @@ export class CommandManager {
         // Default to every cached guild when the caller does not provide a narrower target list
         const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
 
-        // A command with `registration.guilds` set is pushed only to those guilds
-        const payloadsByGuild = new Map(
-            guildIds.map(guildId => [
-                guildId,
-                commands
-                    .filter(command => {
-                        const targets = command.registration.guilds;
-                        return !targets?.length || targets.map(resolveGuildId).includes(guildId);
-                    })
-                    .map(command => command.builder.toJSON())
-            ])
-        );
+        const prepared = commands.map(c => ({
+            command: this.prepareCommand(c.builder.toJSON(), "guild"),
+            targets: c.registration.guilds?.length ? new Set(c.registration.guilds.map(resolveGuildId)) : null
+        }));
 
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
@@ -186,7 +187,7 @@ export class CommandManager {
 
         // Sync guilds with bounded concurrency; a large guild count would otherwise fire every REST request at once
         await mapWithConcurrency(guildIds, GUILD_SYNC_CONCURRENCY, async guildId => {
-            const payload = payloadsByGuild.get(guildId) ?? [];
+            const payload = prepared.filter(c => !c.targets || c.targets.has(guildId)).map(c => c.command);
             if (!payload.length) {
                 this.client.logger.debug(`[${COMMAND_MANAGER_LOGGER}] Skipping ${guildId}, no commands target this guild`);
                 return;
@@ -290,7 +291,8 @@ export class CommandManager {
             command,
             () => command.runWithResult(message, prefix, trigger),
             message.author,
-            message.guild
+            message.guild,
+            message.createdTimestamp
         );
     }
 
@@ -298,7 +300,13 @@ export class CommandManager {
         const command = this.slash.getByName(interaction.commandName);
         if (!command) return false;
 
-        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
+        return await this.runCommand(
+            command,
+            () => command.runWithResult(interaction),
+            interaction.user,
+            interaction.guild,
+            interaction.createdTimestamp
+        );
     }
 
     private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
@@ -310,7 +318,8 @@ export class CommandManager {
                 command,
                 () => command.runWithResult(interaction),
                 interaction.user,
-                interaction.guild
+                interaction.guild,
+                interaction.createdTimestamp
             );
         }
 
@@ -318,7 +327,13 @@ export class CommandManager {
         const command = this.context.user.getByName(interaction.commandName);
         if (!command) return false;
 
-        return await this.runCommand(command, () => command.runWithResult(interaction), interaction.user, interaction.guild);
+        return await this.runCommand(
+            command,
+            () => command.runWithResult(interaction),
+            interaction.user,
+            interaction.guild,
+            interaction.createdTimestamp
+        );
     }
 
     /** Autocomplete skips the module pipeline and never emits a usage log; it fires per keystroke. */
@@ -334,18 +349,32 @@ export class CommandManager {
         command: { name: string; metadata: CommandModuleMetadata },
         run: () => Promise<ModuleRunResult>,
         user: User,
-        guild: Guild | null
+        guild: Guild | null,
+        createdTimestamp: number
     ): Promise<boolean> {
         const startedAt = performance.now();
+        const recognizedAt = Date.now();
+        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
+        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
+        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
         const result = await run();
+        const durationMs = performance.now() - startedAt;
 
-        if (result.executed && (command.metadata.logUsage ?? true)) {
+        if (result.executed && logUsage) {
+            const deliveryMs = recognizedAt - createdTimestamp;
+            const timingValues: Record<CommandLoggingTiming, number | undefined> = {
+                delivery: deliveryMs < 0 ? undefined : deliveryMs,
+                preExecute: result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined,
+                execute: result.executionTiming?.durationMs,
+                total: durationMs
+            };
             this.client.logger.commandUsed({
                 commandName: command.name,
                 userName: user.username,
                 guildName: guild?.name,
                 guildId: guild?.id,
-                durationMs: performance.now() - startedAt,
+                durationMs,
+                timings: selected.map(t => ({ timing: t, durationMs: timingValues[t] })),
                 failed: Boolean(result.error)
             });
         }
@@ -387,8 +416,19 @@ export class CommandManager {
         return this.client;
     }
 
+    private prepareCommand(
+        payload: RESTPostAPIApplicationCommandsJSONBody,
+        scope: ApplicationCommandRegistrationScope
+    ): PreparedCommand {
+        return {
+            payload,
+            key: createApplicationCommandKey(payload),
+            signature: createApplicationCommandSignature(payload, scope)
+        };
+    }
+
     private async upsertApplicationCommands(
-        commands: RESTPostAPIApplicationCommandsJSONBody[],
+        commands: PreparedCommand[],
         existing: RemoteApplicationCommand[],
         routes: {
             scope: ApplicationCommandRegistrationScope;
@@ -404,18 +444,18 @@ export class CommandManager {
         const existingByKey = new Map(existing.map(command => [createApplicationCommandKey(command), command]));
 
         for (const command of commands) {
-            const existingCommand = existingByKey.get(createApplicationCommandKey(command));
+            const existingCommand = existingByKey.get(command.key);
             if (!existingCommand) {
                 // Missing remote commands can be created without disturbing existing ids
-                await this.client.rest.post(routes.createRoute, { body: command });
+                await this.client.rest.post(routes.createRoute, { body: command.payload });
                 created++;
                 continue;
             }
 
-            if (hasApplicationCommandChanged(command, existingCommand, routes.scope)) {
+            if (command.signature !== createApplicationCommandSignature(existingCommand, routes.scope)) {
                 // Patch changed commands so unchanged command ids and permissions stay intact
                 await this.client.rest.patch(routes.editRoute(existingCommand.id), {
-                    body: createApplicationCommandUpdatePayload(command, routes.scope)
+                    body: createApplicationCommandUpdatePayload(command.payload, routes.scope)
                 });
                 updated++;
                 continue;

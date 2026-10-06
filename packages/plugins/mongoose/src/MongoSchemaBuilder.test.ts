@@ -1,7 +1,8 @@
+import type { QueryOptions } from "mongoose";
 import type { Vimcord } from "vimcord";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { MongoosePlugin } from "./index.js";
 import { createMongoSchema } from "./MongoSchemaBuilder.js";
 
@@ -223,11 +224,11 @@ describe("update() cache invalidation", () => {
         await CachedCooldowns.fetch({ key: "b" });
 
         await CachedCooldowns.update({ key: "a" }, bump);
-        // Written behind the cache's back: only `b`'s entry, which survives invalidation, hides it.
+        // Written behind the cache's back: updates clear all entries because they may change the cache key.
         await CachedCooldowns.model!.updateOne({ key: "b" }, { hits: 99 });
 
         expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
-        expect(await CachedCooldowns.fetch({ key: "b" })).toMatchObject({ hits: 1 });
+        expect(await CachedCooldowns.fetch({ key: "b" })).toMatchObject({ hits: 99 });
     });
 
     it("clears every entry when the filter is not a plain cache key lookup", async () => {
@@ -237,5 +238,218 @@ describe("update() cache invalidation", () => {
         await CachedCooldowns.update({ hits: 1 }, bump, { returnDocument: "before" });
 
         expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
+    });
+});
+
+describe("bounded read cache", () => {
+    it("does not refreeze cache hits or share populated/projection/option reads", async () => {
+        await CachedCooldowns.create({ key: "a", hits: 1 });
+        const first = await CachedCooldowns.fetch({ key: "a" });
+        const freeze = vi.spyOn(Object, "freeze");
+        expect(await CachedCooldowns.fetch({ key: "a" })).toBe(first);
+        expect(freeze).not.toHaveBeenCalled();
+        freeze.mockRestore();
+        await CachedCooldowns.model!.updateOne({ key: "a" }, { hits: 2 });
+        for (const opts of [{ populate: "key" }, { collation: { locale: "en" } }, { lean: {} }]) {
+            expect(await CachedCooldowns.fetch({ key: "a" }, undefined, opts as QueryOptions)).toMatchObject({ hits: 2 });
+        }
+        expect(await CachedCooldowns.fetch({ key: "a" }, { hits: 1 })).toMatchObject({ hits: 2 });
+    });
+
+    it("evicts oldest insertions and expires one-time keys without another read", async () => {
+        const builder = attach(
+            createMongoSchema("bounded", { key: String }, { cache: { key: "key", ttl: 100, maxEntries: 2 } })
+        );
+        await builder.insertMany(["a", "b", "c"].map(key => ({ key })));
+        for (const key of ["a", "b", "c"]) await builder.fetch({ key });
+        const entries = Reflect.get(builder, "cacheEntries") as Map<string, unknown>;
+        expect([...entries.keys()]).toEqual(["b", "c"]);
+        await new Promise(r => setTimeout(r, 150));
+        expect(entries.size).toBe(0);
+    });
+
+    it.each([
+        "delete",
+        "update",
+        "upsert",
+        "updateOne",
+        "updateAll",
+        "deleteAll",
+        "bulkWrite",
+        "bulkSave",
+        "create",
+        "insertMany"
+    ] as const)("prevents a pending read from repopulating after %s and from deleting a newer pending read", async write => {
+        await CachedCooldowns.create({ key: "a", hits: 1 });
+        const model = CachedCooldowns.model!;
+        const findOne = model.findOne.bind(model);
+        let release!: () => void;
+        let started!: () => void;
+        const gate = new Promise<void>(r => (release = r));
+        const ready = new Promise<void>(r => (started = r));
+        const spy = vi.spyOn(model, "findOne").mockImplementationOnce((...args) => {
+            const query = findOne(...args);
+            const exec = query.exec.bind(query);
+            vi.spyOn(query, "exec").mockImplementationOnce(async () => {
+                const result = await exec();
+                started();
+                await gate;
+                return result;
+            });
+            return query;
+        });
+        const old = CachedCooldowns.fetch({ key: "a" });
+        await ready;
+        if (write === "bulkWrite")
+            await CachedCooldowns.bulkWrite([{ updateOne: { filter: { key: "a" }, update: { hits: 2 } } }]);
+        else if (write === "bulkSave") {
+            const doc = await CachedCooldowns.fetch({ key: "a" }, undefined, { lean: false, required: true });
+            doc.hits = 2;
+            await CachedCooldowns.bulkSave([doc]);
+        } else if (write === "insertMany") await CachedCooldowns.insertMany([{ key: "b" }]);
+        else if (write === "update") await CachedCooldowns.update({ key: "a" }, { hits: 2 });
+        else if (write === "upsert") await CachedCooldowns.upsert({ key: "a" }, { hits: 2 });
+        else if (write === "updateOne") await CachedCooldowns.updateOne({ key: "a" }, { hits: 2 });
+        else if (write === "create") await CachedCooldowns.create({ key: "b" });
+        else if (write === "updateAll") await CachedCooldowns.updateAll({}, { hits: 2 });
+        else await CachedCooldowns[write]({ key: "a" });
+        const fresh = CachedCooldowns.fetch({ key: "a" });
+        release();
+        expect(await old).toMatchObject({ hits: 1 });
+        const result = await fresh;
+        expect(await CachedCooldowns.fetch({ key: "a" })).toEqual(result);
+        if (write === "delete" || write === "deleteAll") expect(result).toBeNull();
+        else expect(result?.hits).toBe(write === "create" || write === "insertMany" ? 1 : 2);
+        spy.mockRestore();
+    });
+
+    it("invalidates writes made by aggregation and by queries with failing post middleware", async () => {
+        await CachedCooldowns.create({ key: "a", hits: 1 });
+        await CachedCooldowns.fetch({ key: "a" });
+        await CachedCooldowns.aggregate([
+            { $set: { hits: 2 } },
+            { $merge: { into: "cachedCooldowns", on: "_id", whenMatched: "replace" } }
+        ]);
+        expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
+        const builder = attach(
+            createMongoSchema("postMiddleware", { key: String, hits: Number }, { cache: { key: "key", ttl: 60_000 } })
+        );
+        builder.schema.post("updateMany", function () {
+            throw new Error("post failed");
+        });
+        await builder.create({ key: "a", hits: 1 });
+        await builder.fetch({ key: "a" });
+        await expect(builder.updateAll({}, { hits: 2 })).rejects.toThrow("post failed");
+        expect(await builder.fetch({ key: "a" })).toMatchObject({ hits: 2 });
+    });
+
+    it("invalidates both old and new keys when an update moves a document", async () => {
+        await CachedCooldowns.create({ key: "a", hits: 1 });
+        await CachedCooldowns.fetch({ key: "a" });
+        await CachedCooldowns.update({ key: "a" }, { key: "b" });
+        expect(await CachedCooldowns.fetch({ key: "a" })).toBeNull();
+        expect(await CachedCooldowns.fetch({ key: "b" })).toMatchObject({ hits: 1 });
+    });
+});
+
+describe("cursor pagination and explicit write APIs", () => {
+    it.each([1, -1] as const)("pages through ties in direction %s without counting or skipping", async direction => {
+        await Cooldowns.insertMany(Array.from({ length: 7 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 3) })));
+        const expected = await Cooldowns.fetchAll({}, undefined, { sort: { hits: direction, _id: direction } });
+        const count = vi.spyOn(Cooldowns.model!, "countDocuments");
+        const seen: string[] = [];
+        let after: { value: unknown; id: (typeof expected)[0]["_id"] } | undefined;
+        for (;;) {
+            const result = await Cooldowns.paginateCursor({}, { path: "hits", direction, limit: 2, after });
+            seen.push(...result.docs.map(d => d.key));
+            if (!result.hasNext) break;
+            after = result.nextCursor!;
+        }
+        expect(seen).toEqual(expected.map(d => d.key));
+        expect(count).not.toHaveBeenCalled();
+        count.mockRestore();
+        const numbered = await Cooldowns.paginate({}, undefined, { page: 2, limit: 2 });
+        expect(numbered).toMatchObject({ total: 7, pages: 4, hasNext: true });
+    });
+
+    it("uses stored sort values for hydrated cursors instead of transformed getters", async () => {
+        const builder = attach(
+            createMongoSchema("cursorGetters", {
+                key: String,
+                hits: { type: Number, get: (n: number) => n + 1000 }
+            })
+        );
+        builder.schema.index({ hits: 1, _id: 1 });
+        await builder.insertMany(Array.from({ length: 6 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 2) })));
+        const first = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false });
+        expect(first.docs[0]?.hits).toBe(1000);
+        expect(first.nextCursor?.value).toBe(0);
+        const second = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: first.nextCursor! });
+        expect(second.docs.map(d => d.key)).toEqual(["2", "3"]);
+        expect(second.nextCursor?.value).toBe(1);
+        const last = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: second.nextCursor! });
+        expect(last.docs.map(d => d.key)).toEqual(["4", "5"]);
+        expect(last.hasNext).toBe(false);
+    });
+
+    it("validates insertMany without save hooks and uses updateOne query middleware", async () => {
+        const builder = attach(createMongoSchema("middleware", { key: { type: String, required: true } }));
+        const saved = vi.fn();
+        const inserted = vi.fn();
+        const updated = vi.fn();
+        builder.schema.pre("save", function () {
+            saved();
+        });
+        builder.schema.pre("insertMany", function () {
+            inserted();
+        });
+        builder.schema.pre("updateOne", function () {
+            updated();
+        });
+        await builder.create({ key: "a" });
+        await builder.insertMany([{ key: "b" }, { key: "c" }]);
+        expect(saved).toHaveBeenCalledTimes(1);
+        expect(inserted).toHaveBeenCalledTimes(1);
+        await expect(builder.insertMany([{}])).rejects.toThrow();
+        expect(await builder.count()).toBe(3);
+        expect(await builder.updateOne({ key: "a" }, { key: "d" })).toMatchObject({ matchedCount: 1, modifiedCount: 1 });
+        expect(updated).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs save middleware on retries and does not retry a different unique index", async () => {
+        const builder = attach(
+            createMongoSchema("uniqueMiddleware", {
+                key: { type: String, required: true, unique: true },
+                other: { type: String, required: true, unique: true }
+            })
+        );
+        const saves = vi.fn();
+        builder.schema.pre("save", function () {
+            saves();
+        });
+        await builder.create({ key: "taken", other: "taken" });
+        await builder.model!.init();
+        let attempt = 0;
+        await builder.createUnique("key", { other: "new" }, () => (attempt++ ? "new" : "taken"));
+        expect(saves).toHaveBeenCalledTimes(3);
+        const generate = vi.fn(() => "free");
+        await expect(builder.createUnique("key", { other: "taken" }, generate)).rejects.toMatchObject({
+            code: 11000,
+            keyPattern: { other: 1 }
+        });
+        expect(generate).toHaveBeenCalledOnce();
+    });
+
+    it("retries concurrent indexed collisions while preserving save middleware and other errors", async () => {
+        const results = await Promise.all(
+            Array.from({ length: 8 }, (_, i) => {
+                let attempt = 0;
+                return Cooldowns.createUnique("key", {}, () => (attempt++ ? `retry-${i}` : "collision"));
+            })
+        );
+        expect(new Set(results.map(d => d.key)).size).toBe(8);
+        expect(results.every(d => typeof d.save === "function")).toBe(true);
+        await expect(Cooldowns.createUnique("key", {}, () => "collision", 0)).rejects.toMatchObject({ code: 11000 });
+        await expect(Cooldowns.createUnique("key", {}, () => undefined as never)).rejects.toThrow();
     });
 });

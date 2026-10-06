@@ -1,5 +1,5 @@
 import EventEmitter from "node:events";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Collection, ContainerBuilder } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
@@ -12,6 +12,13 @@ vi.mock("./dynaSend.js", async importOriginal => {
     return { ...actual, dynaSend: vi.fn() };
 });
 
+vi.mock("./interactionRouter.js", () => ({
+    createRoutedMessageCollector: (
+        message: { createMessageComponentCollector(options: unknown): unknown },
+        options: unknown
+    ) => message.createMessageComponentCollector(options)
+}));
+
 function deferred<T>() {
     let resolve!: (value: T) => void;
     let reject!: (error: unknown) => void;
@@ -23,7 +30,11 @@ function deferred<T>() {
 }
 
 function createMessage(components: { toJSON(): unknown }[] = []) {
-    const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
+    const collector = Object.assign(new EventEmitter(), {
+        stop: vi.fn(),
+        collected: new Collection(),
+        users: new Collection()
+    });
     const message = {
         editable: true,
         deletable: true,
@@ -47,6 +58,13 @@ function createInteraction(customId: string, values: string[] = []) {
         }),
         reply: vi.fn(async function (this: { replied: boolean }) {
             this.replied = true;
+        }),
+        update: vi.fn(async function (
+            this: { replied: boolean },
+            _options: unknown
+        ): Promise<{ resource: { message: unknown } }> {
+            this.replied = true;
+            return { resource: { message: null } };
         }),
         followUp: vi.fn().mockResolvedValue(undefined),
         isStringSelectMenu: () => customId === "paginator:chapter"
@@ -229,10 +247,11 @@ describe("Paginator collection and navigation", () => {
     it("renders navigation and chapter selection for the destination chapter", async () => {
         const paginator = new Paginator({ pages: ["Only"], timeout: 1000 }).addChapter(["A", "B"], { label: "Many" });
         const { collector } = await sendPaginator(paginator);
-        collector.emit("collect", createInteraction("paginator:chapter", [paginator.chapters[1]!.id]));
+        const interaction = createInteraction("paginator:chapter", [paginator.chapters[1]!.id]);
+        collector.emit("collect", interaction);
         await settle();
 
-        const components = vi.mocked(dynaSend).mock.calls.at(-1)![1].components ?? [];
+        const components = (interaction.update.mock.calls[0]?.[0] as { components: { toJSON(): unknown }[] }).components;
         const json = components.map(c => c.toJSON()) as any[];
         expect(json[0].components[0].options[1].default).toBe(true);
         expect(json.flatMap(row => row.components).some(component => component.custom_id === "paginator:next")).toBe(true);
@@ -290,15 +309,19 @@ describe("Paginator collection and navigation", () => {
 
     it("restores the previous page after a placeholder load fails", async () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
+        const slow = deferred<string>();
         const paginator = new Paginator({ timeout: 1000, onLoading: () => "Loading" }).addPageLoader(
             2,
-            page => (page === 0 ? "Current" : Promise.reject(new Error("load failed"))),
+            page => (page === 0 ? "Current" : slow.promise),
             { label: "Pages" }
         );
         const { collector } = await sendPaginator(paginator);
         collector.emit("collect", createInteraction("paginator:next"));
         await settle();
 
+        await new Promise(r => setTimeout(r, 170));
+        slow.reject(new Error("load failed"));
+        await settle();
         expect(vi.mocked(dynaSend).mock.calls.map(c => c[1].content)).toEqual(["Current", "Loading", "Current"]);
     });
 
@@ -460,16 +483,20 @@ describe("Paginator loaders and API boundaries", () => {
     it("uses a Components V2 placeholder for a Components V2 page load", async () => {
         const loading = new ContainerBuilder();
         const loaded = new ContainerBuilder();
+        const slow = deferred<{ containers: ContainerBuilder[] }>();
         const paginator = new Paginator({
             timeout: 1000,
             onLoading: () => ({ containers: [loading] })
-        }).addPageLoader(2, page => ({ containers: [page === 0 ? new ContainerBuilder() : loaded] }), {
+        }).addPageLoader(2, page => (page === 0 ? { containers: [new ContainerBuilder()] } : slow.promise), {
             label: "V2"
         });
         const { collector } = await sendPaginator(paginator);
         collector.emit("collect", createInteraction("paginator:next"));
         await settle();
 
+        await new Promise(r => setTimeout(r, 170));
+        slow.resolve({ containers: [loaded] });
+        await settle();
         expect(vi.mocked(dynaSend).mock.calls[1]![1].components).toContain(loading);
         expect(vi.mocked(dynaSend).mock.calls[2]![1].components).toContain(loaded);
     });
@@ -490,5 +517,68 @@ describe("Paginator loaders and API boundaries", () => {
         );
         expect(ids).toContain("two");
         expect(ids).not.toContain("zero");
+    });
+});
+
+describe("Paginator acknowledgement and snapshots", () => {
+    it("updates a prepared page in one call and keeps the returned snapshot for timeout cleanup", async () => {
+        const p = new Paginator({ pages: ["A", "B"], timeout: 1000, onTimeout: ResolveAction.ClearComponents });
+        const { collector } = await sendPaginator(p);
+        const latest = createMessage([new ActionRowBuilder<ButtonBuilder>()]).message;
+        const i = createInteraction("paginator:next");
+        i.update.mockResolvedValue({ resource: { message: latest } });
+        collector.emit("collect", i);
+        await settle();
+        expect(i.deferUpdate).not.toHaveBeenCalled();
+        expect(i.update).toHaveBeenCalledWith(expect.objectContaining({ content: "B", withResponse: true }));
+        expect(dynaSend).toHaveBeenCalledTimes(1);
+        collector.emit("end", [], "time");
+        await settle();
+        expect(latest.edit).toHaveBeenCalledWith({ components: [] });
+    });
+
+    it("defers before an asynchronous collect callback and edits only after it completes", async () => {
+        const p = new Paginator({ pages: ["A", "B"], timeout: 1000 });
+        const gate = deferred<void>();
+        const i = createInteraction("paginator:next");
+        p.on("collect", async () => {
+            expect(i.deferred).toBe(true);
+            await gate.promise;
+        });
+        const { collector } = await sendPaginator(p);
+        collector.emit("collect", i);
+        await settle();
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+        expect(dynaSend).toHaveBeenCalledTimes(1);
+        gate.resolve();
+        await settle();
+        expect(i.update).not.toHaveBeenCalled();
+        expect(dynaSend).toHaveBeenCalledTimes(2);
+    });
+
+    it("defers lazy loads immediately but skips loading edits for a fast load", async () => {
+        const loading = vi.fn(() => "Loading");
+        const p = new Paginator({ timeout: 1000, onLoading: loading }).addPageLoader(2, n => Promise.resolve(String(n)), {
+            label: "Pages"
+        });
+        const { collector } = await sendPaginator(p);
+        const i = createInteraction("paginator:next");
+        collector.emit("collect", i);
+        await settle();
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+        expect(loading).not.toHaveBeenCalled();
+        expect(vi.mocked(dynaSend).mock.calls.map(c => c[1].content)).toEqual(["0", "1"]);
+    });
+
+    it("removes creation-only flags when updating an ephemeral message", async () => {
+        const { message, collector } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        const p = new Paginator({ pages: ["A", "B"], timeout: 1000 });
+        await p.send({} as never, { flags: ["Ephemeral", "SuppressNotifications", "SuppressEmbeds"] });
+        const i = createInteraction("paginator:next");
+        i.update.mockResolvedValue({ resource: { message } });
+        collector.emit("collect", i);
+        await settle();
+        expect(i.update.mock.calls[0]?.[0]).toMatchObject({ flags: 4 });
     });
 });

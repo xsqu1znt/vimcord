@@ -1,5 +1,6 @@
 import type {
     BaseMessageOptions,
+    InteractionUpdateOptions,
     MessageActionRowComponentBuilder,
     MessageComponentInteraction,
     ModalSubmitInteraction,
@@ -17,6 +18,7 @@ import {
     ContainerBuilder,
     Message,
     MessageFlags,
+    MessageFlagsBitField,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
     TextInputStyle
@@ -157,6 +159,8 @@ interface PaginatorComponentListener {
     fn: (interaction: MessageComponentInteraction) => unknown;
     deferUpdate: boolean;
 }
+
+const LOADING_DELAY_MS = 150;
 
 const NAV_CUSTOM_IDS = {
     first: "paginator:first",
@@ -443,6 +447,59 @@ export class Paginator {
         return this.state.message;
     }
 
+    private async updatePage(
+        interaction: PaginatorResponseInteraction,
+        page: PageResolvable,
+        index: PageIndex
+    ): Promise<void> {
+        if (!this.state.message?.editable) throw new Error("[Paginator] Cannot refresh because the message is not editable");
+        if (!("update" in interaction)) {
+            await interaction.deferUpdate();
+            await this.editPage(page, index);
+            return;
+        }
+        const data = this.buildSendOptions(page, this.state.sendOptions, index);
+        const flags =
+            data.flags === undefined
+                ? undefined
+                : new MessageFlagsBitField(data.flags as never).remove(
+                      MessageFlags.Ephemeral,
+                      MessageFlags.SuppressNotifications
+                  ).bitfield;
+        const response = await interaction.update({
+            content: data.content,
+            embeds: data.embeds,
+            components: data.components,
+            files: data.files,
+            allowedMentions: data.allowedMentions,
+            flags,
+            withResponse: true
+        } as InteractionUpdateOptions & { withResponse: true });
+        this.state.message = response.resource?.message ?? this.state.message;
+    }
+
+    // Only slow loads need a placeholder. The load starts immediately, and errors remain observable by the caller.
+    private async showLoading(pending: Promise<unknown>, index: PageIndex): Promise<boolean> {
+        if (!this.isLazyDestination(index) || !this.options.onLoading) return false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const slow = await Promise.race([
+                pending.then(() => false),
+                new Promise<boolean>(r => {
+                    timer = setTimeout(() => r(true), LOADING_DELAY_MS);
+                })
+            ]);
+            if (!slow || !this.state.active) return false;
+            const placeholder = await this.options.onLoading(index);
+            if (!placeholder || !this.state.active) return false;
+            this.validatePageFormat(placeholder);
+            await this.editPage(placeholder);
+            return true;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
     private async emit<K extends keyof PaginationEventMap>(event: K, ...args: PaginationEventMap[K]): Promise<void> {
         for (const listener of [...this.listeners[event]]) {
             try {
@@ -470,7 +527,13 @@ export class Paginator {
         requested: PageIndex,
         interaction?: PaginatorResponseInteraction
     ): Promise<void> {
-        if (interaction && !hasResponded(interaction)) await interaction.deferUpdate().catch(() => {});
+        if (
+            interaction &&
+            !hasResponded(interaction) &&
+            (this.isLazyDestination(requested) || !this.state.active || this.navigationBusy)
+        ) {
+            await interaction.deferUpdate().catch(() => {});
+        }
         if (!this.state.active || this.navigationBusy) return;
 
         const previous = { ...this.state.index };
@@ -495,23 +558,26 @@ export class Paginator {
         const previousPage = this.getCurrentPage();
         let placeholderShown = false;
         try {
-            if (this.isLazyDestination(requested) && this.options.onLoading) {
-                const placeholder = await this.options.onLoading(requested);
-                if (placeholder && this.state.active) {
-                    this.validatePageFormat(placeholder);
-                    await this.editPage(placeholder);
-                    placeholderShown = true;
-                }
-            }
-
-            const destination = await resolveDestination();
+            const pending = resolveDestination().then(async destination => ({
+                destination,
+                page:
+                    previous.chapter === destination.chapter && previous.nested === destination.nested
+                        ? previousPage
+                        : await this.loadPage(destination)
+            }));
+            placeholderShown = await this.showLoading(pending, requested);
+            const { destination, page } = await pending;
             if (previous.chapter === destination.chapter && previous.nested === destination.nested) {
                 if (placeholderShown && this.state.active) await this.editPage(previousPage);
+                if (interaction && !hasResponded(interaction)) await interaction.deferUpdate().catch(() => {});
                 return;
             }
-            const page = await this.loadPage(destination);
-            if (!this.state.active) return;
-            await this.editPage(page, destination);
+            if (!this.state.active) {
+                if (interaction && !hasResponded(interaction)) await interaction.deferUpdate().catch(() => {});
+                return;
+            }
+            if (interaction && !hasResponded(interaction)) await this.updatePage(interaction, page, destination);
+            else await this.editPage(page, destination);
             if (!this.state.active) return;
             this.state.currentPage = page;
             this.state.index = destination;
@@ -563,6 +629,7 @@ export class Paginator {
         this.collector?.stop("refresh");
         const collector = new BetterCollector(message, {
             type: null,
+            retainHistory: false,
             participants: this.options.participants,
             ...createCollectorTiming(this.options),
             onResolve: ResolveAction.DoNothing,
@@ -570,7 +637,13 @@ export class Paginator {
         });
         this.collector = collector;
         collector.on(async i => {
-            if (isNavigationInteraction(i.customId) && !hasResponded(i)) await i.deferUpdate().catch(() => {});
+            if (
+                isNavigationInteraction(i.customId) &&
+                !hasResponded(i) &&
+                (this.listeners.collect.length || this.componentListeners.some(l => l.customId === i.customId))
+            ) {
+                await i.deferUpdate().catch(() => {});
+            }
             await this.emit("collect", i, this.getCurrentPage(), { ...this.state.index });
         });
         for (const listener of this.componentListeners) this.registerComponentListener(collector, listener);
@@ -594,7 +667,6 @@ export class Paginator {
             this.navigate("skipNext", this.state.index.chapter, this.state.index.nested + this.options.skipSize, i)
         );
         collector.on(NAV_CUSTOM_IDS.last, async i => {
-            if (!hasResponded(i)) await i.deferUpdate().catch(() => {});
             const chapter = this.state.index.chapter;
             const requested = { chapter, nested: this.getPageCount(this.getChapter()) ?? 0 };
             await this.runNavigationRequest(
@@ -758,15 +830,9 @@ export class Paginator {
             let placeholderShown = false;
             try {
                 if (chapter.source.kind === "chapterLoader") chapter.source.pages = null;
-                if (this.isLazyDestination(this.state.index) && this.options.onLoading) {
-                    const placeholder = await this.options.onLoading(this.state.index);
-                    if (placeholder && this.state.active) {
-                        this.validatePageFormat(placeholder);
-                        await this.editPage(placeholder);
-                        placeholderShown = true;
-                    }
-                }
-                const page = await this.loadPage(this.state.index);
+                const pending = this.loadPage(this.state.index);
+                placeholderShown = await this.showLoading(pending, this.state.index);
+                const page = await pending;
                 if (!this.state.active) return;
                 await this.editPage(page);
                 if (!this.state.active) return;

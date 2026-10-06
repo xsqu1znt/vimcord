@@ -23,6 +23,11 @@ type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.
     execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
 };
 
+interface InvocationRoute {
+    resolved: boolean;
+    path?: string | null;
+}
+
 /** Discord's cap on the number of autocomplete choices returned in one response. */
 const MAX_AUTOCOMPLETE_CHOICES = 25;
 
@@ -120,6 +125,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     readonly routes: Map<string, SlashCommandModuleRoute>;
     readonly autocomplete: SlashCommandAutocompleteHandler | undefined;
 
+    private readonly invocationRoutes = new WeakMap<object, InvocationRoute>();
     private readonly configuredExecute: SlashCommandModuleOptions["execute"];
 
     constructor(options: SlashCommandModuleOptions) {
@@ -183,6 +189,11 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         if (!passedBaseTests) return false;
 
         const routePath = createRoutePath(ctx.interaction);
+        const selection = this.invocationRoutes.get(ctx);
+        if (selection) {
+            selection.resolved = true;
+            selection.path = routePath;
+        }
         if (!routePath) return true;
 
         if (!this.routes.size) return true;
@@ -220,21 +231,19 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         return true;
     }
 
-    /** Re-resolves the route `performTests` already validated and runs it, or runs the flat-command handler. */
+    /** Reuses the resolved path while preserving live route-map changes made by hooks. */
     private async executeApp(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> {
-        const { interaction } = ctx;
-        const routePath = createRoutePath(interaction);
-
-        if (routePath) {
-            const route = this.routes.get(routePath);
-            if (route) {
-                await applyDeferReply(interaction, resolveDeferReply(route.deferReply, this.deferReply));
-                return await route.handler(ctx);
-            }
+        const selection = this.invocationRoutes.get(ctx);
+        // Custom context factories can bypass the shared slot; keep their original route dispatch.
+        const path = selection?.resolved ? selection.path : createRoutePath(ctx.interaction);
+        const route = path ? this.routes.get(path) : undefined;
+        if (route) {
+            await applyDeferReply(ctx.interaction, resolveDeferReply(route.deferReply, this.deferReply));
+            return await this.runHandler(ctx, () => route.handler(ctx));
         }
-
-        await applyDeferReply(interaction, this.deferReply);
-        return await this.configuredExecute?.(ctx);
+        await applyDeferReply(ctx.interaction, this.deferReply);
+        if (!this.configuredExecute) return;
+        return await this.runHandler(ctx, () => this.configuredExecute?.(ctx));
     }
 
     private async handleUnknownRoute(
@@ -261,17 +270,21 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     protected override createModuleCTX(
         args: CommandModuleArgs<CommandModuleType.Slash>
     ): CommandModuleContext<CommandModuleType.Slash> {
-        return { client: this.client as Vimcord<true>, interaction: args[0] };
+        const ctx = { client: this.client as Vimcord<true>, interaction: args[0] };
+        this.invocationRoutes.set(ctx, { resolved: false });
+        return ctx;
     }
 
     protected override createHookCTX(
         moduleCTX: CommandModuleContext<CommandModuleType.Slash>,
         args: CommandModuleArgs<CommandModuleType.Slash>
     ): CommandModuleHookContext<CommandModuleType.Slash> {
-        return {
+        const ctx = {
             ...moduleCTX,
             module: this as unknown as ModuleHookContext<CommandModuleArgs<CommandModuleType.Slash>>["module"],
             args
         };
+        this.invocationRoutes.set(ctx, this.invocationRoutes.get(moduleCTX)!);
+        return ctx;
     }
 }

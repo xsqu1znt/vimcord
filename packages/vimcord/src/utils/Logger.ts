@@ -83,6 +83,14 @@ const SPINNER_FRAMES = ["⠀", "⠂", "⠌", "⡑", "⢕", "⢝", "⣫", "⣟", 
 const SPINNER_INTERVAL = 100;
 const DEFAULT_LOADER_CYCLE_INTERVAL_MS = 3_000;
 
+// Shared across logger instances; options match the existing en-US timestamp format.
+const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+});
+
 // --- Helpers ---
 
 /** Strips ANSI color sequences from a string. */
@@ -241,12 +249,7 @@ export class Logger {
 
     /** Returns a colored `[HH:mm:ss]` timestamp. */
     protected timestamp(): string {
-        const time = new Date().toLocaleTimeString("en-US", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-        });
+        const time = TIMESTAMP_FORMATTER.format(new Date());
 
         return ansis.hex(this.options.colors.muted)(`[${time}]`);
     }

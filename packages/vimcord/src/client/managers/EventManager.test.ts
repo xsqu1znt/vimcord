@@ -7,9 +7,9 @@ import { EventManager } from "./EventManager.js";
 
 function createClient(): EventEmitter {
     const client = new EventEmitter() as EventEmitter & {
-        logger: { debug: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+        logger: { options: { verbose: boolean }; debug: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
     };
-    client.logger = { debug: vi.fn(), error: vi.fn() };
+    client.logger = { options: { verbose: false }, debug: vi.fn(), error: vi.fn() };
     return client;
 }
 

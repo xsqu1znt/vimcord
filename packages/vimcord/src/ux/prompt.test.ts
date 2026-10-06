@@ -8,6 +8,13 @@ vi.mock("./dynaSend.js", async importOriginal => {
     return { ...actual, dynaSend: vi.fn() };
 });
 
+vi.mock("./interactionRouter.js", () => ({
+    createRoutedMessageCollector: (
+        message: { createMessageComponentCollector(options: unknown): unknown },
+        options: unknown
+    ) => message.createMessageComponentCollector(options)
+}));
+
 function createFakeMessage() {
     const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
     const message: any = {

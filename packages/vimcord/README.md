@@ -743,6 +743,42 @@ makes caching it worse than no cache.
 
 ### Client Logger
 
+Command usage logs show execute time by default. Select timings in the order you want them displayed:
+
+```ts
+client.configure({
+    app: {
+        commandLogging: ["delivery", "preExecute", "execute", "total"]
+    }
+});
+```
+
+The same setting can be supplied through `globals.app` in the `Vimcord` constructor.
+
+```text
+[14:32:10] ⚡ vimcord COMMAND /balance used by maya in Workshop | delivery 48.0ms | pre 12.0ms | exec 126.0ms | total 142.0ms
+```
+
+| Setting | Log label | Measures |
+| --- | --- | --- |
+| `delivery` | `delivery` | Discord message/interaction creation to Vimcord matching the command |
+| `preExecute` | `pre` | Command match to your execute callback or slash route handler starting |
+| `execute` | `exec` | Your handler starting to returning or throwing, including awaited prompts |
+| `total` | `total` | Command match to the module pipeline finishing, including post-execute or error handling |
+
+Automatic reply deferral is included in `pre`, not `exec`. Matching is local recognition, not Discord confirming
+a reply or defer. `delivery` includes delays before your event handler calls the dispatcher and depends on the
+bot's clock agreeing with Discord's; negative values display as `n/a`. Local durations use a monotonic clock.
+Context commands use the invoking interaction's timestamp, not the target message's timestamp.
+
+Omitting the setting defaults to `["execute"]`. `false` or `[]` disables usage logging by default.
+Command `metadata.logUsage: false` always suppresses that command. Explicit `metadata.logUsage: true` uses
+the selected timings, or `["execute"]` when global logging is off. Guild IDs are omitted from usage logs.
+
+Only invocations reaching the internal execute call are logged, including failed executions. If automatic
+deferral fails before your handler starts, `pre` and `exec` display as `n/a`; delivery and total are still
+available. Blocked/skipped commands, unmatched commands, and autocomplete do not emit usage logs.
+
 ```ts
 client.logger.success("Startup complete");
 client.logger.debug("Only shown when verbose mode is enabled");

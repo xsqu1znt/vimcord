@@ -59,6 +59,15 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         this.metadata = options.metadata ?? {};
     }
 
+    /** Measures the user handler separately from deferral and the surrounding module pipeline. */
+    protected runHandler(ctx: CommandModuleContext<T>, handler: () => unknown): unknown {
+        const logging = this.client?.globals.app.commandLogging;
+        if (this.metadata.logUsage === false) return handler();
+        if ((logging === false || logging?.length === 0) && this.metadata.logUsage !== true) return handler();
+
+        return this.measureExecution(ctx, handler);
+    }
+
     /** Default `singleInvocation` key when the caller passes `singleInvocation: true`: the module plus the invoking user. */
     protected defaultInvocationKey(ctx: CommandModuleHookContext<T>): string {
         return `${this.id}:${resolveInvokingUser(ctx).id}`;

@@ -5,6 +5,7 @@ import type {
     DefaultSchemaOptions,
     HydratedDocument,
     InferRawDocType,
+    InsertManyOptions,
     Model,
     mongo,
     MongooseBaseQueryOptions,
@@ -73,6 +74,20 @@ type CreateDocInput<Def, Opts> = Parameters<BuilderModel<Def, Opts>["create"]>[0
 type BulkWriteOperations<Def, Opts> = Parameters<BuilderModel<Def, Opts>["bulkWrite"]>[0];
 type WithSession<Options> = Omit<Options, "session"> & { session?: mongoose.ClientSession | null };
 
+export interface MongoSchemaBuilderOptions extends SchemaOptions {
+    /** Return plain objects instead of hydrated Mongoose documents. @default true */
+    leanByDefault?: boolean;
+    /** Opt-in read cache for full lean documents fetched by a single schema path. */
+    cache?: {
+        /** The schema path to key the cache on. */
+        key: string;
+        /** How long an entry stays valid, in milliseconds. */
+        ttl: number;
+        /** Maximum retained documents, evicting the oldest insertion first. @default 1000 */
+        maxEntries?: number;
+    };
+}
+
 function isDocumentArray<Document>(value: Document | Document[]): value is Document[] {
     return Array.isArray(value);
 }
@@ -107,16 +122,11 @@ function deepFreeze<T>(value: T): T {
     return value;
 }
 
-export interface MongoSchemaBuilderOptions extends SchemaOptions {
-    /** Return plain objects instead of hydrated Mongoose documents. @default true */
-    leanByDefault?: boolean;
-    /** Opt-in read cache keyed on a single schema path. Entries expire when their key is read again and have no size limit. */
-    cache?: {
-        /** The schema path to key the cache on. */
-        key: string;
-        /** How long an entry stays valid, in milliseconds. */
-        ttl: number;
-    };
+// Cursor boundaries use stored values even when hydrated documents expose transforming getters.
+function getCursorValue(document: object, path: string): unknown {
+    return document instanceof mongoose.Document
+        ? document.get(path, undefined, { getters: false })
+        : Reflect.get(document, path);
 }
 
 // Both `const` modifiers keep literal options like `{ leanByDefault: false }` from widening to `boolean`.
@@ -140,6 +150,7 @@ export class MongoSchemaBuilder<
     private readonly leanByDefault: boolean;
     private readonly cacheEntries = new Map<string, { value: unknown; expiresAt: number }>();
     private readonly inFlight = new Map<string, Promise<unknown>>();
+    private cacheTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(
         collectionName: string,
@@ -233,38 +244,65 @@ export class MongoSchemaBuilder<
         const cacheKey = this.getCacheKey(filter);
         if (cacheKey === undefined) {
             this.cacheEntries.clear();
+            this.inFlight.clear();
+            if (this.cacheTimer) clearTimeout(this.cacheTimer);
+            this.cacheTimer = undefined;
             return;
         }
 
         this.cacheEntries.delete(cacheKey);
+        this.inFlight.delete(cacheKey);
+    }
+
+    // One unreferenced timer per builder removes expired one-time keys even when reads stop.
+    private scheduleCacheExpiry(): void {
+        if (this.cacheTimer || !this.cacheEntries.size) return;
+        const first = this.cacheEntries.values().next().value!;
+        this.cacheTimer = setTimeout(
+            () => {
+                this.cacheTimer = undefined;
+                const now = Date.now();
+                for (const [key, entry] of this.cacheEntries) {
+                    if (entry.expiresAt > now) break;
+                    this.cacheEntries.delete(key);
+                }
+                this.scheduleCacheExpiry();
+            },
+            Math.max(1, first.expiresAt - Date.now())
+        );
+        this.cacheTimer.unref();
     }
 
     private async readCached<T>(cacheKey: string, ttl: number, read: () => Promise<T>): Promise<T> {
         const entry = this.cacheEntries.get(cacheKey);
-        if (entry) {
-            if (entry.expiresAt > Date.now()) return deepFreeze(entry.value) as T;
-            this.cacheEntries.delete(cacheKey);
-        }
+        if (entry?.expiresAt && entry.expiresAt > Date.now()) return entry.value as T;
+        this.cacheEntries.delete(cacheKey);
 
         const existing = this.inFlight.get(cacheKey);
         if (existing) return (await existing) as T;
 
-        const request = (async () => {
-            const doc = await read();
-            if (doc) {
-                this.cacheEntries.set(cacheKey, {
-                    value: deepFreeze(doc),
-                    expiresAt: Date.now() + ttl
-                });
-            }
-            return doc;
-        })();
+        const request = Promise.resolve()
+            .then(read)
+            .then(doc => {
+                // Invalidated reads may finish for their caller, but must not populate or replace the cache.
+                if (doc && this.inFlight.get(cacheKey) === request) {
+                    const maxEntries = this.options.cache?.maxEntries ?? 1000;
+                    if (maxEntries > 0 && ttl > 0) {
+                        while (this.cacheEntries.size >= maxEntries) {
+                            this.cacheEntries.delete(this.cacheEntries.keys().next().value!);
+                        }
+                        this.cacheEntries.set(cacheKey, { value: deepFreeze(doc), expiresAt: Date.now() + ttl });
+                        this.scheduleCacheExpiry();
+                    }
+                }
+                return doc;
+            });
 
         this.inFlight.set(cacheKey, request);
         try {
             return await request;
         } finally {
-            this.inFlight.delete(cacheKey);
+            if (this.inFlight.get(cacheKey) === request) this.inFlight.delete(cacheKey);
         }
     }
 
@@ -306,7 +344,11 @@ export class MongoSchemaBuilder<
         fn: (session: mongoose.ClientSession) => Promise<T>,
         options?: mongoose.mongo.TransactionOptions
     ): Promise<T> {
-        return await this.getPlugin().useTransaction(fn, options);
+        try {
+            return await this.getPlugin().useTransaction(fn, options);
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     // --- CRUD Methods ---
@@ -397,9 +439,88 @@ export class MongoSchemaBuilder<
     ): Promise<HydDoc<Def, Opts> | HydDoc<Def, Opts>[]> {
         const model = this.compileModel();
         const docs = isDocumentArray(docOrDocs) ? docOrDocs : [docOrDocs];
-        const created = await model.create(docs, this.resolveOptions(options));
+        let created: HydDoc<Def, Opts>[];
+        try {
+            created = await model.create(docs, this.resolveOptions(options));
+        } finally {
+            this.invalidateCache();
+        }
 
         return isDocumentArray(docOrDocs) ? created : created[0]!;
+    }
+
+    /**
+     * Inserts a batch with Mongoose validation and insertMany middleware, without save middleware.
+     * @param docs Documents to insert
+     * @param options Ordered insertion and session options
+     */
+    async insertMany(
+        docs: CreateDocInput<Def, Opts>[],
+        options?: Pick<InsertManyOptions, "ordered" | "session" | "limit">
+    ): Promise<HydDoc<Def, Opts>[]> {
+        try {
+            return (await this.compileModel().insertMany(docs, this.resolveOptions(options))) as unknown as HydDoc<
+                Def,
+                Opts
+            >[];
+        } finally {
+            this.invalidateCache();
+        }
+    }
+
+    /**
+     * Generates and creates a document, retrying collisions on a single-field unique index at `path`.
+     * Uses create(), preserving validation and save middleware. Other duplicate indexes and errors propagate.
+     * @param path Indexed schema path
+     * @param doc Document to create
+     * @param fn Candidate generator
+     * @param maxRetries Collision retries after the initial attempt
+     */
+    async createUnique<Path extends keyof LeanDoc<Def, Opts> & string>(
+        path: Path,
+        doc: CreateDocInput<Def, Opts>,
+        fn: () => LeanDoc<Def, Opts>[Path] | Promise<LeanDoc<Def, Opts>[Path]>,
+        maxRetries: number = 10
+    ): Promise<HydDoc<Def, Opts>> {
+        if (maxRetries < 0) throw new MongoosePluginError("maxRetries must be greater than or equal to 0");
+        for (let attempt = 0; ; attempt++) {
+            const value = await fn();
+            try {
+                return await this.create(Object.assign({}, doc, { [path]: value }));
+            } catch (err) {
+                if (
+                    !(err instanceof mongoose.mongo.MongoServerError) ||
+                    err.code !== 11000 ||
+                    Object.keys(err.keyPattern ?? {}).length !== 1 ||
+                    !Object.hasOwn(err.keyPattern ?? {}, path) ||
+                    attempt >= maxRetries
+                )
+                    throw err;
+            }
+        }
+    }
+
+    /**
+     * Updates one document and returns write counts, using updateOne query middleware.
+     * @param filter Document filter
+     * @param update Update to apply
+     * @param options Update options, including opt-in runValidators
+     */
+    async updateOne(
+        filter: QueryFilter<LeanDoc<Def, Opts>>,
+        update: UpdateQuery<LeanDoc<Def, Opts>>,
+        options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
+    ): Promise<mongo.UpdateResult> {
+        try {
+            const result = await this.compileModel().updateOne(
+                filter,
+                update,
+                this.resolveOptions(options) as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>
+            );
+            return result;
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -416,15 +537,18 @@ export class MongoSchemaBuilder<
     ): Promise<ResolvedDoc<Def, Opts, Options>> {
         const model = this.compileModel();
         const queryOptions = this.resolveOptions(options);
-        const result = await model.findOneAndUpdate(filter, update, {
-            returnDocument: "after",
-            ...queryOptions,
-            upsert: true,
-            lean: queryOptions.lean ?? this.leanByDefault
-        });
+        try {
+            const result = await model.findOneAndUpdate(filter, update, {
+                returnDocument: "after",
+                ...queryOptions,
+                upsert: true,
+                lean: queryOptions.lean ?? this.leanByDefault
+            });
 
-        this.invalidateCache(filter);
-        return result as unknown as ResolvedDoc<Def, Opts, Options>;
+            return result as unknown as ResolvedDoc<Def, Opts, Options>;
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -438,9 +562,12 @@ export class MongoSchemaBuilder<
         options?: WithSession<mongo.DeleteOptions & MongooseBaseQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.DeleteResult> {
         const model = this.compileModel();
-        const result = await model.deleteOne(filter).setOptions(this.resolveOptions(options));
-        this.invalidateCache(filter);
-        return result;
+        try {
+            const result = await model.deleteOne(filter).setOptions(this.resolveOptions(options));
+            return result;
+        } finally {
+            this.invalidateCache(filter);
+        }
     }
 
     /**
@@ -454,9 +581,12 @@ export class MongoSchemaBuilder<
         options?: WithSession<mongo.DeleteOptions & MongooseBaseQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.DeleteResult> {
         const model = this.compileModel();
-        const result = await model.deleteMany(filter).setOptions(this.resolveOptions(options));
-        this.cacheEntries.clear();
-        return result;
+        try {
+            const result = await model.deleteMany(filter).setOptions(this.resolveOptions(options));
+            return result;
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -520,11 +650,11 @@ export class MongoSchemaBuilder<
         const cacheKey =
             cache &&
             projection === undefined &&
-            (resolvedOptions.session === undefined || resolvedOptions.session === null) &&
-            resolvedOptions.sort === undefined &&
-            resolvedOptions.skip === undefined &&
-            resolvedOptions.limit === undefined &&
-            lean
+            lean === true &&
+            Object.entries(resolvedOptions).every(
+                ([key, value]) =>
+                    value === undefined || (key === "lean" && value === true) || (key === "session" && value === null)
+            )
                 ? this.getCacheKey(filter)
                 : undefined;
 
@@ -626,6 +756,55 @@ export class MongoSchemaBuilder<
     }
 
     /**
+     * Fetches limit + 1 documents without counting or skipping. Index `{ [path]: direction, _id: direction }`
+     * when using a path other than `_id`; the `_id` tie-breaker makes equal values stable.
+     * @param filter Document filter
+     * @param options Page size, ordering and the previous nextCursor; lean/session options
+     */
+    async paginateCursor<Options extends Pick<QueryOptions<LeanDoc<Def, Opts>>, "lean" | "session">>(
+        filter: QueryFilter<LeanDoc<Def, Opts>> = {},
+        options?: Options & {
+            limit?: number;
+            path?: keyof LeanDoc<Def, Opts> & string;
+            direction?: 1 | -1;
+            after?: { value: unknown; id: mongoose.Types.ObjectId };
+        }
+    ): Promise<{
+        docs: ResolvedDoc<Def, Opts, Options>[];
+        hasNext: boolean;
+        nextCursor: { value: unknown; id: mongoose.Types.ObjectId } | null;
+    }> {
+        const { limit = 10, path = "_id", direction = 1, after, ...queryOptions } = options ?? {};
+        if (!Number.isInteger(limit) || limit < 1) throw new MongoosePluginError("limit must be a positive integer");
+        const op = direction === 1 ? "$gt" : "$lt";
+        const boundary = after
+            ? path === "_id"
+                ? { _id: { [op]: after.id } }
+                : {
+                      $or: [{ [path]: { [op]: after.value } }, { [path]: after.value, _id: { [op]: after.id } }]
+                  }
+            : undefined;
+        const resolvedOptions = this.resolveOptions(queryOptions) as QueryOptions<LeanDoc<Def, Opts>>;
+        const rows = await this.compileModel().find(boundary ? { $and: [filter, boundary] } : filter, null, {
+            ...resolvedOptions,
+            lean: resolvedOptions.lean ?? this.leanByDefault,
+            sort: path === "_id" ? { _id: direction } : { [path]: direction, _id: direction },
+            limit: limit + 1
+        });
+        const hasNext = rows.length > limit;
+        const docs = rows.slice(0, limit);
+        const last = docs.at(-1);
+        return {
+            docs: docs as unknown as ResolvedDoc<Def, Opts, Options>[],
+            hasNext,
+            nextCursor:
+                hasNext && last
+                    ? { value: getCursorValue(last, path), id: getCursorValue(last, "_id") as mongoose.Types.ObjectId }
+                    : null
+        };
+    }
+
+    /**
      * Fetches the latest document that matches a filter.
      *
      * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
@@ -678,15 +857,18 @@ export class MongoSchemaBuilder<
     ): Promise<UpdateResult<Def, Opts, Options>> {
         const model = this.compileModel();
         const queryOptions = this.resolveOptions(options);
-        const result = await model.findOneAndUpdate(filter, update, {
-            ...queryOptions,
-            lean: queryOptions.lean ?? this.leanByDefault,
-            returnDocument: queryOptions.returnDocument ?? "after",
-            updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
-        });
+        try {
+            const result = await model.findOneAndUpdate(filter, update, {
+                ...queryOptions,
+                lean: queryOptions.lean ?? this.leanByDefault,
+                returnDocument: queryOptions.returnDocument ?? "after",
+                updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
+            });
 
-        this.invalidateCache(filter);
-        return result as UpdateResult<Def, Opts, Options>;
+            return result as UpdateResult<Def, Opts, Options>;
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -702,13 +884,16 @@ export class MongoSchemaBuilder<
         options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.UpdateResult> {
         const model = this.compileModel();
-        const result = await model.updateMany(
-            filter,
-            update,
-            this.resolveOptions(options) as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>
-        );
-        this.cacheEntries.clear();
-        return result;
+        try {
+            const result = await model.updateMany(
+                filter,
+                update,
+                this.resolveOptions(options) as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>
+            );
+            return result;
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -719,7 +904,12 @@ export class MongoSchemaBuilder<
      */
     async aggregate<Result = unknown>(pipeline: PipelineStage[], options?: AggregateOptions): Promise<Result[]> {
         const model = this.compileModel();
-        return await model.aggregate<Result>(pipeline, this.resolveOptions(options));
+        const writes = pipeline.some(stage => "$out" in stage || "$merge" in stage);
+        try {
+            return await model.aggregate<Result>(pipeline, this.resolveOptions(options));
+        } finally {
+            if (writes) this.invalidateCache();
+        }
     }
 
     /**
@@ -733,9 +923,11 @@ export class MongoSchemaBuilder<
         options?: WithSession<MongooseBulkWriteOptions>
     ): Promise<mongo.BulkWriteResult> {
         const model = this.compileModel();
-        const result = await model.bulkWrite(ops, this.resolveOptions(options) as MongooseBulkWriteOptions);
-        this.cacheEntries.clear();
-        return result;
+        try {
+            return await model.bulkWrite(ops, this.resolveOptions(options) as MongooseBulkWriteOptions);
+        } finally {
+            this.invalidateCache();
+        }
     }
 
     /**
@@ -749,8 +941,10 @@ export class MongoSchemaBuilder<
         options?: WithSession<MongooseBulkSaveOptions>
     ): Promise<mongo.BulkWriteResult> {
         const model = this.compileModel();
-        const result = await model.bulkSave(docs, this.resolveOptions(options) as MongooseBulkSaveOptions);
-        this.cacheEntries.clear();
-        return result;
+        try {
+            return await model.bulkSave(docs, this.resolveOptions(options) as MongooseBulkSaveOptions);
+        } finally {
+            this.invalidateCache();
+        }
     }
 }
