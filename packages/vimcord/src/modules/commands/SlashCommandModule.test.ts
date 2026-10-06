@@ -177,3 +177,52 @@ describe("SlashCommandModule route dispatch", () => {
         expect(handler).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("SlashCommandModule invocation snapshots", () => {
+    it("preserves dispatch for subclasses with custom context factories", async () => {
+        class CustomContextModule extends SlashCommandModule {
+            protected override createModuleCTX(args: Parameters<SlashCommandModule["run"]>) {
+                return { ...super.createModuleCTX(args) };
+            }
+            protected override createHookCTX(
+                ctx: ReturnType<CustomContextModule["createModuleCTX"]>,
+                args: Parameters<SlashCommandModule["run"]>
+            ) {
+                return { ...super.createHookCTX(ctx, args) };
+            }
+        }
+        const handler = vi.fn();
+        const module = new CustomContextModule({
+            builder: builderWithSubcommands(),
+            execute: () => {},
+            routes: [{ path: "ping", handler }]
+        });
+        module.inject(createClient());
+        expect(await module.runWithResult(createInteraction("ping"))).toMatchObject({ executed: true });
+        expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("resolves the path once and preserves live route changes from preExecute hooks", async () => {
+        const handler = vi.fn();
+        const replacement = vi.fn();
+        const route = { path: "ping", handler };
+        const client = createClient();
+        const module = new SlashCommandModule({ builder: builderWithSubcommands(), execute: () => {}, routes: [route] });
+        module.inject(client);
+        const interaction = createInteraction("ping");
+        const getSubcommand = vi.spyOn(interaction.options, "getSubcommand");
+        const pre = vi.fn(async (_ctx, next: () => void) => {
+            module.routes.set("ping", { path: "ping", handler: replacement });
+            next();
+        });
+        client.globals.hooks = { slash: { preExecute: pre } };
+        await module.run(interaction);
+        expect(getSubcommand).toHaveBeenCalledOnce();
+        expect(handler).not.toHaveBeenCalled();
+        expect(replacement).toHaveBeenCalledOnce();
+        client.globals.hooks = undefined;
+        await module.run(interaction);
+        expect(getSubcommand).toHaveBeenCalledTimes(2);
+        expect(replacement).toHaveBeenCalledTimes(2);
+    });
+});

@@ -8,6 +8,11 @@ vi.mock("./dynaSend.js", async importOriginal => {
     return { ...actual, dynaSend: vi.fn() };
 });
 
+vi.mock("./interactionRouter.js", () => ({
+    awaitRoutedModal: (client: { awaitModalSubmit(options: unknown): unknown }, customId: string, time: number) =>
+        client.awaitModalSubmit({ filter: (i: { customId: string }) => i.customId === customId, time })
+}));
+
 function createSubmitInteraction() {
     return {
         fields: {},
@@ -16,9 +21,10 @@ function createSubmitInteraction() {
 }
 
 function createSource(result: unknown) {
-    return {
+    const source = {
         awaitModalSubmit: vi.fn().mockResolvedValue(result)
     };
+    return { ...source, client: source };
 }
 
 describe("BetterModal submission results", () => {
@@ -30,7 +36,7 @@ describe("BetterModal submission results", () => {
                 .mockRejectedValue(new TimeoutError(DiscordjsErrorCodes.InteractionCollectorError, "time"))
         };
 
-        const result = await new BetterModal().awaitSubmit(source as never, { timeout: 1000 });
+        const result = await new BetterModal().awaitSubmit({ ...source, client: source } as never, { timeout: 1000 });
 
         expect(result).toBeNull();
     });
@@ -42,9 +48,9 @@ describe("BetterModal submission results", () => {
         const failedDeferral = createSubmitInteraction();
         failedDeferral.deferUpdate.mockRejectedValue(deferralError);
 
-        await expect(new BetterModal().awaitSubmit(failedCollection as never, { timeout: 1000 })).rejects.toBe(
-            collectionError
-        );
+        await expect(
+            new BetterModal().awaitSubmit({ ...failedCollection, client: failedCollection } as never, { timeout: 1000 })
+        ).rejects.toBe(collectionError);
         await expect(
             new BetterModal().awaitSubmit(createSource(failedDeferral) as never, {
                 timeout: 1000,

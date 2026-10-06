@@ -41,6 +41,7 @@ import {
 } from "discord.js";
 import { createRandomId } from "@/utils/str.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
+import { awaitRoutedModal } from "./interactionRouter.js";
 
 interface LabelComponentOptions {
     label: string;
@@ -490,10 +491,7 @@ export class BetterModal {
         let modalSubmit: ModalSubmitInteraction;
 
         try {
-            modalSubmit = await interaction.awaitModalSubmit({
-                filter: i => i.customId === this.customId,
-                time: options.timeout
-            });
+            modalSubmit = await awaitRoutedModal(interaction.client, this.customId, options.timeout);
         } catch (error) {
             if (isModalTimeout(error)) return null;
             throw error;

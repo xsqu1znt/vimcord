@@ -133,9 +133,10 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         if (!registered.length) return;
 
         this.reindex();
-        registered.forEach(e =>
-            this.client.logger.debug(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
-        );
+        if (this.client.logger.options.verbose)
+            registered.forEach(e =>
+                this.client.logger.debug(`[EventManager] Registered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+            );
         new Set(registered.map(e => e.event)).forEach(event => this.mount(event));
     }
 
@@ -146,9 +147,10 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
 
         events.forEach(e => this.modules.delete(e.id));
         this.reindex();
-        events.forEach(e =>
-            this.client.logger.debug(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
-        );
+        if (this.client.logger.options.verbose)
+            events.forEach(e =>
+                this.client.logger.debug(`[EventManager] Unregistered '${e.name}' (${e.id}) for EventType '${e.event}'`)
+            );
         affectedEvents.forEach(event => {
             if (!this.getByEvent(event).length) this.unmount(event);
         });
@@ -167,9 +169,10 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
             const listener: EventListener<typeof event> = (...args) => void this.executeEvents(event, ...args);
             this.mountedListeners.set(event, listener);
             this.client.on(event, listener);
-            this.client.logger.debug(
-                `[EventManager] Mounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
-            );
+            if (this.client.logger.options.verbose)
+                this.client.logger.debug(
+                    `[EventManager] Mounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
+                );
         }
     }
 
@@ -184,9 +187,10 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
             const size = this.getByEvent(event).length;
             this.client.off(event, listener);
             this.mountedListeners.delete(event);
-            this.client.logger.debug(
-                `[EventManager] Unmounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
-            );
+            if (this.client.logger.options.verbose)
+                this.client.logger.debug(
+                    `[EventManager] Unmounted ${size} ${size === 1 ? "event" : "events"} for EventType '${event}'`
+                );
         }
     }
 
@@ -204,9 +208,14 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
 
         // `Promise.all` is safe here because the callback below never rejects
         await Promise.all(
-            events.map(async e => {
+            events.map(e => {
                 try {
-                    await e.run(...args);
+                    return Promise.resolve(e.run(...args)).catch(err => {
+                        this.client.logger.error(
+                            `[EventManager] Failed to execute '${e.name}' (${e.id}) for EventType '${e.event}'`,
+                            err as Error
+                        );
+                    });
                 } catch (err) {
                     this.client.logger.error(
                         `[EventManager] Failed to execute '${e.name}' (${e.id}) for EventType '${e.event}'`,

@@ -2,6 +2,13 @@ import EventEmitter from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
 
+vi.mock("./interactionRouter.js", () => ({
+    createRoutedMessageCollector: (
+        message: { createMessageComponentCollector(options: unknown): unknown },
+        options: unknown
+    ) => message.createMessageComponentCollector(options)
+}));
+
 function createMessage() {
     const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
     let filter: (interaction: any) => boolean | Promise<boolean>;

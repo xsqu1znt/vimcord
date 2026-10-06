@@ -124,15 +124,20 @@ export function createApplicationCommandKey(
     return `${command.type ?? 1}:${command.name}`;
 }
 
+/** Builds the normalized comparison once per local command and registration scope. */
+export function createApplicationCommandSignature(
+    command: RESTPostAPIApplicationCommandsJSONBody | RemoteApplicationCommand,
+    scope: ApplicationCommandRegistrationScope
+): string {
+    return stableStringify(normalizeApplicationCommandData(command, scope));
+}
+
 export function hasApplicationCommandChanged(
     local: RESTPostAPIApplicationCommandsJSONBody,
     remote: RemoteApplicationCommand,
     scope: ApplicationCommandRegistrationScope
 ): boolean {
-    return (
-        stableStringify(normalizeApplicationCommandData(local, scope)) !==
-        stableStringify(normalizeApplicationCommandData(remote, scope))
-    );
+    return createApplicationCommandSignature(local, scope) !== createApplicationCommandSignature(remote, scope);
 }
 
 /** Adds explicit global contexts when a PATCH must restore Discord's default availability. */

@@ -65,6 +65,64 @@ interface FormattingContext {
     member: GuildMember | null;
     client: Client | null;
     now: Date;
+    substitutions: Map<string, string | undefined>;
+}
+
+const TEXT_TOKENS = [
+    "USER",
+    "USER_NAME",
+    "USER_AVATAR",
+    "DISPLAY_NAME",
+    "BOT_AVATAR",
+    "INVIS",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "year",
+    "month",
+    "day"
+] as const;
+const TOKEN_MATCHER = /(?<!\\)\$(USER|USER_NAME|USER_AVATAR|DISPLAY_NAME|BOT_AVATAR|INVIS|YEAR|MONTH|DAY|year|month|day)\b/g;
+
+function resolveToken(context: FormattingContext, token: string): string | undefined {
+    if (context.substitutions.has(token)) return context.substitutions.get(token);
+    let value: string | undefined;
+    switch (token) {
+        case "USER":
+            value = context.user?.toString();
+            break;
+        case "USER_NAME":
+            value = context.user?.username;
+            break;
+        case "USER_AVATAR":
+            value = context.user?.displayAvatarURL();
+            break;
+        case "DISPLAY_NAME":
+            value = context.member?.displayName;
+            break;
+        case "BOT_AVATAR":
+            value = context.client?.user?.displayAvatarURL();
+            break;
+        case "INVIS":
+            value = "\u200B";
+            break;
+        case "YEAR":
+            value = String(context.now.getFullYear());
+            break;
+        case "year":
+            value = resolveToken(context, "YEAR")!.slice(-2);
+            break;
+        case "MONTH":
+        case "month":
+            value = String(context.now.getMonth() + 1).padStart(2, "0");
+            break;
+        case "DAY":
+        case "day":
+            value = String(context.now.getDate()).padStart(2, "0");
+            break;
+    }
+    context.substitutions.set(token, value);
+    return value;
 }
 
 function isEmbedField(field: APIEmbedField | null | undefined): field is APIEmbedField {
@@ -187,7 +245,8 @@ export class BetterEmbed {
             user,
             member,
             client: this.getContextClient(),
-            now: new Date()
+            now: new Date(),
+            substitutions: new Map()
         };
     }
 
@@ -220,29 +279,26 @@ export class BetterEmbed {
 
     private formatText(text: string, context: FormattingContext): string {
         if (!this.data.acf) return text;
-        if (!text.includes("$") && !/[#@]/.test(text)) return text;
+        if (!text.includes("$")) return text;
+        let dollarSubstitution = false;
+        const formatted = text.replace(TOKEN_MATCHER, (match, token: string) => {
+            const value = resolveToken(context, token);
+            if (value?.includes("$")) dollarSubstitution = true;
+            return value ?? match;
+        });
+        if (!dollarSubstitution) return formatted;
 
-        const fullYear = context.now.getFullYear().toString();
-        const month = String(context.now.getMonth() + 1).padStart(2, "0");
-        const day = String(context.now.getDate()).padStart(2, "0");
-
-        return text
-            .replace(/(?<!\\)\$USER\b/g, context.user?.toString() ?? "$USER")
-            .replace(/(?<!\\)\$USER_NAME\b/g, context.user?.username ?? "$USER_NAME")
-            .replace(/(?<!\\)\$USER_AVATAR\b/g, context.user?.displayAvatarURL() ?? "$USER_AVATAR")
-            .replace(/(?<!\\)\$DISPLAY_NAME\b/g, context.member?.displayName ?? "$DISPLAY_NAME")
-            .replace(/(?<!\\)\$BOT_AVATAR\b/g, context.client?.user?.displayAvatarURL() ?? "$BOT_AVATAR")
-            .replace(/(?<!\\)\$INVIS\b/g, "\u200B")
-            .replace(/(?<!\\)\$YEAR\b/g, fullYear)
-            .replace(/(?<!\\)\$MONTH\b/g, month)
-            .replace(/(?<!\\)\$DAY\b/g, day)
-            .replace(/(?<!\\)\$year\b/g, fullYear.slice(-2))
-            .replace(/(?<!\\)\$month\b/g, month)
-            .replace(/(?<!\\)\$day\b/g, day);
+        // Discord names can contain tokens or replacement syntax ($&, $$). Preserve ordered String.replace semantics.
+        for (const token of TEXT_TOKENS) {
+            const matcher = new RegExp(`(?<!\\\\)\\$${token}\\b`, "g");
+            if (!matcher.test(text)) continue;
+            text = text.replace(matcher, resolveToken(context, token) ?? `$${token}`);
+        }
+        return text;
     }
 
     private resolveIcon(icon: string | boolean | null | undefined, context: FormattingContext): string | undefined {
-        if (icon === true) return context.user?.displayAvatarURL();
+        if (icon === true) return resolveToken(context, "USER_AVATAR");
         if (typeof icon === "string") return this.formatText(icon, context);
         return undefined;
     }

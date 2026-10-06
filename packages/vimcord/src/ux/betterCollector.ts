@@ -7,6 +7,7 @@ import type {
 } from "discord.js";
 import type { Participant, TimingOptions } from "./shared.js";
 
+import { createRoutedMessageCollector } from "./interactionRouter.js";
 import { handleResolveAction, ResolveAction, resolveParticipantId, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
@@ -17,6 +18,13 @@ interface Listener {
     fn: ListenerFn;
     customId?: string;
     options?: ListenerOptions;
+}
+
+interface AcceptedSelection {
+    revision: number;
+    matching: Listener[];
+    valid: Listener[];
+    participants: { source: Participant[]; ids: string[]; length: number; allowed: boolean }[];
 }
 
 interface CollectorEventMap {
@@ -47,6 +55,8 @@ interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType>
     max?: number | null;
     maxComponents?: number | null;
     maxUsers?: number | null;
+    /** Retain interactions for onEnd callbacks. Disable when only limits/end reasons are needed. @default true */
+    retainHistory?: boolean;
     onResolve?: ResolveAction;
     notAParticipantMessage?: string | null;
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
@@ -79,7 +89,11 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         stop(reason?: string): void;
     };
 
-    private readonly listeners: Listener[] = [];
+    private readonly listenersById = new Map<string, Listener[]>();
+    private readonly wildcardListeners: Listener[] = [];
+    private readonly listenerOrder = new WeakMap<Listener, number>();
+    private listenerRevision = 0;
+    private readonly accepted = new WeakMap<CollectedMessageInteraction, AcceptedSelection>();
 
     private readonly endListeners: ((collected: MessageComponentInteraction[], reason: string) => unknown)[] = [];
     private readonly activeUsers = new Set<string>();
@@ -101,6 +115,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             max: options.max ?? null,
             maxComponents: options.maxComponents ?? null,
             maxUsers: options.maxUsers ?? null,
+            retainHistory: options.retainHistory ?? true,
             onResolve: options.onResolve ?? ResolveAction.DoNothing,
             notAParticipantMessage: options.notAParticipantMessage ?? config.notAParticipantMessage,
             defer: options.defer ?? false
@@ -112,7 +127,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
 
     private createCollector() {
         // Creates the underlying Discord.js message component collector
-        return this.message.createMessageComponentCollector({
+        const collector = createRoutedMessageCollector(this.message, {
             idle: this.options.idle ?? undefined,
             time: this.options.timeout ?? undefined,
             componentType: this.options.type ?? undefined,
@@ -121,6 +136,24 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             maxComponents: this.options.maxComponents ?? undefined,
             maxUsers: this.options.maxUsers ?? undefined
         });
+        if (!this.options.retainHistory) {
+            // Keep IDs for maxComponents without retaining full interaction objects.
+            const ids = new Set<string>();
+            const history = collector.collected;
+            history.set = (id, _interaction) => {
+                if (this.options.maxComponents) ids.add(id);
+                return history;
+            };
+            Object.defineProperty(history, "size", { get: () => ids.size });
+            const userIds = new Set<string>();
+            const users = collector.users;
+            users.set = (id, _user) => {
+                if (this.options.maxUsers) userIds.add(id);
+                return users;
+            };
+            Object.defineProperty(users, "size", { get: () => userIds.size });
+        }
+        return collector;
     }
 
     /**
@@ -129,11 +162,25 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
      */
     private async filterInteraction(interaction: CollectedMessageInteraction): Promise<boolean> {
         const matching = this.getMatchingListeners(interaction.customId);
-        if (matching.length && !this.filterByParticipants(interaction, matching).length) {
+        const participants = matching.map(l => {
+            const source = l.options?.participants ?? this.options.participants;
+            const ids: string[] = [];
+            const allowed =
+                !source.length ||
+                source.some(p => {
+                    const id = resolveParticipantId(p);
+                    ids.push(id);
+                    return id === interaction.user.id;
+                });
+            return { source, ids, length: source.length, allowed };
+        });
+        const valid = matching.filter((_, i) => participants[i]!.allowed);
+        if (matching.length && !valid.length) {
             await this.replyNotAParticipant(interaction);
             return false;
         }
 
+        this.accepted.set(interaction, { revision: this.listenerRevision, matching, valid, participants });
         if (!this.options.userLock) return true;
 
         // Acquire the lock before Discord.js records the interaction so rejected clicks do not affect limits or idle time.
@@ -151,6 +198,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
                 await interaction.deferUpdate().catch(() => {});
             });
 
+        this.accepted.delete(interaction);
         return false;
     }
 
@@ -179,14 +227,30 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     private async handleCollect(interaction: CollectedMessageInteraction): Promise<void> {
         try {
             // Find listeners matching this component's customId
-            const targetListeners = this.getMatchingListeners(interaction.customId);
+            const selection = this.accepted.get(interaction);
+            this.accepted.delete(interaction);
+            const unchanged =
+                selection &&
+                selection.revision === this.listenerRevision &&
+                selection.matching.every((l, i) => {
+                    const source = l.options?.participants ?? this.options.participants;
+                    const saved = selection.participants[i]!;
+                    return (
+                        source === saved.source &&
+                        (saved.allowed && saved.ids.length
+                            ? source.length >= saved.ids.length
+                            : source.length === saved.length) &&
+                        saved.ids.every((id, j) => resolveParticipantId(source[j]!) === id)
+                    );
+                });
+            const targetListeners = unchanged ? selection.matching : this.getMatchingListeners(interaction.customId);
             if (!targetListeners.length) {
                 await interaction.deferUpdate().catch(() => {});
                 return;
             }
 
-            // `filterInteraction` already guaranteed at least one participant-allowed listener exists.
-            const validListeners = this.filterByParticipants(interaction, targetListeners);
+            // Reuse the accepted selection unless registration or participant IDs changed while Discord.js awaited the filter.
+            const validListeners = unchanged ? selection.valid : this.filterByParticipants(interaction, targetListeners);
 
             // Optionally defer the interaction before executing listeners
             await this.maybeDefer(interaction, validListeners);
@@ -202,7 +266,18 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     }
 
     private getMatchingListeners(customId: string): Listener[] {
-        return this.listeners.filter(listener => listener.customId === undefined || listener.customId === customId);
+        const specific = this.listenersById.get(customId) ?? [];
+        if (!this.wildcardListeners.length) return specific.slice();
+        if (!specific.length) return this.wildcardListeners.slice();
+        const merged: Listener[] = [];
+        let a = 0;
+        let b = 0;
+        while (a < specific.length && b < this.wildcardListeners.length) {
+            if (this.listenerOrder.get(specific[a]!)! < this.listenerOrder.get(this.wildcardListeners[b]!)!)
+                merged.push(specific[a++]!);
+            else merged.push(this.wildcardListeners[b++]!);
+        }
+        return merged.concat(specific.slice(a), this.wildcardListeners.slice(b));
     }
 
     private async replyNotAParticipant(interaction: CollectedMessageInteraction): Promise<void> {
@@ -295,21 +370,19 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     on(fn: ListenerFn, options?: ListenerOptions): this;
 
     on(customIdOrFn: string | ListenerFn, fnOrOptions?: ListenerFn | ListenerOptions, options?: ListenerOptions): this {
-        if (typeof customIdOrFn === "function") {
-            this.listeners.push({
-                fn: customIdOrFn,
-                options: fnOrOptions as ListenerOptions | undefined
-            });
-        } else {
-            if (typeof fnOrOptions !== "function") {
-                throw new Error("[BetterCollector] Second argument must be a function when customId is provided");
-            }
-
-            this.listeners.push({
-                customId: customIdOrFn,
-                fn: fnOrOptions,
-                options
-            });
+        if (typeof customIdOrFn !== "function" && typeof fnOrOptions !== "function") {
+            throw new Error("[BetterCollector] Second argument must be a function when customId is provided");
+        }
+        const listener: Listener =
+            typeof customIdOrFn === "function"
+                ? { fn: customIdOrFn, options: fnOrOptions as ListenerOptions | undefined }
+                : { customId: customIdOrFn, fn: fnOrOptions as ListenerFn, options };
+        this.listenerOrder.set(listener, this.listenerRevision++);
+        if (listener.customId === undefined) this.wildcardListeners.push(listener);
+        else {
+            let listeners = this.listenersById.get(listener.customId);
+            if (!listeners) this.listenersById.set(listener.customId, (listeners = []));
+            listeners.push(listener);
         }
 
         return this;

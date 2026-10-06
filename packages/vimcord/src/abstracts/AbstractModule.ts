@@ -239,7 +239,10 @@ export abstract class AbstractModule<
             return false;
         }
 
-        const conditionTestResult = await this.testConditions(ctx);
+        const conditionTestResult =
+            !this.conditions.length && this.testConditions === AbstractModule.prototype.testConditions
+                ? ({ passed: true } as const)
+                : await this.testConditions(ctx);
         if (!conditionTestResult.passed) {
             ctx.conditionTestResult = conditionTestResult;
 
@@ -279,14 +282,35 @@ export abstract class AbstractModule<
         return this.hooks[hook];
     }
 
-    /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
-    private async timed<T>(message: string, fn: () => Promise<T> | T): Promise<T> {
-        if (!this.client?.logger.options.verbose) return await fn();
+    private injectionReady(): boolean | Promise<boolean> {
+        if (
+            this.checkInjection === AbstractModule.prototype.checkInjection &&
+            this.client &&
+            (!this.requiresReady || this.client.isReady())
+        )
+            return true;
+        return this.checkInjection();
+    }
 
+    private hasDefaultTests(): boolean {
+        return (
+            this.performTests === AbstractModule.prototype.performTests &&
+            this.testDeployment === AbstractModule.prototype.testDeployment &&
+            this.testConditions === AbstractModule.prototype.testConditions &&
+            this.deployment.environment === "both" &&
+            !this.conditions.length
+        );
+    }
+
+    /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
+    private timed<T>(message: () => string, fn: () => Promise<T> | T): Promise<T> | T {
+        if (!this.client?.logger.options.verbose) return fn();
+        const label = message();
         const startedAt = performance.now();
-        const result = await fn();
-        this.client.logger.debug(`[Module] ${message} in ${(performance.now() - startedAt).toFixed(1)}ms`);
-        return result;
+        return Promise.resolve(fn()).then(result => {
+            this.client!.logger.debug(`[Module] ${label} in ${(performance.now() - startedAt).toFixed(1)}ms`);
+            return result;
+        });
     }
 
     /** Runs a hook with relevant context and an optional fallback. */
@@ -295,14 +319,21 @@ export abstract class AbstractModule<
         ctx: HookContext,
         fallback?: (ctx: HookContext) => Promise<void>
     ): Promise<void> {
-        if (!(await this.checkInjection())) return;
+        const injected = this.injectionReady();
+        if (!(typeof injected === "boolean" ? injected : await injected)) return;
         const hookFn = this.getHook(hook) as ((ctx: HookContext) => Promise<void>) | undefined;
 
         try {
             if (hookFn) {
-                await this.timed(`Ran hook '${String(hook)}' for '${this.buildName()}'`, () => hookFn(ctx));
+                await this.timed(
+                    () => `Ran hook '${String(hook)}' for '${this.buildName()}'`,
+                    () => hookFn(ctx)
+                );
             } else if (fallback) {
-                await this.timed(`Ran fallback hook '${String(hook)}' for '${this.buildName()}'`, () => fallback(ctx));
+                await this.timed(
+                    () => `Ran fallback hook '${String(hook)}' for '${this.buildName()}'`,
+                    () => fallback(ctx)
+                );
             }
         } catch (err) {
             this.client!.logger.error(`[Module] Hook '${String(hook)}' failed for '${this.buildName()}'`, err as Error);
@@ -328,7 +359,8 @@ export abstract class AbstractModule<
     async runWithResult(...args: Args): Promise<ModuleRunResult> {
         let executed = false;
         if (!this.enabled) return { executed, response: undefined };
-        if (!(await this.checkInjection())) return { executed, response: undefined };
+        const injected = this.injectionReady();
+        if (!(typeof injected === "boolean" ? injected : await injected)) return { executed, response: undefined };
         const moduleCTX = this.createModuleCTX(args);
         const hookCTX = this.createHookCTX(moduleCTX, args);
 
@@ -336,19 +368,21 @@ export abstract class AbstractModule<
             const valid = this.validate();
             if (!valid) return { executed, response: undefined };
 
-            const passed = await this.performTests(hookCTX);
+            const passed = this.hasDefaultTests() || (await this.performTests(hookCTX));
             if (!passed) return { executed, response: undefined };
 
             const preExecute = this.getHook("preExecute" as keyof Hooks) as
                 ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
             if (preExecute) {
                 let next = false;
-                await this.timed(`Ran hook 'preExecute' for '${this.buildName()}'`, () =>
-                    preExecute(hookCTX, () => (next = true))
+                await this.timed(
+                    () => `Ran hook 'preExecute' for '${this.buildName()}'`,
+                    () => preExecute(hookCTX, () => (next = true))
                 );
 
                 if (!next) {
-                    this.client?.logger.debug(`[Module] preExecute halted execution for '${this.buildName()}'`);
+                    if (this.client?.logger.options.verbose)
+                        this.client.logger.debug(`[Module] preExecute halted execution for '${this.buildName()}'`);
                     return { executed, response: undefined };
                 }
             }
@@ -366,7 +400,10 @@ export abstract class AbstractModule<
             executed = true;
             let executeResponse: unknown;
             try {
-                executeResponse = await this.timed(`Executed '${this.buildName()}'`, () => this.execute(moduleCTX));
+                executeResponse = await this.timed(
+                    () => `Executed '${this.buildName()}'`,
+                    () => this.execute(moduleCTX)
+                );
             } finally {
                 if (invocationKey !== undefined) this.activeInvocationKeys.delete(invocationKey);
             }
@@ -374,8 +411,9 @@ export abstract class AbstractModule<
             const postExecute = this.getHook("postExecute" as keyof Hooks) as
                 ((ctx: HookCTX, executeResponse: unknown) => Promise<void>) | undefined;
             if (postExecute) {
-                await this.timed(`Ran hook 'postExecute' for '${this.buildName()}'`, () =>
-                    postExecute(hookCTX, executeResponse)
+                await this.timed(
+                    () => `Ran hook 'postExecute' for '${this.buildName()}'`,
+                    () => postExecute(hookCTX, executeResponse)
                 );
             }
 

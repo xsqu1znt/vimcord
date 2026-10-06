@@ -71,3 +71,80 @@ describe("AbstractModule singleInvocation", () => {
         expect(second).toMatchObject({ executed: true, response: "ok" });
     });
 });
+
+describe("AbstractModule stage compatibility", () => {
+    it("runs overridden async tests and readiness checks even with empty base configuration", async () => {
+        const calls: string[] = [];
+        class CustomizedModule extends TestModule {
+            protected override async checkInjection(): Promise<boolean> {
+                calls.push("injection");
+                return super.checkInjection();
+            }
+            protected override testDeployment(ctx: ModuleHookContext<[string]>) {
+                calls.push("deployment");
+                return super.testDeployment(ctx);
+            }
+            protected override testConditions(ctx: ModuleHookContext<[string]>) {
+                calls.push("conditions");
+                return super.testConditions(ctx).then(result => result);
+            }
+            protected override performTests(ctx: ModuleHookContext<[string]>) {
+                calls.push("tests");
+                return super.performTests(ctx).then(result => result);
+            }
+        }
+        const module = new CustomizedModule({
+            name: "custom",
+            execute: () => {
+                calls.push("execute");
+            }
+        });
+        module.inject(createClient());
+        expect(await module.runWithResult("a")).toMatchObject({ executed: true });
+        expect(calls).toEqual(["injection", "tests", "deployment", "conditions", "execute"]);
+    });
+
+    it("observes conditions and hooks added between invocations and preserves fail/pre/execute/post order", async () => {
+        const calls: string[] = [];
+        const module = new TestModule({ name: "mutable", execute: () => calls.push("execute") });
+        module.inject(createClient());
+        await module.run("a");
+        module.conditions.push(() => {
+            calls.push("condition");
+            return { passed: true };
+        });
+        module.hooks.preExecute = async (_ctx, next) => {
+            calls.push("pre");
+            next();
+        };
+        module.hooks.postExecute = async () => {
+            calls.push("post");
+        };
+        await module.run("a");
+        module.conditions.push(() => ({ passed: false, reason: "blocked" }));
+        module.hooks.onConditionTestFail = async () => {
+            calls.push("fail");
+        };
+        const result = await module.runWithResult("a");
+        expect(result.executed).toBe(false);
+        expect(calls).toEqual(["execute", "condition", "pre", "execute", "post", "condition", "fail"]);
+    });
+
+    it("waits for readiness and suppresses disabled diagnostic formatting", async () => {
+        let release!: (ready: boolean) => void;
+        const ready = new Promise<boolean>(r => (release = r));
+        const execute = vi.fn();
+        const module = new TestModule({ name: "ready", execute });
+        const client = createClient();
+        client.isReady = () => false;
+        client.awaitReady = () => ready;
+        module.inject(client);
+        const name = vi.spyOn(module as unknown as { buildName(): string }, "buildName");
+        const pending = module.run("a");
+        expect(execute).not.toHaveBeenCalled();
+        release(true);
+        await pending;
+        expect(execute).toHaveBeenCalledOnce();
+        expect(name).not.toHaveBeenCalled();
+    });
+});
