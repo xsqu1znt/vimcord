@@ -2,6 +2,8 @@ import type { GlobalCommandHooks } from "@/commands/index.js";
 
 import { getDevMode, getPackageJson } from "@/utils/process.js";
 
+export type CommandLoggingTiming = "delivery" | "preExecute" | "execute" | "total";
+
 export interface VimcordGlobals {
     /** App globals. */
     app: AppGlobals;
@@ -56,6 +58,12 @@ export interface AppGlobals {
      */
     verbose: boolean;
 
+    /** Usage-log timings in display order. `false` or `[]` disables logging by default;
+     * commands with `metadata.logUsage: true` opt back in with execute timing.
+     * @default ["execute"]
+     */
+    commandLogging?: false | readonly CommandLoggingTiming[];
+
     /** Includes this client in the process-wide CLI when `setupCLI()` has initialized it.
      * @default true
      */
@@ -66,19 +74,6 @@ export interface AppGlobals {
      */
     disableBanner: boolean;
 }
-
-export const defaultAppGlobals = (): AppGlobals => {
-    const packageJson = getPackageJson();
-    const version = typeof packageJson.version === "string" ? packageJson.version : "1.0.0";
-    return {
-        name: "Discord Bot",
-        version,
-        devMode: getDevMode(),
-        verbose: false,
-        enableCLI: true,
-        disableBanner: false
-    };
-};
 
 export interface StaffGlobals {
     /** The Discord user ID of the bot owner. */
@@ -112,6 +107,20 @@ export interface StaffGlobals {
         roles: Record<string, string>;
     };
 }
+
+export const defaultAppGlobals = (): AppGlobals => {
+    const packageJson = getPackageJson();
+    const version = typeof packageJson.version === "string" ? packageJson.version : "1.0.0";
+    return {
+        name: "Discord Bot",
+        version,
+        devMode: getDevMode(),
+        verbose: false,
+        commandLogging: ["execute"],
+        enableCLI: true,
+        disableBanner: false
+    };
+};
 
 export const defaultStaffGlobals = (): StaffGlobals => {
     return {
