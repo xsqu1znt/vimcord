@@ -1,6 +1,7 @@
 import EventEmitter from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
+import { ResolveAction } from "./shared.js";
 
 vi.mock("./interactionRouter.js", () => ({
     createRoutedMessageCollector: (
@@ -99,5 +100,29 @@ describe("BetterCollector participant filtering", () => {
 
         // A second click from the same user must not still be treated as locked.
         expect(await filter(createInteraction("userA", "btn"))).toBe(true);
+    });
+});
+
+describe("BetterCollector onResolve", () => {
+    it("waits for end listeners before delivering a combined completion payload", async () => {
+        const { message, collector } = createMessage();
+        message.edit = vi.fn().mockResolvedValue(message);
+        const collected = [createInteraction("user", "btn")];
+        let ended = false;
+        const onResolve = vi.fn(async context => {
+            expect(ended).toBe(true);
+            expect(context).toEqual({ message, collected, reason: "manual" });
+            return { action: ResolveAction.DisableComponents, content: "Done" };
+        });
+        const bc = new BetterCollector(message, { timeout: 1000, onResolve });
+        bc.onEnd(async () => {
+            await Promise.resolve();
+            ended = true;
+        });
+        collector.emit("end", collected, "manual");
+        await new Promise(resolve => setImmediate(resolve));
+        expect(onResolve).toHaveBeenCalledOnce();
+        expect(message.edit).toHaveBeenCalledOnce();
+        expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ content: "Done" }));
     });
 });

@@ -313,10 +313,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         vi.mocked(dynaSend).mockResolvedValue(message);
         const promise = promptMessage(message, {
             timeout: 1000,
-            onConfirm: ResolveAction.DoNothing,
-            onReject: ResolveAction.DoNothing,
-            onTimeout: ResolveAction.DoNothing,
-            onCustom: ResolveAction.DoNothing,
+            onResolve: ResolveAction.DoNothing,
             resolveOnAdditionalButton: true,
             additionalButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)],
             onCollector: c => {
@@ -341,7 +338,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
     it("drives paginator navigation, asynchronous collect listeners, and timeout cleanup", async () => {
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
-        const p = new Paginator({ pages: ["a", "b"], idle: 30, onTimeout: ResolveAction.ClearComponents });
+        const p = new Paginator({ pages: ["a", "b"], idle: 30, onResolve: ResolveAction.ClearComponents });
         const order: string[] = [];
         p.on("collect", async () => {
             await Promise.resolve();

@@ -7,7 +7,7 @@ import type {
     SelectMenuComponentOptionData
 } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
-import type { Participant, TimingOptions } from "./shared.js";
+import type { OnResolve, Participant, TimingOptions } from "./shared.js";
 
 import {
     ActionRowBuilder,
@@ -85,11 +85,17 @@ export type PaginatorLoadingHook = (
     destination: PageIndex
 ) => PageResolvable | null | undefined | Promise<PageResolvable | null | undefined>;
 
+/** Paginator completion passed to onResolve after pending navigation finishes. */
+export interface PaginatorResolveContext {
+    message: Message;
+    reason: string;
+}
+
 export interface PaginatorBaseOptions {
     type?: PaginationType;
     participants?: Participant[];
     pages?: PageResolvable[];
-    onTimeout?: ResolveAction;
+    onResolve?: OnResolve<PaginatorResolveContext>;
     skipSize?: number;
     /** Adds Jump to the selected navigation layout. */
     jump?: boolean;
@@ -282,7 +288,7 @@ export class Paginator {
             pages: options.pages ?? [],
             timeout: timing.timeout,
             idle: timing.idle,
-            onTimeout: options.onTimeout ?? config.onTimeout,
+            onResolve: options.onResolve ?? config.onResolve,
             skipSize: options.skipSize ?? config.skipSize,
             jump: options.jump ?? false,
             onLoading: options.onLoading
@@ -684,7 +690,7 @@ export class Paginator {
         collector.onEnd(async (_collected, reason) => {
             if (reason === "refresh") return;
             this.collector = null;
-            await this.handleTimeout();
+            await this.handleTimeout(reason);
         });
     }
 
@@ -723,7 +729,7 @@ export class Paginator {
         await this.navigate("jump", openedChapter, submitted - 1, result.interaction);
     }
 
-    private async handleTimeout(): Promise<void> {
+    private async handleTimeout(reason: string): Promise<void> {
         const message = this.state.message;
         if (!message || !this.state.active) return;
         this.state.active = false;
@@ -731,7 +737,13 @@ export class Paginator {
         await this.navigationPromise?.catch(error => {
             console.error("[Paginator] Pending edit failed during timeout:", error);
         });
-        await handleResolveAction(this.state.message, this.options.onTimeout, this.state.sendOptions?.allowedMentions);
+        const latestMessage = this.state.message ?? message;
+        const result =
+            typeof this.options.onResolve === "function"
+                ? await this.options.onResolve({ message: latestMessage, reason })
+                : this.options.onResolve;
+        this.state.message =
+            (await handleResolveAction(latestMessage, result, this.state.sendOptions?.allowedMentions)) ?? latestMessage;
         await this.emit("postTimeout", this.state.message ?? message);
     }
 

@@ -5,7 +5,7 @@ import type {
     MessageComponentInteraction,
     MessageComponentType
 } from "discord.js";
-import type { Participant, TimingOptions } from "./shared.js";
+import type { OnResolve, Participant, TimingOptions } from "./shared.js";
 
 import { createRoutedMessageCollector } from "./interactionRouter.js";
 import { handleResolveAction, ResolveAction, resolveParticipantId, resolveTiming } from "./shared.js";
@@ -30,6 +30,13 @@ interface AcceptedSelection {
 interface CollectorEventMap {
     collect: [MessageComponentInteraction];
     end: [MessageComponentInteraction[], string];
+}
+
+/** Collector completion passed to onResolve. History is empty when retainHistory is false. */
+export interface CollectorResolveContext {
+    message: Message;
+    reason: string;
+    collected: MessageComponentInteraction[];
 }
 
 export type CollectorTimingOptions = TimingOptions;
@@ -57,7 +64,7 @@ interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType>
     maxUsers?: number | null;
     /** Retain interactions for onEnd callbacks. Disable when only limits/end reasons are needed. @default true */
     retainHistory?: boolean;
-    onResolve?: ResolveAction;
+    onResolve?: OnResolve<CollectorResolveContext>;
     notAParticipantMessage?: string | null;
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
 }
@@ -220,7 +227,9 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
 
         // Handle when collector stops
         collector.on("end", async (collected, reason) => {
-            await this.handleEnd(Array.from(collected.values()) as MessageComponentInteraction[], reason);
+            await this.handleEnd(Array.from(collected.values()) as MessageComponentInteraction[], reason).catch(err => {
+                console.error("[BetterCollector] Resolution error:", err);
+            });
         });
     }
 
@@ -351,7 +360,11 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         }
 
         // Handle post-collection resolution (edit/delete message)
-        await handleResolveAction(this.message, this.options.onResolve);
+        const result =
+            typeof this.options.onResolve === "function"
+                ? await this.options.onResolve({ message: this.message, reason, collected })
+                : this.options.onResolve;
+        await handleResolveAction(this.message, result);
     }
 
     /**
