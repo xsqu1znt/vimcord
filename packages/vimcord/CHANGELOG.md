@@ -1,5 +1,17 @@
 # vimcord
 
+## 3.2.0
+
+### Minor Changes
+
+- 1aa7b90: Add `globals.app.commandLogging` to select delivery, pre-execute, execute, and total command timings in display order. Usage logs now default to execute-only timing and omit guild IDs. Execute timing excludes automatic deferral and includes awaited prompts. `false` or an empty array disables logging by default; explicit per-command `metadata.logUsage: true` opts back in with execute timing, while `false` always suppresses that command.
+
+### Patch Changes
+
+- b8142cb: Reduce component and modal listener fan-out with shared indexed routing, preserve collector lifecycle behavior, and avoid retaining paginator interaction history. Reduce prepared-page navigation calls, registration work, empty module pipeline work, timestamp formatting costs, and embed substitution work.
+
+    Improve Mongoose cache eviction, expiry, query eligibility, and invalidation of pending reads. Add cursor pagination, bulk insertion, update-only writes, and index-backed unique creation while preserving existing APIs.
+
 ## 3.1.2
 
 ### Patch Changes
