@@ -1,7 +1,9 @@
 import EventEmitter from "node:events";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
+import { ResolveAction } from "./shared.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -78,5 +80,90 @@ describe("promptMessage", () => {
 
         const result = await resultPromise;
         expect(result.status).toBe("timeout");
+    });
+});
+
+describe("prompt resolution payload", () => {
+    it.each([
+        ["prompt:confirm", "confirmed"],
+        ["prompt:reject", "rejected"],
+        ["voucher", "custom"],
+        [null, "timeout"]
+    ] as const)("combines %s with highlighted cleanup in one awaited edit", async (customId, status) => {
+        const { message, collector } = createFakeMessage();
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId("prompt:confirm").setLabel("Yes").setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId("prompt:reject").setLabel("No").setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId("voucher").setLabel("Voucher").setStyle(ButtonStyle.Secondary)
+        );
+        message.components = [row];
+        const updated = { ...message, id: "updated" };
+        let finishEdit!: () => void;
+        message.edit.mockImplementation(
+            () =>
+                new Promise(resolve => {
+                    finishEdit = () => resolve(updated);
+                })
+        );
+        collector.stop.mockImplementation(reason => collector.emit("end", [], reason));
+        vi.mocked(dynaSend).mockResolvedValue(message);
+        const deferUpdate = vi.fn().mockResolvedValue(undefined);
+        const onResolve = vi.fn(async context => {
+            if (customId) expect(deferUpdate).toHaveBeenCalled();
+            expect(context).toMatchObject({ message, status });
+            if (status === "custom") expect(context.customId).toBe("voucher");
+            return { action: ResolveAction.DisableComponents, embeds: [{ description: "Result" }] };
+        });
+        let settled = false;
+        const pending = promptMessage(
+            {} as never,
+            {
+                timeout: 1000,
+                additionalButtons: [row.components[2]!],
+                resolveOnAdditionalButton: true,
+                highlightSelectedButton: true,
+                onResolve
+            },
+            { allowedMentions: { repliedUser: false } }
+        ).then(result => {
+            settled = true;
+            return result;
+        });
+        await new Promise(resolve => setImmediate(resolve));
+        if (customId) {
+            collector.emit("collect", { user: { id: "u1" }, customId, deferUpdate });
+            // A second click already admitted before the stop must not overwrite the first decision.
+            collector.emit("collect", { user: { id: "u1" }, customId: "prompt:reject", deferUpdate });
+        } else collector.emit("end", [], "time");
+        await new Promise(resolve => setImmediate(resolve));
+        expect(onResolve).toHaveBeenCalledOnce();
+        expect(message.edit).toHaveBeenCalledOnce();
+        expect(settled).toBe(false);
+        const payload = message.edit.mock.calls[0]![0];
+        expect(payload).toMatchObject({ embeds: [{ description: "Result" }], allowedMentions: { repliedUser: false } });
+        expect(payload.components[0].components.every((c: { disabled: boolean }) => c.disabled)).toBe(true);
+        if (customId) {
+            const selected = payload.components[0].components.find((c: { custom_id: string }) => c.custom_id === customId);
+            expect(selected.style).toBe(
+                status === "custom" ? ButtonStyle.Primary : status === "confirmed" ? ButtonStyle.Success : ButtonStyle.Danger
+            );
+        }
+        finishEdit();
+        expect((await pending).message).toBe(updated);
+    });
+
+    it("propagates a failed final edit without rerunning the callback", async () => {
+        const { message, collector } = createFakeMessage();
+        const failure = new Error("Discord edit failed");
+        message.edit.mockRejectedValue(failure);
+        vi.mocked(dynaSend).mockResolvedValue(message);
+        const onResolve = vi.fn(() => ({ action: ResolveAction.DisableComponents, content: "Paid result" }));
+        const pending = promptMessage({} as never, { timeout: 1000, onResolve });
+        const rejected = expect(pending).rejects.toThrow(failure);
+        await new Promise(resolve => setImmediate(resolve));
+        collector.emit("end", [], "time");
+        await rejected;
+        expect(onResolve).toHaveBeenCalledOnce();
+        expect(message.edit).toHaveBeenCalledOnce();
     });
 });

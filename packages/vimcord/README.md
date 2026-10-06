@@ -344,7 +344,7 @@ const paginator = new Paginator({
     jump: true,
     skipSize: 5,
     idle: 60_000,
-    onTimeout: ResolveAction.DisableComponents
+    onResolve: ResolveAction.DisableComponents
 });
 
 paginator
@@ -538,9 +538,7 @@ const result = await promptMessage(interaction, {
     }),
     participants: [interaction.user],
     timeout: 30_000,
-    onConfirm: ResolveAction.DisableComponents,
-    onReject: ResolveAction.DisableComponents,
-    onTimeout: ResolveAction.DeleteMessage,
+    onResolve: ({ status }) => status === "timeout" ? ResolveAction.DeleteMessage : ResolveAction.DisableComponents,
     highlightSelectedButton: true
 });
 
@@ -562,7 +560,7 @@ const result = await promptMessage(interaction, {
         }
     ],
     resolveOnAdditionalButton: true,
-    onCustom: ResolveAction.DisableComponents,
+    onResolve: ResolveAction.DisableComponents,
     highlightSelectedButton: true,
     timeout: 30_000
 });
@@ -571,6 +569,37 @@ if (result.status === "custom" && result.customId === "use_voucher") {
     await chargeVoucher();
 }
 ```
+
+`promptMessage`, `BetterCollector`, and `Paginator` accept `onResolve` as either a `ResolveAction` or an async callback.
+Return `{ action, ...messageEditOptions }` to deliver the final content, embeds, or files with component cleanup in **one edit**:
+
+```ts
+await promptMessage(message, {
+    embed: new BetterEmbed({ description: "Pull for 100 petals?" }),
+    participants: [message.author],
+    timeout: 30_000,
+    highlightSelectedButton: true,
+    onResolve: async ({ status }) => {
+        if (status !== "confirmed") return ResolveAction.DisableComponents;
+        const result = await payOutOnce();
+        return {
+            action: ResolveAction.DisableComponents,
+            embeds: [new BetterEmbed({ description: result.description }).toJSON()],
+            files: result.files
+        };
+    }
+});
+```
+
+Prompt callbacks receive `{ message, status, customId }`, with status `confirmed`, `rejected`, `custom`, or `timeout`.
+Collector callbacks receive `{ message, reason, collected }`; paginator callbacks receive `{ message, reason }` after pending navigation finishes.
+The defaults remain DeleteMessage for prompts, DoNothing for collectors, and ClearComponents for paginators.
+DisableComponents and ClearComponents apply to returned components when present, otherwise to the existing message.
+DoNothing still delivers a returned payload; DeleteMessage deletes and ignores edit fields. Callbacks run once and are never retried on edit failure.
+Prompt resolution awaits the callback and final edit, returns the updated message, and propagates failures. Collector/paginator failures are logged.
+
+Migrating from v3: replace prompt `onConfirm`, `onReject`, `onCustom`, and `onTimeout` with one `onResolve` callback switching on `status`.
+Rename paginator `onTimeout` (including the global paginator default) to `onResolve`. Move follow-up edits into returned payloads to combine them with cleanup.
 
 ### BetterModal
 

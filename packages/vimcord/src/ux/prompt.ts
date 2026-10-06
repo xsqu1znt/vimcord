@@ -1,7 +1,7 @@
-import type { CommandInteraction, Message } from "discord.js";
+import type { CommandInteraction, Message, MessageEditOptions } from "discord.js";
 import type { BetterModalSubmitResult } from "./betterModal.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
-import type { Participant, TimingOptions } from "./shared.js";
+import type { OnResolve, Participant, ResolveResult, TimingOptions } from "./shared.js";
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, TextInputStyle } from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
@@ -54,23 +54,8 @@ export interface PromptMessageBaseOptions {
     resolveOnAdditionalButton?: boolean;
     /** Receives the internal collector before waiting so extra button listeners can be registered. */
     onCollector?: (collector: PromptCollector) => void | Promise<void>;
-    /** Resolve action applied after confirmation.
-     * @default ResolveAction.DeleteMessage
-     */
-    onConfirm?: ResolveAction;
-    /** Resolve action applied after rejection.
-     * @default ResolveAction.DeleteMessage
-     */
-    onReject?: ResolveAction;
-    /** Resolve action applied after an additional button ends the prompt. Only used when
-     * `resolveOnAdditionalButton` is on.
-     * @default ResolveAction.DeleteMessage
-     */
-    onCustom?: ResolveAction;
-    /** Resolve action applied when the prompt ends without a decision (timeout or external stop).
-     * @default ResolveAction.DeleteMessage
-     */
-    onTimeout?: ResolveAction;
+    /** Cleanup action or awaited final payload, applied once after the decision. @default ResolveAction.DeleteMessage */
+    onResolve?: OnResolve<PromptResolveContext>;
     /** Whether DisableComponents should keep the selected prompt button colored. */
     highlightSelectedButton?: boolean;
 }
@@ -85,6 +70,11 @@ export interface PromptMessageResult {
     customId?: string;
     /** Prompt message returned by dynaSend when Discord provides one. */
     message?: Message;
+}
+
+/** Decision passed to the prompt's resolution callback. */
+export interface PromptResolveContext extends PromptMessageResult {
+    message: Message;
 }
 
 /** Options for prompting with a yes/no modal. */
@@ -110,6 +100,64 @@ const PROMPT_CUSTOM_IDS = {
     reject: "prompt:reject",
     input: "prompt:input"
 } as const;
+
+function createPromptButton(fallback: ButtonBuilder, customId: string, override?: PromptButtonResolvable): ButtonBuilder {
+    const button = typeof override === "function" ? override(new ButtonBuilder(fallback.data)) : override;
+
+    return new ButtonBuilder({ ...fallback.data, ...button?.data }).setCustomId(customId);
+}
+
+function buildPromptRow(
+    confirmButton: ButtonBuilder,
+    rejectButton: ButtonBuilder,
+    additionalButtons: PromptAdditionalButtonOptions[]
+): ActionRowBuilder<ButtonBuilder> {
+    const buttons = [confirmButton, rejectButton, ...additionalButtons.map(({ button }) => button)];
+
+    if (buttons.length > 5) throw new Error("[Prompt] Prompt rows cannot contain more than 5 buttons");
+
+    return new ActionRowBuilder<ButtonBuilder>().setComponents(buttons);
+}
+
+function getButtonCustomId(button: ButtonBuilder): string | null {
+    const data = button.data as { custom_id?: unknown; customId?: unknown };
+    const customId = data.custom_id ?? data.customId;
+
+    return typeof customId === "string" ? customId : null;
+}
+
+/** Colors the chosen prompt button; shared resolution disables the resulting component tree. */
+function highlightPromptComponents(
+    components: NonNullable<MessageEditOptions["components"]>,
+    pressedCustomId: string | null,
+    selectedAdditionalStyle?: ButtonStyle
+) {
+    return components.map(row => {
+        const data = ("toJSON" in row ? row.toJSON() : row) as {
+            type: ComponentType;
+            components?: { custom_id?: string; style?: ButtonStyle }[];
+        };
+        if (data.type !== ComponentType.ActionRow || !data.components) return data;
+        return {
+            ...data,
+            components: data.components.map(c => {
+                const unchosen =
+                    pressedCustomId !== null &&
+                    c.custom_id !== pressedCustomId &&
+                    (c.custom_id === PROMPT_CUSTOM_IDS.confirm || c.custom_id === PROMPT_CUSTOM_IDS.reject);
+                return {
+                    ...c,
+                    style:
+                        c.custom_id === pressedCustomId && selectedAdditionalStyle !== undefined
+                            ? selectedAdditionalStyle
+                            : unchosen
+                              ? ButtonStyle.Secondary
+                              : c.style
+                };
+            })
+        };
+    });
+}
 
 /**
  * Sends a confirmation prompt and waits for confirm or reject.
@@ -173,6 +221,7 @@ export async function promptMessage(
     collector.on(
         PROMPT_CUSTOM_IDS.confirm,
         async () => {
+            if (pressedCustomId !== null) return;
             pressedCustomId = PROMPT_CUSTOM_IDS.confirm;
             collector.stop("confirmed");
         },
@@ -182,6 +231,7 @@ export async function promptMessage(
     collector.on(
         PROMPT_CUSTOM_IDS.reject,
         async () => {
+            if (pressedCustomId !== null) return;
             pressedCustomId = PROMPT_CUSTOM_IDS.reject;
             collector.stop("rejected");
         },
@@ -193,6 +243,7 @@ export async function promptMessage(
             collector.on(
                 customId,
                 async () => {
+                    if (pressedCustomId !== null) return;
                     pressedCustomId = customId;
                     collector.stop("custom");
                 },
@@ -219,24 +270,30 @@ export async function promptMessage(
                 : "timeout";
 
     // --- Resolution ---
-    const resolveAction =
-        status === "confirmed"
-            ? (options.onConfirm ?? ResolveAction.DeleteMessage)
-            : status === "rejected"
-              ? (options.onReject ?? ResolveAction.DeleteMessage)
-              : status === "custom"
-                ? (options.onCustom ?? ResolveAction.DeleteMessage)
-                : (options.onTimeout ?? ResolveAction.DeleteMessage);
-
-    await handlePromptResolve(
-        message,
-        pressedCustomId,
-        resolveAction,
-        options.highlightSelectedButton ?? config.highlightSelectedButton,
-        pressedCustomId === null ? undefined : selectedAdditionalStyles.get(pressedCustomId)
-    );
-
-    return { status, customId: status === "custom" ? (pressedCustomId ?? undefined) : undefined, message };
+    const context: PromptResolveContext = {
+        status,
+        customId: status === "custom" ? (pressedCustomId ?? undefined) : undefined,
+        message
+    };
+    const result =
+        typeof options.onResolve === "function"
+            ? await options.onResolve(context)
+            : (options.onResolve ?? ResolveAction.DeleteMessage);
+    const action = typeof result === "string" ? result : result.action;
+    let resolution: ResolveResult = result;
+    if (action === ResolveAction.DisableComponents && (options.highlightSelectedButton ?? config.highlightSelectedButton)) {
+        const payload = typeof result === "string" ? { action: result } : result;
+        resolution = {
+            ...payload,
+            components: highlightPromptComponents(
+                payload.components ?? message.components,
+                pressedCustomId,
+                pressedCustomId === null ? undefined : selectedAdditionalStyles.get(pressedCustomId)
+            ) as never
+        };
+    }
+    const resolvedMessage = await handleResolveAction(message, resolution, sendOptions?.allowedMentions);
+    return { ...context, message: resolvedMessage ?? message };
 }
 
 /**
@@ -267,95 +324,4 @@ export async function promptModal(
         value === "yes" || value === "y" ? "confirmed" : value === "no" || value === "n" ? "rejected" : "invalid";
 
     return { status, submitResult };
-}
-
-function createPromptButton(fallback: ButtonBuilder, customId: string, override?: PromptButtonResolvable): ButtonBuilder {
-    const button = typeof override === "function" ? override(new ButtonBuilder(fallback.data)) : override;
-
-    return new ButtonBuilder({ ...fallback.data, ...button?.data }).setCustomId(customId);
-}
-
-function buildPromptRow(
-    confirmButton: ButtonBuilder,
-    rejectButton: ButtonBuilder,
-    additionalButtons: PromptAdditionalButtonOptions[]
-): ActionRowBuilder<ButtonBuilder> {
-    const buttons = [confirmButton, rejectButton, ...additionalButtons.map(({ button }) => button)];
-
-    if (buttons.length > 5) throw new Error("[Prompt] Prompt rows cannot contain more than 5 buttons");
-
-    return new ActionRowBuilder<ButtonBuilder>().setComponents(buttons);
-}
-
-function getButtonCustomId(button: ButtonBuilder): string | null {
-    const data = button.data as { custom_id?: unknown; customId?: unknown };
-    const customId = data.custom_id ?? data.customId;
-
-    return typeof customId === "string" ? customId : null;
-}
-
-async function handlePromptResolve(
-    message: Message,
-    pressedCustomId: string | null,
-    action: ResolveAction,
-    highlightSelectedButton: boolean,
-    selectedAdditionalStyle?: ButtonStyle
-): Promise<void> {
-    if (action === ResolveAction.DoNothing) return;
-
-    if (action === ResolveAction.DisableComponents && highlightSelectedButton) {
-        await disablePromptComponents(message, pressedCustomId, selectedAdditionalStyle);
-        return;
-    }
-
-    await handleResolveAction(message, action);
-}
-
-/** Disables the prompt and colors the selected button while greying out unchosen confirm/reject buttons. */
-async function disablePromptComponents(
-    message: Message,
-    pressedCustomId: string | null,
-    selectedAdditionalStyle?: ButtonStyle
-): Promise<void> {
-    if (!message.editable) return;
-
-    try {
-        const updatedRows = message.components.map(row => {
-            const rowData = row.toJSON() as {
-                type: ComponentType;
-                components?: { custom_id?: string; disabled?: boolean; style?: ButtonStyle }[];
-            };
-
-            if (rowData.type === ComponentType.Container || !rowData.components) return rowData;
-
-            return {
-                ...rowData,
-                components: rowData.components.map(component => {
-                    const unchosenPromptButton =
-                        pressedCustomId !== null &&
-                        component.custom_id !== pressedCustomId &&
-                        (component.custom_id === PROMPT_CUSTOM_IDS.confirm ||
-                            component.custom_id === PROMPT_CUSTOM_IDS.reject);
-                    const selectedAdditionalButton =
-                        component.custom_id === pressedCustomId && selectedAdditionalStyle !== undefined;
-
-                    return {
-                        ...component,
-                        disabled: true,
-                        style: selectedAdditionalButton
-                            ? selectedAdditionalStyle
-                            : unchosenPromptButton
-                              ? ButtonStyle.Secondary
-                              : component.style
-                    };
-                })
-            };
-        });
-
-        await message.edit({ components: updatedRows as never });
-    } catch (err) {
-        if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[Prompt] Failed to disable components:", err);
-        }
-    }
 }

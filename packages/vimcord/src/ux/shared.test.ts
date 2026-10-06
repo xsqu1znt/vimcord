@@ -4,7 +4,7 @@ import { handleResolveAction, ResolveAction } from "./shared.js";
 
 function createMessage(componentsJSON: unknown[]) {
     const edit = vi.fn(async (opts: { components: unknown[] }) => {
-        message.components = opts.components.map(json => ({ toJSON: () => json }));
+        if (opts.components) message.components = opts.components.map(json => ({ toJSON: () => json }));
     });
     const message: any = {
         editable: true,
@@ -136,5 +136,41 @@ describe("handleResolveAction ClearComponents", () => {
         const [{ components: sections }] = message.edit.mock.calls[0][0].components;
         expect(sections[0]).toMatchObject({ type: ComponentType.Section });
         expect(sections[0].accessory).toMatchObject({ type: ComponentType.Button, disabled: true });
+    });
+});
+
+describe("resolution payload preservation", () => {
+    it.each([ResolveAction.DisableComponents, ResolveAction.ClearComponents, ResolveAction.DoNothing])(
+        "delivers content and files with %s even when components are absent or unchanged",
+        async action => {
+            const files = [{ attachment: Buffer.from("card"), name: "card.png" }];
+            for (const components of [
+                [],
+                [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, disabled: true }] }]
+            ]) {
+                const message = createMessage(components);
+                await handleResolveAction(message, { action, content: "Result", files });
+                expect(message.edit).toHaveBeenCalledOnce();
+                expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ content: "Result", files }));
+            }
+        }
+    );
+
+    it("applies cleanup to replacement components while delivering the payload", async () => {
+        const message = createMessage([]);
+        await handleResolveAction(message, {
+            action: ResolveAction.DisableComponents,
+            content: "Result",
+            components: [
+                {
+                    type: ComponentType.ActionRow,
+                    components: [{ type: ComponentType.Button, custom_id: "new", style: 1, label: "New" }]
+                }
+            ]
+        });
+        expect(message.edit.mock.calls[0][0].components[0].components[0]).toMatchObject({
+            custom_id: "new",
+            disabled: true
+        });
     });
 });

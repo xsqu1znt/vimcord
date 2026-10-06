@@ -63,7 +63,7 @@ export interface UxConfig {
         /** Default number of pages moved by skip controls. */
         skipSize: number;
         /** Default timeout resolution action. */
-        onTimeout: ResolveAction;
+        onResolve: ResolveAction;
         /** Message shown to users who are not paginator participants. */
         notAParticipantMessage: string | null;
         /** Page-jump modal defaults. */
@@ -129,7 +129,7 @@ function createDefaultUxConfig(): UxConfig {
         },
         paginator: {
             skipSize: 5,
-            onTimeout: ResolveAction.ClearComponents,
+            onResolve: ResolveAction.ClearComponents,
             notAParticipantMessage: "You are not allowed to use this.",
             jumpModal: {
                 title: "Jump to Page",

@@ -1,4 +1,4 @@
-import type { GuildMember, Message, MessageMentionOptions, User } from "discord.js";
+import type { GuildMember, Message, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
 
 import { ComponentType } from "discord.js";
 
@@ -37,6 +37,15 @@ export enum ResolveAction {
     DeleteMessage = "DeleteMessage",
     DoNothing = "DoNothing"
 }
+
+/** Message edit returned by a resolution callback; the action is applied to its components in the same edit. */
+export interface ResolvePayload extends MessageEditOptions {
+    action: ResolveAction;
+}
+
+export type ResolveResult = ResolveAction | ResolvePayload;
+/** A fixed cleanup action or an awaited callback returning the final message payload. */
+export type OnResolve<Context> = ResolveAction | ((context: Context) => ResolveResult | Promise<ResolveResult>);
 
 interface ComponentLike {
     type: ComponentType;
@@ -100,70 +109,38 @@ function clearComponent(component: ComponentLike): ComponentLike | null {
     return component;
 }
 
-async function resolveAction_disableComponents(
-    message: Message | null | undefined,
-    allowedMentions?: MessageMentionOptions
-): Promise<void> {
-    if (!message?.editable || !message.components.length) return;
-
-    try {
-        const updatedRows = message.components.map(row => disableComponent(row.toJSON() as ComponentLike));
-        const currentRows = message.components.map(row => row.toJSON());
-        if (JSON.stringify(updatedRows) === JSON.stringify(currentRows)) return;
-        await message.edit({ components: updatedRows as never, allowedMentions });
-    } catch (err) {
-        if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[ResolveAction] Failed to disable components:", err);
-        }
-    }
-}
-
-async function resolveAction_clearComponents(
-    message: Message | null | undefined,
-    allowedMentions?: MessageMentionOptions
-): Promise<void> {
-    if (!message?.editable || !message.components.length) return;
-
-    try {
-        const updatedRows = message.components
-            .map(row => clearComponent(row.toJSON() as ComponentLike))
-            .filter((c): c is ComponentLike => c !== null);
-        const currentRows = message.components.map(row => row.toJSON());
-        if (JSON.stringify(updatedRows) === JSON.stringify(currentRows)) return;
-        await message.edit({ components: updatedRows as never, allowedMentions });
-    } catch (err) {
-        if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[ResolveAction] Failed to clear components:", err);
-        }
-    }
-}
-
-async function resolveAction_deleteMessage(message: Message | null | undefined): Promise<void> {
-    if (!message?.deletable) return;
-
-    try {
-        await message.delete();
-    } catch (err) {
-        if (err instanceof Error && !err.message.includes("Unknown Message")) {
-            console.error("[ResolveAction] Failed to delete message:", err);
-        }
-    }
-}
-
+/** Applies cleanup and returned content in one edit, returning Discord's updated message. Edit failures propagate. */
 export async function handleResolveAction(
     message: Message | null | undefined,
-    action: ResolveAction,
+    result: ResolveResult,
     allowedMentions?: MessageMentionOptions
-): Promise<void> {
-    switch (action) {
-        case ResolveAction.DisableComponents:
-            return resolveAction_disableComponents(message, allowedMentions);
-        case ResolveAction.ClearComponents:
-            return resolveAction_clearComponents(message, allowedMentions);
-        case ResolveAction.DeleteMessage:
-            return resolveAction_deleteMessage(message);
-        case ResolveAction.DoNothing:
-        default:
-            break;
+): Promise<Message | null | undefined> {
+    if (!message) return message;
+    const { action, ...payload } = typeof result === "string" ? { action: result } : result;
+    if (action === ResolveAction.DeleteMessage) {
+        if (message.deletable) await message.delete();
+        return message;
     }
+
+    const hasPayload = Object.keys(payload).length > 0;
+    if (!message.editable) {
+        if (hasPayload) throw new Error("[ResolveAction] Message is not editable");
+        return message;
+    }
+
+    const current = message.components.map(c => c.toJSON());
+    const source = payload.components?.map(c => ("toJSON" in c ? c.toJSON() : c)) ?? current;
+    let components = source as ComponentLike[];
+    if (action === ResolveAction.DisableComponents) components = components.map(disableComponent);
+    if (action === ResolveAction.ClearComponents) {
+        components = components.map(clearComponent).filter((c): c is ComponentLike => c !== null);
+    }
+    const changedComponents = JSON.stringify(components) !== JSON.stringify(current);
+    if (!hasPayload && !changedComponents) return message;
+
+    return message.edit({
+        allowedMentions,
+        ...payload,
+        ...(changedComponents || payload.components ? { components: components as never } : {})
+    });
 }

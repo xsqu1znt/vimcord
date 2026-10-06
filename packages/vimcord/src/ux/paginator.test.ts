@@ -93,15 +93,27 @@ afterEach(() => {
 });
 
 describe("Paginator collection and navigation", () => {
+    it("passes the stop reason and combines the final payload with cleanup", async () => {
+        const onResolve = vi.fn(() => ({ action: ResolveAction.ClearComponents, content: "Expired" }));
+        const paginator = new Paginator({ pages: ["A"], timeout: 1000, onResolve });
+        const { message, collector } = await sendPaginator(paginator);
+        message.edit.mockResolvedValue(message);
+        collector.emit("end", [], "manual");
+        await settle();
+        expect(onResolve).toHaveBeenCalledWith({ message, reason: "manual" });
+        expect(message.edit).toHaveBeenCalledOnce();
+        expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ content: "Expired" }));
+    });
+
     it.each([ResolveAction.DisableComponents, ResolveAction.ClearComponents])(
         "preserves reply mention settings when %s on timeout",
-        async onTimeout => {
+        async onResolve => {
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId("next").setLabel("Next").setStyle(ButtonStyle.Secondary)
             );
             const { message, collector } = createMessage([row]);
             vi.mocked(dynaSend).mockResolvedValue(message as never);
-            const paginator = new Paginator({ pages: ["A"], timeout: 1000, onTimeout });
+            const paginator = new Paginator({ pages: ["A"], timeout: 1000, onResolve });
 
             await paginator.send({} as never, { allowedMentions: { repliedUser: false } });
             collector.emit("end", [], "time");
@@ -113,7 +125,7 @@ describe("Paginator collection and navigation", () => {
 
     it("still cleans up and emits postTimeout when an in-flight refresh rejects", async () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
-        const paginator = new Paginator({ pages: ["A"], timeout: 1000, onTimeout: ResolveAction.DeleteMessage });
+        const paginator = new Paginator({ pages: ["A"], timeout: 1000, onResolve: ResolveAction.DeleteMessage });
         const { message, collector } = await sendPaginator(paginator);
         const pending = deferred<never>();
         vi.mocked(dynaSend).mockReturnValueOnce(pending.promise);
@@ -327,7 +339,7 @@ describe("Paginator collection and navigation", () => {
 
     it("lets timeout cleanup win over a pending load and suppresses paginate", async () => {
         const slow = deferred<string>();
-        const paginator = new Paginator({ timeout: 1000, onTimeout: ResolveAction.DoNothing }).addPageLoader(
+        const paginator = new Paginator({ timeout: 1000, onResolve: ResolveAction.DoNothing }).addPageLoader(
             2,
             page => (page === 0 ? "Current" : slow.promise),
             { label: "Pages" }
@@ -522,7 +534,7 @@ describe("Paginator loaders and API boundaries", () => {
 
 describe("Paginator acknowledgement and snapshots", () => {
     it("updates a prepared page in one call and keeps the returned snapshot for timeout cleanup", async () => {
-        const p = new Paginator({ pages: ["A", "B"], timeout: 1000, onTimeout: ResolveAction.ClearComponents });
+        const p = new Paginator({ pages: ["A", "B"], timeout: 1000, onResolve: ResolveAction.ClearComponents });
         const { collector } = await sendPaginator(p);
         const latest = createMessage([new ActionRowBuilder<ButtonBuilder>()]).message;
         const i = createInteraction("paginator:next");
