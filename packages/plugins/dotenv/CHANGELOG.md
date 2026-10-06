@@ -1,5 +1,11 @@
 # @vimcord/plugin-dotenv
 
+## 0.1.12
+
+### Patch Changes
+
+- f836146: Allow vimcord v4 as a peer dependency while preserving v3 compatibility.
+
 ## 0.1.11
 
 ### Patch Changes
