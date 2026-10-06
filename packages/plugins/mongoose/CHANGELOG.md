@@ -1,5 +1,11 @@
 # @vimcord/plugin-mongoose
 
+## 1.2.1
+
+### Patch Changes
+
+- f836146: Allow vimcord v4 as a peer dependency while preserving v3 compatibility.
+
 ## 1.2.0
 
 ### Minor Changes
