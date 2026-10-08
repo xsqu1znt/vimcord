@@ -1,5 +1,15 @@
+import type { DynaSendOptions } from "./dynaSend.js";
+
 import EventEmitter from "node:events";
-import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, Collection, ContainerBuilder } from "discord.js";
+import {
+    ActionRowBuilder,
+    BaseInteraction,
+    ButtonBuilder,
+    ButtonStyle,
+    Collection,
+    ComponentType,
+    ContainerBuilder
+} from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
@@ -83,6 +93,26 @@ async function sendPaginator(paginator: Paginator) {
     return { message, collector };
 }
 
+function createDashboardRows() {
+    return [
+        ["Import", "Customs", "Replace", "Options"],
+        ["Preview", "Delete Draft"]
+    ].map(ids =>
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            ids.map(id => new ButtonBuilder().setCustomId(id).setLabel(id).setStyle(ButtonStyle.Secondary))
+        )
+    );
+}
+
+function getRowIds(components: DynaSendOptions["components"] = []) {
+    return components.map(row => {
+        const data = row.toJSON();
+        return data.type === ComponentType.ActionRow
+            ? data.components.map(c => ("custom_id" in c ? c.custom_id : null))
+            : [];
+    });
+}
+
 afterEach(() => {
     vi.restoreAllMocks();
     vi.mocked(dynaSend).mockReset();
@@ -90,6 +120,147 @@ afterEach(() => {
     messages.loadFailed = null;
     messages.expired = null;
     messages.chapterChanged = null;
+});
+
+describe("Paginator chapter select ordering", () => {
+    it.each([undefined, "afterComponents", "beforeComponents"] as const)(
+        "preserves supplied rows and keeps navigation last with position %s",
+        async chapterSelectPosition => {
+            const buttonRows = createDashboardRows();
+            const p = new Paginator({ timeout: 1000, chapterSelectPosition })
+                .addChapter(["Overview", "More"], { label: "Overview", value: "overview" })
+                .addChapter(["Draft"], { label: "Draft", value: "draft" });
+            const { message } = createMessage();
+            vi.mocked(dynaSend).mockResolvedValue(message as never);
+            await p.send({} as never, { components: buttonRows, allowedMentions: { repliedUser: false } });
+
+            const data = vi.mocked(dynaSend).mock.lastCall![1];
+            const supplied = [
+                ["Import", "Customs", "Replace", "Options"],
+                ["Preview", "Delete Draft"]
+            ];
+            const chapter = ["paginator:chapter"];
+            const nav = ["paginator:back", "paginator:next"];
+            expect(getRowIds(data.components)).toEqual(
+                chapterSelectPosition === "beforeComponents" ? [chapter, ...supplied, nav] : [...supplied, chapter, nav]
+            );
+            const offset = chapterSelectPosition === "beforeComponents" ? 1 : 0;
+            expect(data.components?.[offset]).toBe(buttonRows[0]);
+            expect(data.components?.[offset + 1]).toBe(buttonRows[1]);
+            expect(buttonRows).toHaveLength(2);
+            expect(data.allowedMentions).toEqual({ repliedUser: false });
+        }
+    );
+
+    it("keeps a single chapter's navigation below supplied rows", async () => {
+        const p = new Paginator({ timeout: 1000, pages: ["A", "B"], chapterSelectPosition: "beforeComponents" });
+        const { message } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        await p.send({} as never, { components: createDashboardRows() });
+
+        expect(getRowIds(vi.mocked(dynaSend).mock.lastCall![1].components)).toEqual([
+            ["Import", "Customs", "Replace", "Options"],
+            ["Preview", "Delete Draft"],
+            ["paginator:back", "paginator:next"]
+        ]);
+    });
+
+    it.each([ResolveAction.DisableComponents, ResolveAction.ClearComponents])(
+        "retains the layout across updates and applies %s to the latest rows on timeout",
+        async onResolve => {
+            const buttonRows = createDashboardRows();
+            const p = new Paginator({ timeout: 1000, chapterSelectPosition: "beforeComponents", onResolve })
+                .addChapter(["Overview"], { label: "Overview", value: "overview" })
+                .addChapter(["Draft0", "Draft1"], { label: "Draft", value: "draft" });
+            const { message, collector } = createMessage();
+            vi.mocked(dynaSend).mockImplementation(async (_handler, data) => {
+                message.components = data.components ?? [];
+                return message as never;
+            });
+            await p.send({} as never, { components: buttonRows, allowedMentions: { repliedUser: false } });
+            const supplied = [
+                ["Import", "Customs", "Replace", "Options"],
+                ["Preview", "Delete Draft"]
+            ];
+            const chapter = ["paginator:chapter"];
+            const nav = ["paginator:back", "paginator:next"];
+            expect(getRowIds(vi.mocked(dynaSend).mock.lastCall![1].components)).toEqual([chapter, ...supplied]);
+
+            buttonRows[0]!.components[0]!.setLabel("Import updated");
+            await p.refresh();
+            const refreshed = vi.mocked(dynaSend).mock.lastCall![1];
+            expect(getRowIds(refreshed.components)).toEqual([chapter, ...supplied]);
+            expect(refreshed.components?.[1]?.toJSON()).toMatchObject({
+                components: [{ label: "Import updated" }, {}, {}, {}]
+            });
+
+            const select = createInteraction("paginator:chapter", ["draft"]);
+            collector.emit("collect", select);
+            await settle();
+            const selected = select.update.mock.lastCall![0] as DynaSendOptions;
+            expect(selected.content).toBe("Draft0");
+            expect(getRowIds(selected.components)).toEqual([chapter, ...supplied, nav]);
+            expect(selected.components?.[0]?.toJSON()).toMatchObject({
+                components: [
+                    {
+                        options: [
+                            { value: "overview", default: false },
+                            { value: "draft", default: true }
+                        ]
+                    }
+                ]
+            });
+
+            const next = createInteraction("paginator:next");
+            collector.emit("collect", next);
+            await settle();
+            const navigated = next.update.mock.lastCall![0] as DynaSendOptions;
+            expect(navigated.content).toBe("Draft1");
+            expect(getRowIds(navigated.components)).toEqual([chapter, ...supplied, nav]);
+            expect(navigated.allowedMentions).toEqual({ repliedUser: false });
+
+            await p.replaceChapters([{ value: "draft", label: "Draft", pages: ["Updated0", "Updated1"] }]);
+            const single = vi.mocked(dynaSend).mock.lastCall![1];
+            expect(single.content).toBe("Updated1");
+            expect(getRowIds(single.components)).toEqual([...supplied, nav]);
+
+            await p.replaceChapters([
+                { value: "draft", label: "Draft", pages: ["Final0", "Final1"] },
+                { value: "overview", label: "Overview", pages: ["New overview"] }
+            ]);
+            const replaced = vi.mocked(dynaSend).mock.lastCall![1];
+            expect(replaced.content).toBe("Final1");
+            expect(getRowIds(replaced.components)).toEqual([chapter, ...supplied, nav]);
+            expect(replaced.components?.[0]?.toJSON()).toMatchObject({
+                components: [
+                    {
+                        options: [
+                            { value: "draft", default: true },
+                            { value: "overview", default: false }
+                        ]
+                    }
+                ]
+            });
+
+            collector.emit("end", [], "time");
+            await settle();
+            const cleanup = message.edit.mock.lastCall![0];
+            expect(cleanup.allowedMentions).toEqual({ repliedUser: false });
+            if (onResolve === ResolveAction.ClearComponents) {
+                expect(cleanup.components).toEqual([]);
+                return;
+            }
+            const finalRows = replaced.components!.map(row => row.toJSON());
+            expect(cleanup.components).toEqual(
+                finalRows.map(row => ({
+                    ...row,
+                    components:
+                        row.type === ComponentType.ActionRow ? row.components.map(c => ({ ...c, disabled: true })) : []
+                }))
+            );
+            expect(buttonRows.flatMap(row => row.components).every(c => !c.data.disabled)).toBe(true);
+        }
+    );
 });
 
 describe("Paginator collection and navigation", () => {
