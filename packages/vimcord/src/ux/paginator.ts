@@ -6,12 +6,19 @@ import type {
     ModalSubmitInteraction,
     SelectMenuComponentOptionData
 } from "discord.js";
-import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type {
+    DynaSendOptions,
+    EmbedResolvable,
+    InteractionBasedSendHandler,
+    RequiredDynaSendOptions,
+    SendHandler
+} from "./dynaSend.js";
 import type { OnResolve, Participant, TimingOptions } from "./shared.js";
 
 import {
     ActionRowBuilder,
     AttachmentBuilder,
+    BaseInteraction,
     ButtonBuilder,
     ButtonStyle,
     ComponentType,
@@ -64,6 +71,10 @@ export interface PageIndex {
 }
 export interface ChapterData extends Omit<SelectMenuComponentOptionData, "value"> {
     value?: string;
+}
+/** Static chapter supplied to replaceChapters; value preserves selection across reordering. */
+export interface PaginatorChapterInput extends ChapterData {
+    pages: Chapter;
 }
 export interface PaginateEvent {
     previous: PageIndex;
@@ -137,6 +148,7 @@ export interface PaginatorChapter {
 
 interface PaginatorState {
     message: Message | null;
+    interaction: InteractionBasedSendHandler | undefined;
     sendOptions: DynaSendOptions | undefined;
     currentPage: PageResolvable | null;
     index: PageIndex;
@@ -273,6 +285,7 @@ export class Paginator {
     private nextChapterId = 0;
     private state: PaginatorState = {
         message: null,
+        interaction: undefined,
         sendOptions: undefined,
         currentPage: null,
         index: { chapter: 0, nested: 0 },
@@ -444,12 +457,29 @@ export class Paginator {
 
     private async editPage(page: PageResolvable, index: PageIndex = this.state.index): Promise<Message | null> {
         const message = this.state.message;
-        if (!message?.editable) throw new Error("[Paginator] Cannot refresh because the message is not editable");
+        if (!message || (!this.state.interaction && !message.editable))
+            throw new Error("[Paginator] Cannot refresh because the message is not editable");
         // Keep the returned snapshot even after timeout so cleanup edits the latest component data.
-        this.state.message = await dynaSend(message, {
-            ...this.buildSendOptions(page, this.state.sendOptions, index),
-            sendMethod: SendMethod.MessageEdit
-        });
+        const data = this.buildSendOptions(page, this.state.sendOptions, index);
+        this.state.message = this.state.interaction
+            ? await this.state.interaction.webhook.editMessage(message.id, {
+                  content: data.content,
+                  embeds: data.embeds,
+                  components: data.components,
+                  files: data.files,
+                  allowedMentions: data.allowedMentions,
+                  flags:
+                      data.flags === undefined
+                          ? undefined
+                          : new MessageFlagsBitField(data.flags as never).remove(
+                                MessageFlags.Ephemeral,
+                                MessageFlags.SuppressNotifications
+                            ).bitfield
+              })
+            : await dynaSend(message, {
+                  ...data,
+                  sendMethod: SendMethod.MessageEdit
+              });
         return this.state.message;
     }
 
@@ -458,7 +488,8 @@ export class Paginator {
         page: PageResolvable,
         index: PageIndex
     ): Promise<void> {
-        if (!this.state.message?.editable) throw new Error("[Paginator] Cannot refresh because the message is not editable");
+        if (!this.state.message || (!this.state.interaction && !this.state.message.editable))
+            throw new Error("[Paginator] Cannot refresh because the message is not editable");
         if (!("update" in interaction)) {
             await interaction.deferUpdate();
             await this.editPage(page, index);
@@ -743,7 +774,12 @@ export class Paginator {
                 ? await this.options.onResolve({ message: latestMessage, reason })
                 : this.options.onResolve;
         this.state.message =
-            (await handleResolveAction(latestMessage, result, this.state.sendOptions?.allowedMentions)) ?? latestMessage;
+            (await handleResolveAction(
+                latestMessage,
+                result,
+                this.state.sendOptions?.allowedMentions,
+                this.state.interaction
+            )) ?? latestMessage;
         await this.emit("postTimeout", this.state.message ?? message);
     }
 
@@ -794,6 +830,40 @@ export class Paginator {
         this.state.index.chapter = wrapIndex(this.state.index.chapter, this.chapters.length - 1);
         this.state.index.nested = 0;
         return this;
+    }
+
+    /**
+     * Replaces static chapters and re-renders, preserving the chapter value and clamping its page.
+     * Chapters without values preserve their position; a removed chapter returns to the first page.
+     * @param chapters Replacement pages and chapter menu data
+     */
+    async replaceChapters(chapters: PaginatorChapterInput[]): Promise<void> {
+        if (!chapters.length) throw new Error("[Paginator] Cannot replace chapters with an empty list");
+        if (chapters.length > 25) throw new Error("[Paginator] Chapter select menus can only contain 25 chapters");
+        const ids = new Set<string>();
+        const replacement = chapters.map(({ pages, value, ...option }, i): PaginatorChapter => {
+            if (!pages.length) throw new Error(`[Paginator] Chapter at index ${i} does not have any pages`);
+            const id = value ?? this.chapters[i]?.id ?? `paginator:chapter:${this.nextChapterId++}`;
+            if (ids.has(id)) throw new Error(`[Paginator] Chapter ID '${id}' is already in use`);
+            ids.add(id);
+            for (const page of pages) this.validatePageFormat(page);
+            return { id, option, source: { kind: "static", pages } };
+        });
+        await this.navigationPromise;
+        const replace = async () => {
+            const id = this.chapters[this.state.index.chapter]?.id;
+            const found = replacement.findIndex(c => c.id === id);
+            const chapter = found < 0 ? 0 : found;
+            const nested = found < 0 ? 0 : Math.min(this.state.index.nested, chapters[chapter]!.pages.length - 1);
+            const index = { chapter, nested };
+            this.chapters = replacement;
+            const page = await this.loadPage(index);
+            if (this.state.message) await this.editPage(page, index);
+            this.state.index = index;
+            this.state.currentPage = page;
+        };
+        if (!this.state.message) await replace();
+        else await this.runExclusive(replace);
     }
 
     setPaginationType(type: PaginationType): this {
@@ -869,6 +939,7 @@ export class Paginator {
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;
+        this.state.interaction = handler instanceof BaseInteraction ? handler : undefined;
         this.state.active = true;
         try {
             const destination = await this.resolveDestination(this.state.index.chapter, this.state.index.nested);

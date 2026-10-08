@@ -1,5 +1,5 @@
 import EventEmitter from "node:events";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
@@ -166,4 +166,18 @@ describe("prompt resolution payload", () => {
         expect(onResolve).toHaveBeenCalledOnce();
         expect(message.edit).toHaveBeenCalledOnce();
     });
+});
+
+it("resolves an ephemeral prompt through its sending interaction", async () => {
+    const { message, collector } = createFakeMessage();
+    Object.assign(message, { id: "ephemeral", editable: false, deletable: false });
+    const deleteMessage = vi.fn().mockResolvedValue(undefined);
+    const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { deleteMessage } });
+    vi.mocked(dynaSend).mockResolvedValue(message);
+    const pending = promptMessage(handler, { timeout: 1000 });
+    await new Promise(resolve => setImmediate(resolve));
+    collector.emit("end", [], "time");
+    await pending;
+    expect(deleteMessage).toHaveBeenCalledWith("ephemeral");
+    expect(message.delete).not.toHaveBeenCalled();
 });

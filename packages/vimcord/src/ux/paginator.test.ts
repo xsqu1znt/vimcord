@@ -1,5 +1,5 @@
 import EventEmitter from "node:events";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Collection, ContainerBuilder } from "discord.js";
+import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, Collection, ContainerBuilder } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
@@ -593,4 +593,87 @@ describe("Paginator acknowledgement and snapshots", () => {
         await settle();
         expect(i.update.mock.calls[0]?.[0]).toMatchObject({ flags: 4 });
     });
+});
+
+describe("Paginator chapter replacement", () => {
+    it("preserves a chapter by value across reordering and clamps a shortened page list", async () => {
+        const p = new Paginator({ timeout: 1000 })
+            .addChapter(["Overview"], { label: "Overview", value: "overview" })
+            .addChapter(["A0", "A1", "A2"], { label: "A", value: "a" });
+        await sendPaginator(p);
+        await p.setPage(1, 2);
+        await p.replaceChapters([
+            { value: "a", label: "A", pages: ["New0", "New1"] },
+            { value: "overview", label: "Overview", pages: ["New overview"] }
+        ]);
+        expect(vi.mocked(dynaSend).mock.lastCall?.[1].content).toBe("New1");
+        await p.replaceChapters([{ value: "overview", label: "Overview", pages: ["Empty draft"] }]);
+        expect(vi.mocked(dynaSend).mock.lastCall?.[1].content).toBe("Empty draft");
+    });
+
+    it("re-renders the same position when no chapter values are supplied", async () => {
+        const p = new Paginator({ timeout: 1000 })
+            .addChapter(["A"], { label: "A" })
+            .addChapter(["B0", "B1"], { label: "B" });
+        await sendPaginator(p);
+        await p.setPage(1, 1);
+        await p.replaceChapters([
+            { label: "A", pages: ["A"] },
+            { label: "B", pages: ["New0", "New1"] }
+        ]);
+        expect(vi.mocked(dynaSend).mock.lastCall?.[1].content).toBe("New1");
+    });
+
+    it("prepares chapters before send and rejects invalid replacements without removing existing chapters", async () => {
+        const p = new Paginator({ timeout: 1000 });
+        await p.replaceChapters([{ value: "a", label: "A", pages: ["A"] }]);
+        await expect(p.replaceChapters([])).rejects.toThrow("empty list");
+        await expect(p.replaceChapters([{ label: "Empty", pages: [] }])).rejects.toThrow("does not have any pages");
+        await expect(
+            p.replaceChapters([
+                { value: "a", label: "A", pages: ["A"] },
+                { value: "a", label: "B", pages: ["B"] }
+            ])
+        ).rejects.toThrow("already in use");
+        expect(p.chapters[0]?.id).toBe("a");
+        await sendPaginator(p);
+        expect(vi.mocked(dynaSend).mock.lastCall?.[1].content).toBe("A");
+    });
+
+    it("uses the sending webhook for ephemeral refresh and timeout cleanup", async () => {
+        const { message, collector } = createMessage([
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId("next").setStyle(ButtonStyle.Primary).setLabel("Next")
+            )
+        ]);
+        Object.assign(message, { id: "ephemeral", editable: false });
+        const editMessage = vi.fn().mockResolvedValue(message);
+        const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { editMessage } });
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        const p = new Paginator({ timeout: 1000, onResolve: ResolveAction.DisableComponents }).addChapter(["A"], {
+            label: "A"
+        });
+        await p.send(handler);
+        await p.replaceChapters([{ label: "A", pages: ["Updated"] }]);
+        expect(editMessage).toHaveBeenCalledWith("ephemeral", expect.objectContaining({ content: "Updated" }));
+        collector.emit("end", [], "time");
+        await settle();
+        expect(editMessage.mock.lastCall?.[1].components[0].components[0].disabled).toBe(true);
+        expect(message.edit).not.toHaveBeenCalled();
+    });
+});
+
+it("waits for pending navigation before replacing its chapters", async () => {
+    const slow = deferred<string>();
+    const p = new Paginator({ timeout: 1000 }).addPageLoader(2, n => (n === 0 ? "A" : slow.promise), {
+        value: "a",
+        label: "A"
+    });
+    const { collector } = await sendPaginator(p);
+    collector.emit("collect", createInteraction("paginator:next"));
+    await settle();
+    const replacement = p.replaceChapters([{ value: "a", label: "A", pages: ["New0", "New1"] }]);
+    slow.resolve("Old1");
+    await replacement;
+    expect(vi.mocked(dynaSend).mock.lastCall?.[1].content).toBe("New1");
 });

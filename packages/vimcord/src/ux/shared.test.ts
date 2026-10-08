@@ -1,3 +1,5 @@
+import type { InteractionBasedSendHandler } from "./dynaSend.js";
+
 import { ComponentType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { handleResolveAction, ResolveAction } from "./shared.js";
@@ -172,5 +174,56 @@ describe("resolution payload preservation", () => {
             custom_id: "new",
             disabled: true
         });
+    });
+});
+
+describe("interaction resolution", () => {
+    it.each([ResolveAction.DisableComponents, ResolveAction.ClearComponents, ResolveAction.DoNothing])(
+        "edits an ephemeral follow-up by message ID with %s and preserves payloads",
+        async action => {
+            const message = createMessage([
+                { type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: "next" }] }
+            ]);
+            message.id = "follow-up";
+            message.editable = false;
+            const updated = createMessage([]);
+            const editMessage = vi.fn().mockResolvedValue(updated);
+            const interaction = { webhook: { editMessage } } as unknown as InteractionBasedSendHandler;
+            const result = await handleResolveAction(message, { action, content: "Done" }, { parse: [] }, interaction);
+            expect(result).toBe(updated);
+            expect(editMessage).toHaveBeenCalledWith(
+                "follow-up",
+                expect.objectContaining({ content: "Done", allowedMentions: { parse: [] } })
+            );
+            const components = editMessage.mock.calls[0]![1].components;
+            if (action === ResolveAction.ClearComponents) expect(components).toEqual([]);
+            if (action === ResolveAction.DisableComponents) expect(components[0].components[0].disabled).toBe(true);
+            expect(message.edit).not.toHaveBeenCalled();
+        }
+    );
+
+    it("deletes ephemeral messages even when Discord marks them undeletable", async () => {
+        const message = createMessage([]);
+        message.id = "reply";
+        message.deletable = false;
+        const deleteMessage = vi.fn().mockResolvedValue(undefined);
+        await handleResolveAction(message, ResolveAction.DeleteMessage, undefined, {
+            webhook: { deleteMessage }
+        } as unknown as InteractionBasedSendHandler);
+        expect(deleteMessage).toHaveBeenCalledWith("reply");
+    });
+
+    it("propagates webhook edit failures", async () => {
+        const interaction = {
+            webhook: { editMessage: vi.fn().mockRejectedValue(new Error("expired")) }
+        } as unknown as InteractionBasedSendHandler;
+        await expect(
+            handleResolveAction(
+                createMessage([]),
+                { action: ResolveAction.DoNothing, content: "Done" },
+                undefined,
+                interaction
+            )
+        ).rejects.toThrow("expired");
     });
 });

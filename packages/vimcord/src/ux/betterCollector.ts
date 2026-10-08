@@ -5,6 +5,7 @@ import type {
     MessageComponentInteraction,
     MessageComponentType
 } from "discord.js";
+import type { InteractionBasedSendHandler } from "./dynaSend.js";
 import type { OnResolve, Participant, TimingOptions } from "./shared.js";
 
 import { createRoutedMessageCollector } from "./interactionRouter.js";
@@ -64,6 +65,8 @@ interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType>
     maxUsers?: number | null;
     /** Retain interactions for onEnd callbacks. Disable when only limits/end reasons are needed. @default true */
     retainHistory?: boolean;
+    /** Interaction used to send the message, required for ephemeral cleanup. */
+    interaction?: InteractionBasedSendHandler;
     onResolve?: OnResolve<CollectorResolveContext>;
     notAParticipantMessage?: string | null;
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
@@ -73,7 +76,7 @@ export type BetterCollectorOptions<ComponentType extends MessageComponentType> =
     TimingOptions;
 
 interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentType> extends Required<
-    BetterCollectorBaseOptions<ComponentType>
+    Omit<BetterCollectorBaseOptions<ComponentType>, "interaction">
 > {
     idle: number | null;
     timeout: number | null;
@@ -89,6 +92,7 @@ interface ResolvedBetterCollectorOptions<ComponentType extends MessageComponentT
  */
 export class BetterCollector<C extends MessageComponentType = MessageComponentType> {
     private readonly message: Message;
+    private readonly interaction: InteractionBasedSendHandler | undefined;
     private readonly options: ResolvedBetterCollectorOptions<C>;
     private readonly collector: {
         on(event: "collect", handler: CollectorEventHandler<"collect">): void;
@@ -109,6 +113,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
         if (!message) throw new Error("Message is null or undefined");
 
         this.message = message;
+        this.interaction = options.interaction;
         const config = getGlobalUxConfig().collector;
         const timing = resolveTiming(options);
 
@@ -364,7 +369,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             typeof this.options.onResolve === "function"
                 ? await this.options.onResolve({ message: this.message, reason, collected })
                 : this.options.onResolve;
-        await handleResolveAction(this.message, result);
+        await handleResolveAction(this.message, result, undefined, this.interaction);
     }
 
     /**

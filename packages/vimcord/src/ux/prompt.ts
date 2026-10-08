@@ -3,7 +3,15 @@ import type { BetterModalSubmitResult } from "./betterModal.js";
 import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 import type { OnResolve, Participant, ResolveResult, TimingOptions } from "./shared.js";
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder, TextInputStyle } from "discord.js";
+import {
+    ActionRowBuilder,
+    BaseInteraction,
+    ButtonBuilder,
+    ButtonStyle,
+    ComponentType,
+    EmbedBuilder,
+    TextInputStyle
+} from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
@@ -292,7 +300,12 @@ export async function promptMessage(
             ) as never
         };
     }
-    const resolvedMessage = await handleResolveAction(message, resolution, sendOptions?.allowedMentions);
+    const resolvedMessage = await handleResolveAction(
+        message,
+        resolution,
+        sendOptions?.allowedMentions,
+        handler instanceof BaseInteraction ? handler : undefined
+    );
     return { ...context, message: resolvedMessage ?? message };
 }
 
