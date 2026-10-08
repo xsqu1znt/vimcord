@@ -379,6 +379,26 @@ Every paginator starts a collector. A one-page paginator without navigation can 
 page or send options and run `collect` and `onComponent` callbacks. Page navigation is omitted for a one-page chapter,
 but chapter selection remains when the paginator has several chapters.
 
+By default, components supplied to `send()` appear before the chapter select and built-in navigation
+(`chapterSelectPosition: "afterComponents"`). Set `chapterSelectPosition: "beforeComponents"` in the constructor to
+put the chapter select first. Supplied action rows keep their exact grouping and order, and built-in navigation stays
+after them. The ordering also applies to navigation updates, `refresh()`, and `replaceChapters()`. The chapter select
+is omitted when only one chapter remains. For Components V2 pages, this option also places the select before the page's containers.
+
+```ts
+const paginator = new Paginator({
+    timeout: 60_000,
+    chapterSelectPosition: "beforeComponents"
+})
+    .addChapter(["Overview"], { label: "Overview", value: "overview" })
+    .addChapter(["Draft page 1", "Draft page 2"], { label: "Draft", value: "draft" });
+
+await paginator.send(message, {
+    components: buttonRows,
+    allowedMentions: { repliedUser: false }
+});
+```
+
 #### Paginator migration
 
 Navigation layouts and Jump are explicit. `dynamic`, `paginator.longThreshold`, `paginator.jumpableThreshold`, and

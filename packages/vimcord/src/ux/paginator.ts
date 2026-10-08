@@ -110,6 +110,8 @@ export interface PaginatorBaseOptions {
     skipSize?: number;
     /** Adds Jump to the selected navigation layout. */
     jump?: boolean;
+    /** Places the chapter select before or after send components. Defaults to `afterComponents`; navigation stays last. */
+    chapterSelectPosition?: "beforeComponents" | "afterComponents";
     /** Returns a placeholder only while a lazy destination loads. */
     onLoading?: PaginatorLoadingHook;
 }
@@ -304,6 +306,7 @@ export class Paginator {
             onResolve: options.onResolve ?? config.onResolve,
             skipSize: options.skipSize ?? config.skipSize,
             jump: options.jump ?? false,
+            chapterSelectPosition: options.chapterSelectPosition ?? "afterComponents",
             onLoading: options.onLoading
         };
         if (this.options.pages.length) this.addChapter(this.options.pages, { label: "Default" });
@@ -451,7 +454,10 @@ export class Paginator {
                 components.push(...page.containers.map(c => (c instanceof BetterContainer ? c.toBuilder() : c)));
             if (page.files) files.push(...page.files);
         } else embeds.push(page);
-        components.push(...this.buildRows(false, index));
+        const rows = this.buildRows(false, index);
+        if (this.options.chapterSelectPosition === "beforeComponents" && this.chapters.length > 1)
+            components.unshift(...rows.splice(0, 1));
+        components.push(...rows);
         return { ...data, embeds, files, components };
     }
 
