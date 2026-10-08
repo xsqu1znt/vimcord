@@ -9,6 +9,7 @@ import type {
     InteractionEditReplyOptions,
     InteractionReplyOptions,
     MessageActionRowComponentBuilder,
+    MessageComponentInteraction,
     MessageCreateOptions,
     MessageEditOptions,
     MessageMentionOptions,
@@ -54,11 +55,18 @@ export enum SendMethod {
     UserDM = "UserDM"
 }
 
-export type SendHandler = CommandInteraction | RepliableInteraction | TextBasedChannel | Message | GuildMember | User;
-export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction;
+export type SendHandler =
+    | CommandInteraction
+    | RepliableInteraction
+    | MessageComponentInteraction
+    | TextBasedChannel
+    | Message
+    | GuildMember
+    | User;
+export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
 
 export type EmbedResolvable = NonNullable<BaseMessageOptions["embeds"]>[number];
-export type InteractionResolveable = CommandInteraction | RepliableInteraction;
+export type InteractionResolveable = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
 export type UserResolvable = GuildMember | User | string;
 
 export type SendableTextChannel = DMChannel | TextChannel | NewsChannel | ThreadChannel;

@@ -1,3 +1,5 @@
+import type { InteractionBasedSendHandler } from "./dynaSend.js";
+
 import EventEmitter from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
@@ -125,4 +127,18 @@ describe("BetterCollector onResolve", () => {
         expect(message.edit).toHaveBeenCalledOnce();
         expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ content: "Done" }));
     });
+});
+
+it("delivers an ephemeral collector's final payload through its sending interaction", async () => {
+    const { message, collector } = createMessage();
+    Object.assign(message, { id: "ephemeral", editable: false });
+    const editMessage = vi.fn().mockResolvedValue(message);
+    new BetterCollector(message, {
+        timeout: 1000,
+        interaction: { webhook: { editMessage } } as unknown as InteractionBasedSendHandler,
+        onResolve: () => ({ action: ResolveAction.ClearComponents, content: "Done" })
+    });
+    collector.emit("end", [], "time");
+    await new Promise(resolve => setImmediate(resolve));
+    expect(editMessage).toHaveBeenCalledWith("ephemeral", expect.objectContaining({ content: "Done" }));
 });

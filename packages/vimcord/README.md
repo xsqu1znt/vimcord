@@ -460,7 +460,7 @@ const pages = source.kind === "static" || source.kind === "chapterLoader" ? sour
 ```
 
 Loaders replace `beforeChapterChange` and `hydrateChapter`. A chapter loader is cached once per paginator. Call
-`reloadChapter()` when it needs fresh data. A page loader receives the requested zero-based page on every navigation
+`reloadChapter()` when it needs fresh data. Use `await paginator.replaceChapters([{ pages, label, value }])` to replace static chapters and re-render. Stable `value` IDs preserve the selected chapter across reordering; omitted values preserve position. Shortened chapters clamp the page, and a removed chapter returns to the first chapter/page. A page loader receives the requested zero-based page on every navigation
 and declares its page count up front.
 
 If reloading fails, the previous chapter stays available. This includes a reload that removes the current page.
@@ -593,6 +593,7 @@ await promptMessage(message, {
 
 Prompt callbacks receive `{ message, status, customId }`, with status `confirmed`, `rejected`, `custom`, or `timeout`.
 Collector callbacks receive `{ message, reason, collected }`; paginator callbacks receive `{ message, reason }` after pending navigation finishes.
+Prompts and paginators sent through an interaction edit and delete via its webhook, including ephemeral replies and follow-ups. For a `BetterCollector` attached to an interaction response, pass `{ interaction }` in its options to enable the same cleanup.
 The defaults remain DeleteMessage for prompts, DoNothing for collectors, and ClearComponents for paginators.
 DisableComponents and ClearComponents apply to returned components when present, otherwise to the existing message.
 DoNothing still delivers a returned payload; DeleteMessage deletes and ignores edit fields. Callbacks run once and are never retried on edit failure.

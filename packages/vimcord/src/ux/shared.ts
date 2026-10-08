@@ -1,4 +1,5 @@
 import type { GuildMember, Message, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
+import type { InteractionBasedSendHandler } from "./dynaSend.js";
 
 import { ComponentType } from "discord.js";
 
@@ -113,17 +114,19 @@ function clearComponent(component: ComponentLike): ComponentLike | null {
 export async function handleResolveAction(
     message: Message | null | undefined,
     result: ResolveResult,
-    allowedMentions?: MessageMentionOptions
+    allowedMentions?: MessageMentionOptions,
+    interaction?: InteractionBasedSendHandler
 ): Promise<Message | null | undefined> {
     if (!message) return message;
     const { action, ...payload } = typeof result === "string" ? { action: result } : result;
     if (action === ResolveAction.DeleteMessage) {
-        if (message.deletable) await message.delete();
+        if (interaction) await interaction.webhook.deleteMessage(message.id);
+        else if (message.deletable) await message.delete();
         return message;
     }
 
     const hasPayload = Object.keys(payload).length > 0;
-    if (!message.editable) {
+    if (!interaction && !message.editable) {
         if (hasPayload) throw new Error("[ResolveAction] Message is not editable");
         return message;
     }
@@ -138,9 +141,10 @@ export async function handleResolveAction(
     const changedComponents = JSON.stringify(components) !== JSON.stringify(current);
     if (!hasPayload && !changedComponents) return message;
 
-    return message.edit({
+    const data: MessageEditOptions = {
         allowedMentions,
         ...payload,
         ...(changedComponents || payload.components ? { components: components as never } : {})
-    });
+    };
+    return interaction ? interaction.webhook.editMessage(message.id, data) : message.edit(data);
 }
