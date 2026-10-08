@@ -212,8 +212,8 @@ export class BetterModal {
     }
 
     private validateComponentLength(): void {
-        if (this.components.size >= 25) {
-            throw new Error("[BetterModal] Modal can only have 25 components");
+        if (this.components.size >= 5) {
+            throw new Error("[BetterModal] Modal can only have 5 top-level components");
         }
     }
 

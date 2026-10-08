@@ -1,4 +1,6 @@
-import { DiscordjsError, DiscordjsErrorCodes } from "discord.js";
+import type { BetterAPIModalComponent } from "./betterModal.js";
+
+import { ComponentType, DiscordjsError, DiscordjsErrorCodes } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend, SendMethod } from "./dynaSend.js";
@@ -26,6 +28,51 @@ function createSource(result: unknown) {
     };
     return { ...source, client: source };
 }
+
+describe("BetterModal component limit", () => {
+    it.each(["labels", "labels and text displays"])("accepts five %s and rejects a sixth component", layout => {
+        const modal = new BetterModal({ title: "Feedback" });
+
+        for (let i = 0; i < 5; i++) {
+            if (layout === "labels and text displays" && i % 2 === 1) {
+                modal.addTextDisplay({ content: "Tell us about your experience." });
+            } else {
+                modal.addTextInput({ customId: `field-${i}`, label: `Field ${i + 1}` });
+            }
+        }
+
+        const components = modal.toJSON().components;
+        expect(components.map(c => c.type)).toEqual(
+            layout === "labels"
+                ? Array(5).fill(ComponentType.Label)
+                : [
+                      ComponentType.Label,
+                      ComponentType.TextDisplay,
+                      ComponentType.Label,
+                      ComponentType.TextDisplay,
+                      ComponentType.Label
+                  ]
+        );
+
+        expect(() => modal.addTextInput({ customId: "overflow", label: "Extra field" })).toThrow(
+            "[BetterModal] Modal can only have 5 top-level components"
+        );
+        expect(() => modal.addTextDisplay({ content: "Extra instructions" })).toThrow(
+            "[BetterModal] Modal can only have 5 top-level components"
+        );
+        expect(modal.toJSON().components).toEqual(components);
+    });
+
+    it("rejects six components supplied to the constructor", () => {
+        const components: BetterAPIModalComponent[] = Array.from({ length: 6 }, (_, i) => ({
+            textInput: { customId: `field-${i}`, label: `Field ${i + 1}` }
+        }));
+
+        expect(() => new BetterModal({ title: "Feedback", components })).toThrow(
+            "[BetterModal] Modal can only have 5 top-level components"
+        );
+    });
+});
 
 describe("BetterModal submission results", () => {
     it("returns null only when the Discord.js modal collector expires", async () => {
