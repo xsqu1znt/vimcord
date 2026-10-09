@@ -253,6 +253,40 @@ export default new PrefixCommandModule({
 });
 ```
 
+Prefix subcommands use a name-to-handler map. Each value has a `handler`, optional `aliases`, and optional
+`description`. Like slash routes, each handler receives the normal command context:
+
+```ts
+export default new PrefixCommandModule({
+    name: "buy",
+    subcommands: {
+        frame: {
+            aliases: ["f"],
+            description: "Buy a frame",
+            async handler({ message, splitContent, subcommand }) {
+                const [frame] = splitContent();
+                await message.reply(`Buying ${frame} via ${subcommand}`);
+            }
+        }
+    },
+    async execute({ message }) {
+        await message.reply("Usage: buy frame <name>");
+    }
+});
+```
+
+Names and aliases match the first whitespace-separated argument case-insensitively. For `!buy F Red`,
+`ctx.subcommand` is `"frame"`, `messageContent` is `"Red"`, and `splitContent()` returns `["Red"]`. The original
+Discord `message` is unchanged. The public `module.subcommands` map contains canonical lowercase names and their
+handler/alias/description configuration, so help commands can enumerate them without listing aliases twice.
+Ambiguous names or aliases are rejected during construction.
+
+No token or an unknown token invokes the parent's `execute` with the original arguments and `subcommand: null`.
+`execute` is optional when subcommands exist; without it, unmatched invocations do nothing. Conditions, permissions,
+and local/client/package global hooks run once for the parent, with the selected subcommand and remaining content
+already available. Hook `args` still contains the original `[message, prefix, trigger]` invocation tuple. Parent
+cooldown hooks and `singleInvocation` keep their existing scope.
+
 ### Event Modules
 
 ```ts
@@ -848,7 +882,7 @@ loader.succeed("Commands synced");
 | --- | --- |
 | `Vimcord` | Discord.js client subclass with modules, plugins, globals, status, and logging |
 | `SlashCommandModule` | Slash command module with optional subcommand routes |
-| `PrefixCommandModule` | Prefix command module with aliases and parsed message content |
+| `PrefixCommandModule` | Prefix command module with aliases, subcommands and parsed message content |
 | `MessageContextCommandModule` | Message context menu command module |
 | `UserContextCommandModule` | User context menu command module |
 | `EventModule` | Typed Discord event module |

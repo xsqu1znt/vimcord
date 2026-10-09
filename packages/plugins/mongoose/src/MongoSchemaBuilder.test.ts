@@ -452,4 +452,18 @@ describe("cursor pagination and explicit write APIs", () => {
         await expect(Cooldowns.createUnique("key", {}, () => "collision", 0)).rejects.toMatchObject({ code: 11000 });
         await expect(Cooldowns.createUnique("key", {}, () => undefined as never)).rejects.toThrow();
     });
+
+    it("does not retry a compound index containing the generated path", async () => {
+        const builder = attach(createMongoSchema("compoundUnique", { key: String, guild: String }));
+        builder.schema.index({ key: 1, guild: 1 }, { unique: true });
+        await builder.create({ key: "taken", guild: "same" });
+        await builder.model!.init();
+        const generate = vi.fn(() => "taken");
+
+        await expect(builder.createUnique("key", { guild: "same" }, generate)).rejects.toMatchObject({
+            code: 11000,
+            keyPattern: { key: 1, guild: 1 }
+        });
+        expect(generate).toHaveBeenCalledOnce();
+    });
 });

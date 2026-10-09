@@ -3,10 +3,17 @@ import type { HealthProbeResult, VimcordPluginContext } from "vimcord";
 
 import mongoose from "mongoose";
 import { getPackageVersion, Vimcord, VimcordPlugin } from "vimcord";
+import { isDuplicateKeyError } from "./isDuplicateKeyError.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";
 
 export * from "./MongoSchemaBuilder.js";
+export { isDuplicateKeyError } from "./isDuplicateKeyError.js";
+
+interface MigrationRecord {
+    _id: string;
+    ranAt?: Date;
+}
 
 export interface MongooseOptions extends mongoose.MongooseOptions {
     /**
@@ -59,6 +66,7 @@ export class MongoosePlugin extends VimcordPlugin {
     private readonly connectOptions: ConnectOptions | undefined;
     private readonly requireConnection: boolean;
     private connectingPromise: Promise<boolean> | null = null;
+    private readonly migrations = new Map<string, (ctx: MongoosePlugin) => Promise<void>>();
     private readonly onDisconnected = (): void => {
         this.client?.logger.plugin.log(this.name, "MongoDB disconnected");
     };
@@ -165,6 +173,75 @@ export class MongoosePlugin extends VimcordPlugin {
 
     async disconnect(): Promise<void> {
         await this.mongoose.disconnect();
+    }
+
+    /**
+     * Registers a migration on this plugin instance, preserving registration order.
+     * @param id Stable unique migration identifier
+     * @param run Migration callback receiving this connected plugin
+     */
+    defineMigration(id: string, run: (ctx: MongoosePlugin) => Promise<void>): void {
+        if (!id.trim()) throw new MongoosePluginError("Migration id cannot be empty");
+        if (this.migrations.has(id)) throw new MongoosePluginError(`Migration '${id}' is already registered`);
+        this.migrations.set(id, run);
+    }
+
+    /** A duplicate _id is either completed work or an active claim; never advance past active work. */
+    private async claimMigration(records: mongoose.mongo.Collection<MigrationRecord>, id: string): Promise<boolean> {
+        for (;;) {
+            try {
+                await records.insertOne({ _id: id });
+                return true;
+            } catch (error) {
+                if (!isDuplicateKeyError(error)) throw error;
+                const record = await records.findOne({ _id: id });
+                if (!record) continue; // The owning runner released a failed claim before this read.
+                if (record.ranAt) return false;
+                throw new MongoosePluginError(
+                    `Migration '${id}' is already running; retry after the owning runner completes`
+                );
+            }
+        }
+    }
+
+    private async runMigration(
+        records: mongoose.mongo.Collection<MigrationRecord>,
+        id: string,
+        run: (ctx: MongoosePlugin) => Promise<void>
+    ): Promise<void> {
+        if (!(await this.claimMigration(records, id))) return;
+        try {
+            await run(this);
+            await records.updateOne({ _id: id }, { $set: { ranAt: new Date() } });
+        } catch (error) {
+            try {
+                await records.deleteOne({ _id: id, ranAt: { $exists: false } });
+            } catch (cleanupError) {
+                throw new AggregateError(
+                    [error, cleanupError],
+                    `Migration '${id}' failed and its claim could not be released`
+                );
+            }
+            throw error;
+        }
+    }
+
+    /** Runs registered migrations sequentially after plugin loading; completed ids are skipped. */
+    async runMigrations(): Promise<void> {
+        const db = this.mongoose.connection.db;
+        if (this.mongoose.connection.readyState !== 1 || !db) {
+            throw new MongoosePluginError("Cannot run migrations: MongoDB is not connected");
+        }
+        const records = db.collection<MigrationRecord>("_migrations");
+
+        for (const [id, run] of this.migrations) {
+            try {
+                await this.runMigration(records, id, run);
+            } catch (error) {
+                this.client?.logger.plugin.error(this.name, `Migration '${id}' failed`, error);
+                throw error;
+            }
+        }
     }
 
     async startSession(options?: ClientSessionOptions): Promise<mongoose.ClientSession> {
