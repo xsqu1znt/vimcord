@@ -1,5 +1,13 @@
 # @vimcord/plugin-mongoose
 
+## 1.3.0
+
+### Minor Changes
+
+- ea84877: Add prefix subcommands with aliases, descriptions, remaining-argument contexts and parent command hooks.
+
+    Add isDuplicateKeyError for driver and plain duplicate-key errors, plus instance-scoped run-once migrations with atomic claims, ordered execution and failure retries.
+
 ## 1.2.1
 
 ### Patch Changes
