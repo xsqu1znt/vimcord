@@ -26,6 +26,7 @@ import type {
 import mongoose, { Schema } from "mongoose";
 import { Vimcord } from "vimcord";
 import { MongoosePlugin, PLUGIN_NAME } from "./index.js";
+import { isDuplicateKeyError } from "./isDuplicateKeyError.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";
 
@@ -492,7 +493,7 @@ export class MongoSchemaBuilder<
                     !(err instanceof mongoose.mongo.MongoServerError) ||
                     err.code !== 11000 ||
                     Object.keys(err.keyPattern ?? {}).length !== 1 ||
-                    !Object.hasOwn(err.keyPattern ?? {}, path) ||
+                    !isDuplicateKeyError(err, path) ||
                     attempt >= maxRetries
                 )
                     throw err;

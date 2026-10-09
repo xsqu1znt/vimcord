@@ -69,12 +69,15 @@ interface CommandTypeMap {
         optionExtras: {
             aliases?: string[];
             description?: string;
+            subcommands?: Record<string, PrefixCommandModuleSubcommand>;
         };
         contextExtras: {
             message: Message;
             messageContent: string;
             prefix: string;
             trigger: string;
+            /** Matched canonical subcommand name, or null when using the parent handler. */
+            subcommand: string | null;
             splitContent: (options?: { separator?: string; lowercase?: boolean; uppercase?: boolean }) => string[];
         };
         hookExtras: Record<never, never>;
@@ -104,6 +107,13 @@ interface CommandTypeMap {
 }
 
 export type CommandModuleArgs<T extends CommandModuleType> = CommandTypeMap[T]["args"];
+
+export interface PrefixCommandModuleSubcommand {
+    aliases?: string[];
+    description?: string;
+    /** Receives messageContent and splitContent() after the subcommand token. */
+    handler(ctx: CommandModuleContext<CommandModuleType.Prefix>): Promise<unknown> | unknown;
+}
 
 export type CommandModuleContext<T extends CommandModuleType> = ModuleContext & CommandTypeMap[T]["contextExtras"];
 export type CommandModuleHookContext<T extends CommandModuleType> = CommandModuleContext<T> &
