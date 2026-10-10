@@ -292,6 +292,26 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         expect(end.mock.calls[0]?.[1]).toBe("idle");
     });
 
+    it.each(["time", "idle"] as const)("renews the %s window when a modal or result completes", async reason => {
+        const message = makeMessage();
+        const c = better(message, reason === "time" ? { timeout: 500 } : { idle: 500 });
+        const end = vi.fn();
+        c.onEnd(end);
+        const ended = new Promise<void>(r => c.onEnd(() => r()));
+
+        await new Promise(r => setTimeout(r, 250));
+        c.resetTimer();
+        await new Promise(r => setTimeout(r, 300));
+        expect(end).not.toHaveBeenCalled();
+
+        c.resetTimer();
+        await new Promise(r => setTimeout(r, 300));
+        expect(end).not.toHaveBeenCalled();
+        await ended;
+        expect(end).toHaveBeenCalledWith([], reason);
+        expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
+    });
+
     it("matches the installed collector's in-flight manual-stop race and concurrent max race", async () => {
         const message = makeMessage();
         const c = better(message, { timeout: 1000, max: 1 });

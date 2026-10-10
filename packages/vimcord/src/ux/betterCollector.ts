@@ -97,6 +97,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     private readonly collector: {
         on(event: "collect", handler: CollectorEventHandler<"collect">): void;
         on(event: "end", handler: CollectorEventHandler<"end">): void;
+        resetTimer(): void;
         stop(reason?: string): void;
     };
 
@@ -412,6 +413,12 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
      */
     onEnd(fn: (collected: MessageComponentInteraction[], reason: string) => unknown): this {
         this.endListeners.push(fn);
+        return this;
+    }
+
+    /** Restarts the configured idle or timeout window after work outside component collection, such as a modal. */
+    resetTimer(): this {
+        this.collector.resetTimer();
         return this;
     }
 
