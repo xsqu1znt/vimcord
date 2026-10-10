@@ -1,5 +1,11 @@
 # @vimcord/plugin-mongoose
 
+## 1.4.0
+
+### Minor Changes
+
+- 79df347: Add typed dotted schema paths to `MongoSchemaBuilder.distinct()`. Nested object and array paths now infer their distinct value types, so `distinct("asset.imageUrl")` returns `string[]` for a string field while invalid paths remain type errors.
+
 ## 1.3.0
 
 ### Minor Changes
