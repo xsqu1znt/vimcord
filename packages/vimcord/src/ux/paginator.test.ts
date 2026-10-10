@@ -467,6 +467,22 @@ describe("Paginator collection and navigation", () => {
         expect(second.deferUpdate).toHaveBeenCalledOnce();
     });
 
+    it("moves to the new last page when a page loader shrinks its chapter", async () => {
+        const loader = vi.fn((page: number, { setPageCount }) => {
+            if (page > 0) setPageCount(2);
+            return String(page);
+        });
+        const paginator = new Paginator({ timeout: 1000 }).addPageLoader(3, loader, { label: "Pages" });
+        const paginate = vi.fn();
+        paginator.on("paginate", paginate);
+        const { collector } = await sendPaginator(paginator);
+        collector.emit("collect", createInteraction("paginator:last"));
+        await settle();
+
+        expect(loader.mock.calls.map(c => c[0])).toEqual([0, 2, 1]);
+        expect(paginate.mock.calls[0]![0]).toMatchObject({ destination: { chapter: 0, nested: 1 }, page: "1" });
+    });
+
     it("serializes concurrent programmatic chapter loads", async () => {
         const slow = deferred<string[]>();
         const loader = vi.fn(() => slow.promise);

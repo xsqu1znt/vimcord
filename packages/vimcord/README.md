@@ -515,7 +515,9 @@ const pages = source.kind === "static" || source.kind === "chapterLoader" ? sour
 
 Loaders replace `beforeChapterChange` and `hydrateChapter`. A chapter loader is cached once per paginator. Call
 `reloadChapter()` when it needs fresh data. Use `await paginator.replaceChapters([{ pages, label, value }])` to replace static chapters and re-render. Stable `value` IDs preserve the selected chapter across reordering; omitted values preserve position. Shortened chapters clamp the page, and a removed chapter returns to the first chapter/page. A page loader receives the requested zero-based page on every navigation
-and declares its page count up front.
+and declares its page count up front. When the data changes while the paginator is open, the loader can call
+`setPageCount(count)` from its second argument to correct it. If the requested page no longer exists, the new last page
+loads instead.
 
 If reloading fails, the previous chapter stays available. This includes a reload that removes the current page.
 The failure is logged; select an earlier page before retrying that reload.
@@ -800,8 +802,9 @@ const paginator = new Paginator({
     onLoading: () => ({ containers: [new BetterContainer().addText("Loading users...")] })
 });
 
-paginator.addPageLoader(first.pages, async page => {
-    const { docs } = page === 0 ? first : await Users.paginate(undefined, undefined, { page: page + 1 });
+paginator.addPageLoader(first.pages, async (page, { setPageCount }) => {
+    const { docs, pages } = page === 0 ? first : await Users.paginate(undefined, undefined, { page: page + 1 });
+    setPageCount(Math.max(pages, 1));
     return {
         containers: docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
     };
