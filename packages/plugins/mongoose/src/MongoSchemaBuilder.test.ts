@@ -1,4 +1,4 @@
-import type { QueryOptions } from "mongoose";
+import type { QueryOptions, Types } from "mongoose";
 import type { Vimcord } from "vimcord";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
@@ -55,6 +55,87 @@ afterAll(async () => {
 beforeEach(async () => {
     await Cooldowns.deleteAll({});
     await CachedCooldowns.deleteAll({});
+});
+
+describe("distinct() schema paths", () => {
+    it("infers nested values through optional objects and keeps filters", async () => {
+        const builder = attach(
+            createMongoSchema("distinctAssets", {
+                active: Boolean,
+                asset: { type: { imageUrl: String, metadata: { width: Number } }, required: false },
+                tags: [String],
+                uploadedAt: Date
+            })
+        );
+        await builder.insertMany([
+            { active: true, asset: { imageUrl: "a", metadata: { width: 100 } }, tags: ["a", "b"] },
+            { active: true, asset: { imageUrl: "a", metadata: { width: 200 } }, tags: ["b"] },
+            { active: false, asset: { imageUrl: "b" } },
+            { active: true }
+        ]);
+
+        const urls = await builder.distinct("asset.imageUrl", { active: true });
+        const widths = await builder.distinct("asset.metadata.width");
+        const distinctTopLevel = <Path extends "tags" | "active">(path: Path) => builder.distinct(path);
+        const tags = await distinctTopLevel("tags");
+        const dates = await builder.distinct("uploadedAt");
+        const ids = await builder.distinct("_id");
+
+        expectTypeOf(urls).toEqualTypeOf<string[]>();
+        expectTypeOf(widths).toEqualTypeOf<number[]>();
+        expectTypeOf(tags).toEqualTypeOf<string[]>();
+        expectTypeOf(dates).toEqualTypeOf<Date[]>();
+        expectTypeOf(ids).toEqualTypeOf<Types.ObjectId[]>();
+        expectTypeOf(() =>
+            builder.distinct("asset.imageUrl" as "asset.imageUrl" | "asset.metadata.width")
+        ).returns.resolves.toEqualTypeOf<(string | number)[]>();
+        expect(urls).toEqual(["a"]);
+        expect(widths).toEqual([100, 200]);
+        expect(tags).toEqual(["a", "b"]);
+
+        // These closures are type-checked without sending invalid paths to MongoDB.
+        // @ts-expect-error Unknown nested field
+        expectTypeOf(() => builder.distinct("asset.missing"));
+        // @ts-expect-error Strings have no nested schema fields
+        expectTypeOf(() => builder.distinct("asset.imageUrl.length"));
+        // @ts-expect-error Date methods are not schema fields
+        expectTypeOf(() => builder.distinct("uploadedAt.toISOString"));
+        // @ts-expect-error ObjectId methods are not schema fields
+        expectTypeOf(() => builder.distinct("_id.toHexString"));
+        // @ts-expect-error Unknown top-level field
+        expectTypeOf(() => builder.distinct("missing"));
+        // @ts-expect-error Every member of a path union must be valid
+        expectTypeOf(() => builder.distinct("asset.imageUrl" as "asset.imageUrl" | "asset.missing"));
+    });
+
+    it("infers distinct elements for dotted paths through document arrays", async () => {
+        const builder = attach(
+            createMongoSchema("distinctAssetArrays", {
+                assets: [{ imageUrl: String, tags: [String] }]
+            })
+        );
+        await builder.insertMany([
+            {
+                assets: [
+                    { imageUrl: "a", tags: ["x", "y"] },
+                    { imageUrl: "b", tags: ["x"] }
+                ]
+            },
+            { assets: [{ imageUrl: "a", tags: ["z"] }] }
+        ]);
+
+        const urls = await builder.distinct("assets.imageUrl");
+        const tags = await builder.distinct("assets.tags");
+
+        expectTypeOf(urls).toEqualTypeOf<string[]>();
+        expectTypeOf(tags).toEqualTypeOf<string[]>();
+        expect(urls).toEqual(["a", "b"]);
+        expect(tags).toEqual(["x", "y", "z"]);
+        // @ts-expect-error Unknown document array field
+        expectTypeOf(() => builder.distinct("assets.missing"));
+        // @ts-expect-error Array properties are not schema fields
+        expectTypeOf(() => builder.distinct("assets.length"));
+    });
 });
 
 describe("update() with an aggregation pipeline", () => {

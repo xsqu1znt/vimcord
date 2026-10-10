@@ -31,6 +31,27 @@ import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";
 
 type DistinctValue<Value> = Value extends readonly (infer Item)[] ? NonNullable<Item> : NonNullable<Value>;
+// Resolve only the requested path, traversing optional objects and array elements without expanding every schema path.
+type DistinctPathValue<Doc, Path extends string> = unknown extends Doc
+    ? Doc
+    : Doc extends readonly (infer Item)[]
+      ? DistinctPathValue<Item, Path>
+      : Doc extends Date | Uint8Array | { _bsontype: string }
+        ? never
+        : Doc extends object
+          ? Path extends keyof Doc
+              ? Doc[Path]
+              : Path extends `${infer Key}.${infer Rest}`
+                ? Key extends keyof Doc
+                    ? DistinctPathValue<Doc[Key], Rest>
+                    : never
+                : never
+          : never;
+type DistinctPath<Doc, Path extends string> = Path extends unknown
+    ? [DistinctPathValue<Doc, Path>] extends [never]
+        ? never
+        : Path
+    : never;
 type BuilderDefaults = Omit<DefaultSchemaOptions, "versionKey"> & { versionKey: false };
 // Never intersect options with the defaults: `timestamps: true & false` becomes `never` and corrupts every document field.
 type SchemaOpts<Opts> = Omit<BuilderDefaults, keyof Opts> & Opts;
@@ -593,7 +614,7 @@ export class MongoSchemaBuilder<
     /**
      * Gets the unique values for a schema path across matching documents.
      *
-     * @param path The schema path to read distinct values from
+     * @param path The schema path to read distinct values from, including dotted paths
      * @param filter The filter used to limit documents
      * @param options The query options to pass to Mongoose
      */
@@ -601,11 +622,21 @@ export class MongoSchemaBuilder<
         path: Path,
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         options?: QueryOptions<LeanDoc<Def, Opts>>
-    ): Promise<DistinctValue<LeanDoc<Def, Opts>[Path]>[]> {
+    ): Promise<DistinctValue<LeanDoc<Def, Opts>[Path]>[]>;
+    async distinct<Path extends string>(
+        path: Path & DistinctPath<LeanDoc<Def, Opts>, Path>,
+        filter?: QueryFilter<LeanDoc<Def, Opts>>,
+        options?: QueryOptions<LeanDoc<Def, Opts>>
+    ): Promise<DistinctValue<DistinctPathValue<LeanDoc<Def, Opts>, Path>>[]>;
+    async distinct(
+        path: string,
+        filter?: QueryFilter<LeanDoc<Def, Opts>>,
+        options?: QueryOptions<LeanDoc<Def, Opts>>
+    ): Promise<unknown[]> {
         const model = this.compileModel();
         const values = await model.distinct(path, filter, this.resolveOptions(options));
 
-        return values as DistinctValue<LeanDoc<Def, Opts>[Path]>[];
+        return values;
     }
 
     /**

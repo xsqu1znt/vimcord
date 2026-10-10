@@ -21,6 +21,16 @@
 
 </div>
 
+## Distinct values
+
+`distinct()` accepts top-level and dotted schema paths and infers the nested value type:
+
+```ts
+const imageUrls = await MySchema.distinct("asset.imageUrl"); // string[] for a string field
+```
+
+Paths through document arrays are supported, and array fields return their distinct element values. Invalid paths are type errors.
+
 ## Read cache
 
 `cache: { key: "key", ttl: 60_000, maxEntries: 1000 }` opts into a bounded cache for full lean `fetch({ key })` reads. `maxEntries` defaults to 1000; the oldest insertion is evicted first. Expired entries are removed by an unreferenced timer. Cached plain objects and arrays freeze once on insertion. Class instances such as Date and ObjectId remain unfrozen.
