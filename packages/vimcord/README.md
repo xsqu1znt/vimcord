@@ -649,6 +649,10 @@ Prompt callbacks receive `{ message, status, customId }`, with status `confirmed
 Collector callbacks receive `{ message, reason, collected }`; paginator callbacks receive `{ message, reason }` after pending navigation finishes.
 Prompts and paginators sent through an interaction edit and delete via its webhook, including ephemeral replies and follow-ups. For a `BetterCollector` attached to an interaction response, pass `{ interaction }` in its options to enable the same cleanup.
 The defaults remain DeleteMessage for prompts, DoNothing for collectors, and ClearComponents for paginators.
+
+Call `collector.resetTimer()` after a modal submission or result edit to restart a `BetterCollector`'s configured
+idle or timeout window. Reset it before waiting on slow work as well, so the collector stays active until the result
+is ready. An ended collector cannot be restarted.
 DisableComponents and ClearComponents apply to returned components when present, otherwise to the existing message.
 DoNothing still delivers a returned payload; DeleteMessage deletes and ignores edit fields. Callbacks run once and are never retried on edit failure.
 Prompt resolution awaits the callback and final edit, returns the updated message, and propagates failures. Collector/paginator failures are logged.
