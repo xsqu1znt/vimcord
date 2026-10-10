@@ -1,5 +1,11 @@
 # vimcord
 
+## 4.4.0
+
+### Minor Changes
+
+- e3bf173: Add `BetterCollector.resetTimer()` to renew its configured idle or timeout window after modal submissions and result updates.
+
 ## 4.3.0
 
 ### Minor Changes
