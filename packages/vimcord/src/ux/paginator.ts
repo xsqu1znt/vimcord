@@ -91,7 +91,15 @@ export interface PaginationEventMap {
 }
 
 export type PaginatorChapterLoader = () => Chapter | Promise<Chapter>;
-export type PaginatorPageLoader = (pageIndex: number) => PageResolvable | Promise<PageResolvable>;
+/** Passed to a page loader so it can correct its chapter's page count from the data it just read. */
+export interface PaginatorPageLoaderContext {
+    /** Updates the page count. If the requested page no longer exists, the new last page loads instead. */
+    setPageCount(count: number): void;
+}
+export type PaginatorPageLoader = (
+    pageIndex: number,
+    context: PaginatorPageLoaderContext
+) => PageResolvable | Promise<PageResolvable>;
 export type PaginatorLoadingHook = (
     destination: PageIndex
 ) => PageResolvable | null | undefined | Promise<PageResolvable | null | undefined>;
@@ -197,6 +205,11 @@ const JUMP_PAGE_CUSTOM_ID = "paginator:jump:page";
 function wrapIndex(value: number, max: number): number {
     if (max < 0) return 0;
     return ((value % (max + 1)) + (max + 1)) % (max + 1);
+}
+
+function assertPageLoaderCount(count: number): void {
+    if (count < 1 || !Number.isInteger(count))
+        throw new Error("[Paginator] Page-loader page count must be a positive integer");
 }
 
 function cloneButton(button: ButtonBuilder, disabled = false): ButtonBuilder {
@@ -359,15 +372,27 @@ export class Paginator {
         return pages;
     }
 
-    private async loadPage(index: PageIndex): Promise<PageResolvable> {
+    /** Loads a page and returns the index it landed on, which moves back when a page loader shrinks its chapter. */
+    private async loadPage(index: PageIndex): Promise<{ page: PageResolvable; index: PageIndex }> {
         const chapter = this.getChapter(index.chapter);
-        const page =
-            chapter.source.kind === "pageLoader"
-                ? await chapter.source.loader(index.nested)
-                : (await this.loadChapter(chapter))[index.nested];
+        const { source } = chapter;
+        let page: PageResolvable | undefined;
+        if (source.kind === "pageLoader") {
+            const context: PaginatorPageLoaderContext = {
+                setPageCount: count => {
+                    assertPageLoaderCount(count);
+                    source.pageCount = count;
+                }
+            };
+            page = await source.loader(index.nested, context);
+            if (index.nested >= source.pageCount) {
+                index = { chapter: index.chapter, nested: source.pageCount - 1 };
+                page = await source.loader(index.nested, context);
+            }
+        } else page = (await this.loadChapter(chapter))[index.nested];
         if (!page) throw new Error(`[Paginator] Could not find page at index ${index.nested}`);
         this.validatePageFormat(page);
-        return page;
+        return { page, index };
     }
 
     private isLazyDestination(index: PageIndex): boolean {
@@ -601,16 +626,14 @@ export class Paginator {
         const previousPage = this.getCurrentPage();
         let placeholderShown = false;
         try {
-            const pending = resolveDestination().then(async destination => ({
-                destination,
-                page:
-                    previous.chapter === destination.chapter && previous.nested === destination.nested
-                        ? previousPage
-                        : await this.loadPage(destination)
-            }));
+            const pending = resolveDestination().then(async destination =>
+                previous.chapter === destination.chapter && previous.nested === destination.nested
+                    ? null
+                    : await this.loadPage(destination)
+            );
             placeholderShown = await this.showLoading(pending, requested);
-            const { destination, page } = await pending;
-            if (previous.chapter === destination.chapter && previous.nested === destination.nested) {
+            const loaded = await pending;
+            if (!loaded) {
                 if (placeholderShown && this.state.active) await this.editPage(previousPage);
                 if (interaction && !hasResponded(interaction)) await interaction.deferUpdate().catch(() => {});
                 return;
@@ -619,6 +642,7 @@ export class Paginator {
                 if (interaction && !hasResponded(interaction)) await interaction.deferUpdate().catch(() => {});
                 return;
             }
+            const { page, index: destination } = loaded;
             if (interaction && !hasResponded(interaction)) await this.updatePage(interaction, page, destination);
             else await this.editPage(page, destination);
             if (!this.state.active) return;
@@ -817,8 +841,7 @@ export class Paginator {
         return this.addChapterSource({ kind: "chapterLoader", loader, pages: null }, data);
     }
     addPageLoader(pageCount: number, loader: PaginatorPageLoader, data: ChapterData): this {
-        if (pageCount < 1 || !Number.isInteger(pageCount))
-            throw new Error("[Paginator] Page-loader page count must be a positive integer");
+        assertPageLoaderCount(pageCount);
         return this.addChapterSource({ kind: "pageLoader", loader, pageCount }, data);
     }
 
@@ -863,7 +886,7 @@ export class Paginator {
             const nested = found < 0 ? 0 : Math.min(this.state.index.nested, chapters[chapter]!.pages.length - 1);
             const index = { chapter, nested };
             this.chapters = replacement;
-            const page = await this.loadPage(index);
+            const { page } = await this.loadPage(index);
             if (this.state.message) await this.editPage(page, index);
             this.state.index = index;
             this.state.currentPage = page;
@@ -892,9 +915,8 @@ export class Paginator {
 
     async setPage(chapterIndex = this.state.index.chapter, nestedIndex = this.state.index.nested): Promise<void> {
         if (!this.state.message) {
-            const destination = await this.resolveDestination(chapterIndex, nestedIndex);
-            const page = await this.loadPage(destination);
-            this.state.index = destination;
+            const { page, index } = await this.loadPage(await this.resolveDestination(chapterIndex, nestedIndex));
+            this.state.index = index;
             this.state.currentPage = page;
             return;
         }
@@ -920,10 +942,11 @@ export class Paginator {
                 if (chapter.source.kind === "chapterLoader") chapter.source.pages = null;
                 const pending = this.loadPage(this.state.index);
                 placeholderShown = await this.showLoading(pending, this.state.index);
-                const page = await pending;
+                const { page, index } = await pending;
                 if (!this.state.active) return;
-                await this.editPage(page);
+                await this.editPage(page, index);
                 if (!this.state.active) return;
+                this.state.index = index;
                 this.state.currentPage = page;
             } catch (error) {
                 if (chapter.source.kind === "chapterLoader") chapter.source.pages = previousPages;
@@ -948,9 +971,10 @@ export class Paginator {
         this.state.interaction = handler instanceof BaseInteraction ? handler : undefined;
         this.state.active = true;
         try {
-            const destination = await this.resolveDestination(this.state.index.chapter, this.state.index.nested);
-            const page = await this.loadPage(destination);
-            this.state.index = destination;
+            const { page, index } = await this.loadPage(
+                await this.resolveDestination(this.state.index.chapter, this.state.index.nested)
+            );
+            this.state.index = index;
             this.state.currentPage = page;
             this.state.message = await dynaSend(handler, this.buildSendOptions(page, options));
         } catch (error) {
