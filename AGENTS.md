@@ -64,7 +64,13 @@ If finishing the task needs a pile of workarounds nobody asked for, stop and say
 
 ## Publishing
 
-Use `patch` by default when writing changesets. Choose `minor` only for new backward-compatible public features and `major` for breaking public API changes. For a minor or major bump, explain the feature or breaking change in the changeset summary.
+Every changeset is a `patch` bump unless the user explicitly says otherwise. This holds even when the change adds a public feature or breaks the public API. Don't judge the bump size yourself:
+
+- `patch`: the default for every release, including "use the release workflow" and "publish".
+- `minor`: only when the user says "minor" for this release.
+- `major`: only when the user says "major" for this release.
+
+If you think a change deserves `minor` or `major`, still write `patch` and mention it in your reply. For a minor or major bump, explain the feature or breaking change in the changeset summary.
 
 When told to publish the packages that were updated to NPM, open a PR with the correct changesets changelog and merge it, then wait for the changesets action to open a new PR, merging that one too if there's no issues, wait until the updated packages are verified to be live on NPM before calling the task complete. Delete the unused branches when done.
 
