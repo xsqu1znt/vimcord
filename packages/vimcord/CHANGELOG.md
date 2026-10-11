@@ -1,5 +1,15 @@
 # vimcord
 
+## 4.5.0
+
+### Minor Changes
+
+- 91c6ef4: Page loaders receive a `setPageCount(count)` context so a paginator can follow data that changes while it's open. When the requested page no longer exists, the new last page loads instead of an empty one.
+
+### Patch Changes
+
+- 91c6ef4: `BetterModal` now enforces Discord's limit of 5 top-level components instead of 25.
+
 ## 4.4.0
 
 ### Minor Changes
