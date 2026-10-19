@@ -30,7 +30,7 @@ Inside `packages/vimcord/src`:
 Run from the repo root. PNPM, not NPM, unless PNPM cannot do the job.
 
 - `pnpm format` after any change, including a one-line mechanical edit. Keep whatever it rewrites, even in files outside the task, and say which unrelated files it touched.
-- `pnpm format && pnpm check` to verify real work. Fix what `check` flags inside the task. For anything it flags outside the task, say what it is in a sentence and ask before touching it.
+- `pnpm format && pnpm check` to verify real work. Fix what `check` flags inside the task. For anything it flags outside the task, say what it is in one line and leave it as is.
 - A mechanical edit needs `pnpm format` alone. No type check, no build.
 
 Type checks and a focused smoke test cover this repo. Write a test when the changed logic has a realistic way to break, and say why the file needs to exist before adding it. If a test would only confirm the implementation ran as written, verify it with a throwaway script instead of a committed test file.
