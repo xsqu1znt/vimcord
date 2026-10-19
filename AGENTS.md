@@ -64,6 +64,8 @@ If finishing the task needs a pile of workarounds nobody asked for, stop and say
 
 ## Publishing
 
+Follow the `pr-writing` skill's Changesets section for publish authorization and original-PR links in batch releases. The release workflow below applies only when the user explicitly asks to publish.
+
 Every changeset is a `patch` bump unless the user explicitly says otherwise. This holds even when the change adds a public feature or breaks the public API. Don't judge the bump size yourself:
 
 - `patch`: the default for every release, including "use the release workflow" and "publish".
