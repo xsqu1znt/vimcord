@@ -1,5 +1,6 @@
 import type {
     AggregateOptions,
+    ApplySchemaOptions,
     ClientSessionOptions,
     CreateOptions,
     DefaultSchemaOptions,
@@ -53,18 +54,19 @@ type DistinctPath<Doc, Path extends string> = Path extends unknown
         : Path
     : never;
 type BuilderDefaults = Omit<DefaultSchemaOptions, "versionKey"> & { versionKey: false };
+// Mongoose defaults omitted timestamp names at runtime, but its type resolver only includes explicit keys.
+type TimestampOpts<Opts> = Opts extends object ? Omit<{ createdAt: true; updatedAt: true }, keyof Opts> & Opts : Opts;
 // Never intersect options with the defaults: `timestamps: true & false` becomes `never` and corrupts every document field.
-type SchemaOpts<Opts> = Omit<BuilderDefaults, keyof Opts> & Opts;
+type SchemaOpts<Opts> = Omit<BuilderDefaults, keyof Opts> & {
+    [Key in keyof Opts]: Key extends "timestamps" ? TimestampOpts<Opts[Key]> : Opts[Key];
+};
 
 type LeanDoc<Def, Opts> = InferRawDocType<Def, SchemaOpts<Opts>>;
-type HydDoc<Def, Opts, Doc = ObtainDocumentType<Def, any, SchemaOpts<Opts>>> = HydratedDocument<
-    Doc,
-    {},
-    {},
-    {},
-    Doc,
-    SchemaOpts<Opts>
->;
+type HydDoc<
+    Def,
+    Opts,
+    Doc = ApplySchemaOptions<ObtainDocumentType<Def, unknown, SchemaOpts<Opts>>, SchemaOpts<Opts>>
+> = HydratedDocument<Doc, {}, {}, {}, Doc, SchemaOpts<Opts>>;
 
 /** The lean document type a `MongoSchemaBuilder` infers, for naming it as a consumer-facing interface. */
 export type InferDoc<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? LeanDoc<Def, Opts> : never;

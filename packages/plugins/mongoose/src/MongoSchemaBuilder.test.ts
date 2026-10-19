@@ -1,5 +1,6 @@
 import type { QueryOptions, Types } from "mongoose";
 import type { Vimcord } from "vimcord";
+import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -55,6 +56,124 @@ afterAll(async () => {
 beforeEach(async () => {
     await Cooldowns.deleteAll({});
     await CachedCooldowns.deleteAll({});
+});
+
+describe("hydrated timestamp inference", () => {
+    it("keeps create().toObject() assignable to InferDoc without requiring generated or defaulted input fields", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "timestampedReleases",
+                {
+                    releaseId: { type: Number, required: true },
+                    status: { type: String, enum: ["draft", "released"], required: true },
+                    droppable: { type: Boolean, default: true },
+                    name: { type: String, default: undefined },
+                    cards: [{ name: String }]
+                },
+                { timestamps: true }
+            )
+        );
+        const input = { releaseId: 1, status: "draft" } satisfies CreateDocument<typeof builder>;
+        const doc = await builder.create(input);
+        const plain = doc.toObject();
+
+        expectTypeOf(doc).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(doc.createdAt).toEqualTypeOf<Date>();
+        expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.createdAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.status).toEqualTypeOf<"draft" | "released">();
+        expectTypeOf(plain.droppable).toEqualTypeOf<boolean>();
+        expectTypeOf(plain.name).toEqualTypeOf<string | null | undefined>();
+        expect(plain).toMatchObject({ createdAt: expect.any(Date), updatedAt: expect.any(Date), droppable: true });
+
+        doc.cards.push({ name: "card" });
+        expectTypeOf(doc.cards[0]!.ownerDocument).toBeFunction();
+        await doc.save();
+        expect(doc.toObject().cards).toMatchObject([{ name: "card" }]);
+
+        const [created] = await builder.create([{ releaseId: 2, status: "draft" }]);
+        expectTypeOf(created!.toObject()).toExtend<InferDoc<typeof builder>>();
+        expect(created!.createdAt).toBeInstanceOf(Date);
+        const fetched = await builder.fetch({ releaseId: 1 }, undefined, { lean: false, required: true });
+        expectTypeOf(fetched).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(fetched.toObject()).toExtend<InferDoc<typeof builder>>();
+        expect(fetched.toObject().createdAt).toEqual(plain.createdAt);
+    });
+
+    it("uses configured timestamp names", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "renamedTimestamps",
+                { key: String },
+                { timestamps: { createdAt: "createdOn", updatedAt: "modifiedOn" } }
+            )
+        );
+        const doc = await builder.create({ key: "a" });
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain).toMatchObject({ createdOn: expect.any(Date), modifiedOn: expect.any(Date) });
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
+
+    it("keeps the default name for a timestamp omitted from the configuration", async () => {
+        const builder = attach(
+            createMongoSchema("partialTimestamps", { key: String }, { timestamps: { createdAt: "createdOn" } })
+        );
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf<InferDoc<typeof builder>>().toHaveProperty("updatedAt").toEqualTypeOf<Date>();
+        expect(plain).toMatchObject({ createdOn: expect.any(Date), updatedAt: expect.any(Date) });
+    });
+
+    it("omits an individually disabled timestamp", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "singleTimestamp",
+                { key: String },
+                { timestamps: { createdAt: false, updatedAt: "modifiedOn" } }
+            )
+        );
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc).not.toHaveProperty("createdAt");
+        expectTypeOf(plain.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain.modifiedOn).toBeInstanceOf(Date);
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
+
+    it.each([{}, { timestamps: false }] as const)("omits timestamps when not enabled: %j", async options => {
+        const builder = attach(createMongoSchema(`noTimestamps${"timestamps" in options}`, { key: String }, options));
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc).not.toHaveProperty("createdAt");
+        expectTypeOf(doc).not.toHaveProperty("updatedAt");
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
 });
 
 describe("distinct() schema paths", () => {
