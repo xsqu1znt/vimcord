@@ -57,6 +57,11 @@ Ordering defaults to `_id` ascending. For another scalar, non-null ordering path
 
 ## Explicit write APIs
 
+`update()` and `upsert()` honor MongoDB projections: inclusion projections retain `_id` by default; pass
+`{ projection: { hits: 1, _id: 0 } }` to exclude it. Literal object projections with `_id: 0` or `_id: false` also
+omit `_id` from the inferred return type, including hydrated results. Other projected fields, string projections,
+and broadly typed options retain their existing return-type inference.
+
 - `insertMany(docs, { ordered, session, limit })` batches inserts and retains Mongoose validation and `insertMany` middleware. It does **not** run `save` middleware. `create()` retains its existing individual save behavior. `limit` bounds Mongoose's concurrent validation work; it is not the MongoDB batch size.
 - `updateOne(filter, update, options)` returns MongoDB write counts instead of a document. It uses `updateOne` query middleware; pass `runValidators: true` when needed. `update()` retains returned-document behavior and `findOneAndUpdate` middleware.
 - `createUnique(path, doc, generate, maxRetries = 10)` generates and creates in one retry loop. It requires an installed single-field unique index at `path`, uses `create()` validation/save middleware, and retries only duplicate-key errors for that index. Other duplicate indexes, validation errors and exhausted retries propagate. Save middleware may run on every attempt, so account for repeated side effects. Standalone `unique()` retains its preflight contract and cannot reserve a value against concurrent callers.

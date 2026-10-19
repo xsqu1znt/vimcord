@@ -84,12 +84,17 @@ type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false }
         ? HydDoc<Def, Opts>
         : LeanDoc<Def, Opts>;
 
+/** Object projections can explicitly exclude `_id` from either lean or hydrated write results. */
+type ProjectedWriteDoc<Def, Opts, QOpts> = QOpts extends { projection: { _id: 0 | false } }
+    ? Omit<ResolvedDoc<Def, Opts, QOpts>, "_id">
+    : ResolvedDoc<Def, Opts, QOpts>;
+
 /**
  * `update()` returns `null` when nothing matched. An upsert always yields a document, unless `returnDocument` can be
  * `"before"`: an inserted document had no previous state.
  */
 type UpdateResult<Def, Opts, QOpts> =
-    | ResolvedDoc<Def, Opts, QOpts>
+    | ProjectedWriteDoc<Def, Opts, QOpts>
     | (QOpts extends { upsert: true } ? ("before" extends QOpts[keyof QOpts & "returnDocument"] ? null : never) : null);
 
 type BuilderSchema<Def, Opts> = Schema<LeanDoc<Def, Opts>>;
@@ -549,27 +554,29 @@ export class MongoSchemaBuilder<
 
     /**
      * Updates the first matching document, or creates it when no document matches.
+     * Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
      *
      * @param filter The filter used to match the document
      * @param update The update to apply when a document exists, or create from when it does not
      * @param options The query options to pass to Mongoose
      */
-    async upsert<Options extends Omit<QueryOptions<LeanDoc<Def, Opts>>, "new" | "returnDocument" | "upsert">>(
+    async upsert<const Options extends Omit<QueryOptions<LeanDoc<Def, Opts>>, "new" | "returnDocument" | "upsert">>(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
         update: UpdateQuery<LeanDoc<Def, Opts>>,
         options?: Options
-    ): Promise<ResolvedDoc<Def, Opts, Options>> {
+    ): Promise<ProjectedWriteDoc<Def, Opts, Options>> {
         const model = this.compileModel();
         const queryOptions = this.resolveOptions(options);
         try {
-            const result = await model.findOneAndUpdate(filter, update, {
+            // The model shortcut applies projections twice, dropping `_id: 0` from inclusion projections.
+            const result = await model.findOne().findOneAndUpdate(filter, update, {
                 returnDocument: "after",
                 ...queryOptions,
                 upsert: true,
                 lean: queryOptions.lean ?? this.leanByDefault
             });
 
-            return result as unknown as ResolvedDoc<Def, Opts, Options>;
+            return result as unknown as ProjectedWriteDoc<Def, Opts, Options>;
         } finally {
             this.invalidateCache();
         }
@@ -879,12 +886,13 @@ export class MongoSchemaBuilder<
      * when the document was inserted.
      * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
      * hydrated Mongoose document.
+     * Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
      *
      * @param filter The filter used to match the document
      * @param update The update object or aggregation pipeline to apply
      * @param options The query options to pass to Mongoose
      */
-    async update<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
+    async update<const Options extends QueryOptions<LeanDoc<Def, Opts>>>(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
         update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: Options
@@ -892,7 +900,8 @@ export class MongoSchemaBuilder<
         const model = this.compileModel();
         const queryOptions = this.resolveOptions(options);
         try {
-            const result = await model.findOneAndUpdate(filter, update, {
+            // The model shortcut applies projections twice, dropping `_id: 0` from inclusion projections.
+            const result = await model.findOne().findOneAndUpdate(filter, update, {
                 ...queryOptions,
                 lean: queryOptions.lean ?? this.leanByDefault,
                 returnDocument: queryOptions.returnDocument ?? "after",
