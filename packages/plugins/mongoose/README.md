@@ -83,6 +83,41 @@ property; compound indexes match too. An error without `keyPattern` cannot estab
 `createUnique()` still retries only driver errors with code 11000 for an exact single-field index at the chosen
 path, preserving its existing retry behavior.
 
+## Transaction aborts and results
+
+Wrap the whole builder or plugin `useTransaction()` call with `tryTransaction()`. Inside the transaction, call
+`abort(message)` when a business rule fails. It throws `TransactionAbort`, letting MongoDB roll back earlier writes
+before the helper returns `{ success: false, error: message }`.
+
+```ts
+import { abort, tryTransaction } from "@vimcord/plugin-mongoose";
+
+const result = await tryTransaction(() =>
+    Records.useTransaction(async () => {
+        await Records.updateOne({ key: sourceKey }, { $inc: { count: -1 } });
+        const destination = await Records.updateOne({ key: destinationKey }, { $inc: { count: 1 } });
+        if (!destination.matchedCount) abort("The destination no longer exists.");
+        return { transferred: 1 };
+    })
+);
+
+if (result.success) {
+    console.log(result.value.transferred);
+} else {
+    console.log(result.error);
+}
+```
+
+The exported `TransactionResult<T>` is `{ success: true, value: T } | { success: false, error: string }`.
+Successful values, including `undefined`, pass through unchanged. Unexpected errors rethrow by default. Pass a
+second argument, `tryTransaction(run, "Could not complete the transaction.")`, to log the original error with
+`console.warn` and return that fallback message instead. Expected aborts are not logged and keep their own message.
+
+Keep `tryTransaction()` outside the transaction callback: catching an abort inside it turns the failure into a normal
+return and can commit earlier writes. The helper does not start a transaction or add retries; `useTransaction()`
+retains its driver retry behavior. Callbacks may run more than once, so keep external side effects after a successful
+result. Await database operations sequentially on a transaction session, and await all callback work before returning.
+
 ## Run-once migrations
 
 Register migrations on the `MongoosePlugin` instance with

@@ -9,6 +9,7 @@ import { sessionContext } from "./sessionContext.js";
 
 export * from "./MongoSchemaBuilder.js";
 export { isDuplicateKeyError } from "./isDuplicateKeyError.js";
+export * from "./transaction.js";
 
 interface MigrationRecord {
     _id: string;
