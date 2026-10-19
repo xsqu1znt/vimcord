@@ -1,7 +1,9 @@
 import type { QueryOptions, Types } from "mongoose";
 import type { Vimcord } from "vimcord";
+import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
+import { Document } from "mongoose";
 import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { MongoosePlugin } from "./index.js";
 import { createMongoSchema } from "./MongoSchemaBuilder.js";
@@ -55,6 +57,124 @@ afterAll(async () => {
 beforeEach(async () => {
     await Cooldowns.deleteAll({});
     await CachedCooldowns.deleteAll({});
+});
+
+describe("hydrated timestamp inference", () => {
+    it("keeps create().toObject() assignable to InferDoc without requiring generated or defaulted input fields", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "timestampedReleases",
+                {
+                    releaseId: { type: Number, required: true },
+                    status: { type: String, enum: ["draft", "released"], required: true },
+                    droppable: { type: Boolean, default: true },
+                    name: { type: String, default: undefined },
+                    cards: [{ name: String }]
+                },
+                { timestamps: true }
+            )
+        );
+        const input = { releaseId: 1, status: "draft" } satisfies CreateDocument<typeof builder>;
+        const doc = await builder.create(input);
+        const plain = doc.toObject();
+
+        expectTypeOf(doc).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(doc.createdAt).toEqualTypeOf<Date>();
+        expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.createdAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.status).toEqualTypeOf<"draft" | "released">();
+        expectTypeOf(plain.droppable).toEqualTypeOf<boolean>();
+        expectTypeOf(plain.name).toEqualTypeOf<string | null | undefined>();
+        expect(plain).toMatchObject({ createdAt: expect.any(Date), updatedAt: expect.any(Date), droppable: true });
+
+        doc.cards.push({ name: "card" });
+        expectTypeOf(doc.cards[0]!.ownerDocument).toBeFunction();
+        await doc.save();
+        expect(doc.toObject().cards).toMatchObject([{ name: "card" }]);
+
+        const [created] = await builder.create([{ releaseId: 2, status: "draft" }]);
+        expectTypeOf(created!.toObject()).toExtend<InferDoc<typeof builder>>();
+        expect(created!.createdAt).toBeInstanceOf(Date);
+        const fetched = await builder.fetch({ releaseId: 1 }, undefined, { lean: false, required: true });
+        expectTypeOf(fetched).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(fetched.toObject()).toExtend<InferDoc<typeof builder>>();
+        expect(fetched.toObject().createdAt).toEqual(plain.createdAt);
+    });
+
+    it("uses configured timestamp names", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "renamedTimestamps",
+                { key: String },
+                { timestamps: { createdAt: "createdOn", updatedAt: "modifiedOn" } }
+            )
+        );
+        const doc = await builder.create({ key: "a" });
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain).toMatchObject({ createdOn: expect.any(Date), modifiedOn: expect.any(Date) });
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
+
+    it("keeps the default name for a timestamp omitted from the configuration", async () => {
+        const builder = attach(
+            createMongoSchema("partialTimestamps", { key: String }, { timestamps: { createdAt: "createdOn" } })
+        );
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain.createdOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain.updatedAt).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf<InferDoc<typeof builder>>().toHaveProperty("updatedAt").toEqualTypeOf<Date>();
+        expect(plain).toMatchObject({ createdOn: expect.any(Date), updatedAt: expect.any(Date) });
+    });
+
+    it("omits an individually disabled timestamp", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "singleTimestamp",
+                { key: String },
+                { timestamps: { createdAt: false, updatedAt: "modifiedOn" } }
+            )
+        );
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(doc).not.toHaveProperty("createdAt");
+        expectTypeOf(plain.modifiedOn).toEqualTypeOf<Date>();
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain.modifiedOn).toBeInstanceOf(Date);
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
+
+    it.each([{}, { timestamps: false }] as const)("omits timestamps when not enabled: %j", async options => {
+        const builder = attach(createMongoSchema(`noTimestamps${"timestamps" in options}`, { key: String }, options));
+        const doc = await builder.create({});
+        const plain = doc.toObject();
+
+        expectTypeOf(doc).not.toHaveProperty("createdAt");
+        expectTypeOf(doc).not.toHaveProperty("updatedAt");
+        expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
+        expectTypeOf(plain).not.toHaveProperty("createdAt");
+        expectTypeOf(plain).not.toHaveProperty("updatedAt");
+        expect(plain).not.toHaveProperty("createdAt");
+        expect(plain).not.toHaveProperty("updatedAt");
+    });
 });
 
 describe("distinct() schema paths", () => {
@@ -135,6 +255,136 @@ describe("distinct() schema paths", () => {
         expectTypeOf(() => builder.distinct("assets.missing"));
         // @ts-expect-error Array properties are not schema fields
         expectTypeOf(() => builder.distinct("assets.length"));
+    });
+});
+
+describe("update() and upsert() projections", () => {
+    it.each([
+        [undefined, ["_id", "key", "until", "hits"]],
+        [{}, ["_id", "key", "until", "hits"]],
+        [{ hits: 1 }, ["_id", "hits"]],
+        [{ hits: 1, _id: 0 }, ["hits"]],
+        [{ _id: 0, hits: 1 }, ["hits"]],
+        [{ hits: true, _id: false }, ["hits"]],
+        [{ key: 0 }, ["_id", "until", "hits"]],
+        [{ key: 0, _id: 0 }, ["until", "hits"]],
+        [{ _id: 0 }, ["key", "until", "hits"]],
+        [{ _id: false }, ["key", "until", "hits"]],
+        [{ _id: 1 }, ["_id"]],
+        [{ hits: 1, _id: 1 }, ["_id", "hits"]],
+        ["hits -_id", ["hits"]]
+    ] as const)("preserves MongoDB's projection contract for %j", async (projection, keys) => {
+        await Cooldowns.create({ key: "a", hits: 4 });
+
+        for (const update of [{ $inc: { hits: 1 } }, bump]) {
+            for (const lean of [true, false]) {
+                const result = await Cooldowns.update({ key: "a" }, update, { projection, lean });
+                const object = result instanceof Document ? result.toObject() : result;
+
+                expect(Object.keys(object!).sort()).toEqual([...keys].sort());
+            }
+        }
+        for (const lean of [true, false]) {
+            const result = await Cooldowns.upsert({ key: "b" }, { hits: 4 }, { projection, lean });
+            const object = result instanceof Document ? result.toObject() : result;
+
+            expect(Object.keys(object).sort()).toEqual([...keys].sort());
+        }
+    });
+
+    it("omits explicitly excluded _id from update and upsert types", async () => {
+        const inserted = await Cooldowns.upsert({ key: "a" }, { hits: 4 }, { projection: { _id: 0, hits: 1 } });
+        const updated = await Cooldowns.update({ key: "a" }, bump, { projection: { _id: 0 } });
+        const before = await Cooldowns.update({ key: "a" }, bump, {
+            projection: { _id: false, key: false },
+            returnDocument: "before",
+            lean: false
+        });
+        const upserted = await Cooldowns.update({ key: "b" }, bump, { projection: { _id: 0, hits: 1 }, upsert: true });
+        const missing = await Cooldowns.update({ key: "missing" }, bump, {
+            projection: { _id: 0 },
+            upsert: true,
+            returnDocument: "before"
+        });
+
+        expect(inserted).toEqual({ hits: 4 });
+        expect(updated).toEqual({ key: "a", until: 0, hits: 5 });
+        expect(before?.toObject()).toEqual({ until: 0, hits: 5 });
+        expect(upserted).toEqual({ hits: 1 });
+        expect(missing).toBeNull();
+        expectTypeOf<null>().toExtend<typeof updated>();
+        expectTypeOf<null>().not.toExtend<typeof upserted>();
+        expectTypeOf<null>().toExtend<typeof missing>();
+        expectTypeOf(inserted.hits).toBeNumber();
+        expectTypeOf(before!.save).toBeFunction();
+        expectTypeOf(upserted.hits).toBeNumber();
+        // @ts-expect-error Explicit exclusion removes _id from the inferred result.
+        expectTypeOf(inserted._id);
+        // @ts-expect-error Explicit exclusion also applies to nullable update results.
+        expectTypeOf(updated!._id);
+        // @ts-expect-error Hydrated documents still respect explicit _id exclusion.
+        expectTypeOf(before!._id);
+        // @ts-expect-error Upserting through update() respects the same projection.
+        expectTypeOf(upserted._id);
+    });
+
+    it("keeps _id types for default and inclusive projections and broadly typed options", async () => {
+        await Cooldowns.create({ key: "a" });
+        const options: QueryOptions = { projection: { _id: 0 } };
+        const defaultResult = await Cooldowns.update({ key: "a" }, bump);
+        const included = await Cooldowns.update({ key: "a" }, bump, { projection: { hits: 1 } });
+        const excludedField = await Cooldowns.update({ key: "a" }, bump, { projection: { key: 0 } });
+        const explicitId = await Cooldowns.update({ key: "a" }, bump, { projection: { _id: 1 } });
+        const broad = await Cooldowns.update({ key: "a" }, bump, options);
+        const upserted = await Cooldowns.upsert({ key: "b" }, { hits: 1 });
+
+        expectTypeOf(defaultResult!._id).toEqualTypeOf<Types.ObjectId>();
+        expectTypeOf(included!._id).toEqualTypeOf<Types.ObjectId>();
+        expectTypeOf(excludedField!._id).toEqualTypeOf<Types.ObjectId>();
+        expectTypeOf(explicitId!._id).toEqualTypeOf<Types.ObjectId>();
+        expectTypeOf(broad!._id).toEqualTypeOf<Types.ObjectId>();
+        expectTypeOf(upserted._id).toEqualTypeOf<Types.ObjectId>();
+        expect(broad).not.toHaveProperty("_id");
+    });
+
+    it("preserves validation, sorting, and update middleware without running findOne middleware", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "projectedWrites",
+                { key: String, hits: { type: Number, min: 0, default: 0 } },
+                { leanByDefault: false }
+            )
+        );
+        const found = vi.fn();
+        const updated = vi.fn();
+        builder.schema.pre("findOne", function () {
+            found();
+        });
+        builder.schema.pre("findOneAndUpdate", function () {
+            updated();
+        });
+        await builder.insertMany([
+            { key: "a", hits: 1 },
+            { key: "b", hits: 2 }
+        ]);
+
+        const result = await builder.update({}, { hits: 3 }, { projection: { key: 1, _id: 0 }, sort: { hits: -1 } });
+        const upserted = await builder.upsert({ key: "c" }, { hits: 4 }, { projection: { hits: 1, _id: false } });
+
+        expect(result?.toObject()).toEqual({ key: "b" });
+        expect(upserted.toObject()).toEqual({ hits: 4 });
+        expect(found).not.toHaveBeenCalled();
+        expect(updated).toHaveBeenCalledTimes(2);
+        expectTypeOf(result!.save).toBeFunction();
+        expectTypeOf(upserted.save).toBeFunction();
+        // @ts-expect-error Builder-default hydrated documents also exclude _id.
+        expectTypeOf(result!._id);
+        // @ts-expect-error Upsert preserves hydration and explicit _id exclusion.
+        expectTypeOf(upserted._id);
+        await expect(
+            builder.update({ key: "a" }, { hits: -1 }, { runValidators: true, projection: { hits: 1, _id: 0 } })
+        ).rejects.toThrow();
+        expect(await builder.fetch({ key: "a" })).toMatchObject({ hits: 1 });
     });
 });
 
