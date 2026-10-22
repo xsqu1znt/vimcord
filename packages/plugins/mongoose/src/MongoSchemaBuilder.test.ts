@@ -547,28 +547,171 @@ describe("update() inside a transaction", () => {
     });
 });
 
-describe("update() cache invalidation", () => {
-    it("drops the cached entry for the filter's cache key after a pipeline update", async () => {
+describe("update cache invalidation", () => {
+    it.each(["update", "upsert", "updateOne", "updateAll"] as const)(
+        "%s preserves unrelated entries when the filter pins an unchanged cache key",
+        async write => {
+            await CachedCooldowns.insertMany([
+                { key: "a", hits: 1 },
+                { key: "b", hits: 1 }
+            ]);
+            const other = await CachedCooldowns.fetch({ key: "b" });
+
+            for (const update of [{ hits: 2 }, { $set: { hits: 2 } }, { $inc: { hits: 1 } }]) {
+                const previous = await CachedCooldowns.fetch({ key: "a" });
+                const filter = { key: { $eq: "a" }, hits: previous!.hits };
+                if (write === "update") await CachedCooldowns.update(filter, update);
+                else if (write === "upsert") await CachedCooldowns.upsert(filter, update);
+                else if (write === "updateOne") await CachedCooldowns.updateOne(filter, update);
+                else await CachedCooldowns.updateAll(filter, update);
+                const fresh = await CachedCooldowns.fetch({ key: "a" });
+                expect(fresh).not.toBe(previous);
+                expect(fresh?.hits).toBe("$inc" in update ? previous!.hits + 1 : 2);
+                expect(await CachedCooldowns.fetch({ key: "b" })).toBe(other);
+            }
+        }
+    );
+
+    it.each([
+        [bump],
+        [[{ $addFields: { hits: 2 } }]],
+        [[{ $unset: "hits" }, { $set: { hits: 2 } }]],
+        [[{ $unset: ["hits"] }, { $set: { hits: 2 } }]]
+    ])("preserves unrelated entries after a key-preserving pipeline update: %j", async update => {
         await CachedCooldowns.create({ key: "a", hits: 1 });
         await CachedCooldowns.create({ key: "b", hits: 1 });
         await CachedCooldowns.fetch({ key: "a" });
-        await CachedCooldowns.fetch({ key: "b" });
+        const other = await CachedCooldowns.fetch({ key: "b" });
 
-        await CachedCooldowns.update({ key: "a" }, bump);
-        // Written behind the cache's back: updates clear all entries because they may change the cache key.
-        await CachedCooldowns.model!.updateOne({ key: "b" }, { hits: 99 });
+        await CachedCooldowns.update({ key: "a" }, update);
 
         expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
-        expect(await CachedCooldowns.fetch({ key: "b" })).toMatchObject({ hits: 99 });
+        expect(await CachedCooldowns.fetch({ key: "b" })).toBe(other);
     });
 
-    it("clears every entry when the filter is not a plain cache key lookup", async () => {
+    it.each([{}, { hits: 1 }, { key: { $in: ["a"] } }, { $or: [{ key: "a" }] }])(
+        "clears every entry when the filter does not pin a cache key: %j",
+        async filter => {
+            await CachedCooldowns.insertMany([
+                { key: "a", hits: 1 },
+                { key: "b", hits: 1 }
+            ]);
+            await CachedCooldowns.fetch({ key: "a" });
+            const other = await CachedCooldowns.fetch({ key: "b" });
+
+            await CachedCooldowns.update(filter, bump);
+
+            expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
+            expect(await CachedCooldowns.fetch({ key: "b" })).not.toBe(other);
+        }
+    );
+
+    const keyChanges: Parameters<typeof CachedCooldowns.update>[1][] = [
+        { key: "c" },
+        { $set: { key: "c" } },
+        { $unset: { key: 1 } },
+        { $rename: { key: "hits" } },
+        { $rename: { hits: "key" } },
+        { $setOnInsert: { key: "c" } },
+        [{ $set: { key: "c" } }],
+        [{ $unset: "key" }],
+        [{ $project: { hits: 1 } }],
+        [{ $replaceWith: { key: "c", hits: 2 } }]
+    ];
+    it.each(keyChanges.map(update => [update] as const))(
+        "clears every entry when an update may change the cache key: %j",
+        async update => {
+            await CachedCooldowns.insertMany([
+                { key: "a", hits: 1 },
+                { key: "b", hits: 1 }
+            ]);
+            await CachedCooldowns.fetch({ key: "a" });
+            const other = await CachedCooldowns.fetch({ key: "b" });
+
+            await CachedCooldowns.update({ key: "a" }, update);
+
+            expect(await CachedCooldowns.fetch({ key: "b" })).not.toBe(other);
+            expect(await CachedCooldowns.fetch({ key: "a" })).toEqual(
+                await CachedCooldowns.model!.findOne({ key: "a" }).lean()
+            );
+        }
+    );
+
+    it("clears every entry for a collated update that can match a different cache key", async () => {
         await CachedCooldowns.create({ key: "a", hits: 1 });
         await CachedCooldowns.fetch({ key: "a" });
 
-        await CachedCooldowns.update({ hits: 1 }, bump, { returnDocument: "before" });
+        await CachedCooldowns.update({ key: "A" }, { $inc: { hits: 1 } }, { collation: { locale: "en", strength: 2 } });
 
         expect(await CachedCooldowns.fetch({ key: "a" })).toMatchObject({ hits: 2 });
+    });
+
+    it.each(["update", "upsert", "updateOne", "updateAll"] as const)(
+        "%s preserves an unrelated pending read",
+        async write => {
+            await CachedCooldowns.insertMany([
+                { key: "a", hits: 1 },
+                { key: "b", hits: 1 }
+            ]);
+            const model = CachedCooldowns.model!;
+            const findOne = model.findOne.bind(model);
+            let release!: () => void;
+            let started!: () => void;
+            const gate = new Promise<void>(r => (release = r));
+            const ready = new Promise<void>(r => (started = r));
+            const spy = vi.spyOn(model, "findOne").mockImplementationOnce((...args) => {
+                const query = findOne(...args);
+                const exec = query.exec.bind(query);
+                vi.spyOn(query, "exec").mockImplementationOnce(async () => {
+                    const result = await exec();
+                    started();
+                    await gate;
+                    return result;
+                });
+                return query;
+            });
+            try {
+                const pending = CachedCooldowns.fetch({ key: "b" });
+                await ready;
+                if (write === "update") await CachedCooldowns.update({ key: "a" }, { $inc: { hits: 1 } });
+                else if (write === "upsert") await CachedCooldowns.upsert({ key: "a" }, { $inc: { hits: 1 } });
+                else if (write === "updateOne") await CachedCooldowns.updateOne({ key: "a" }, { $inc: { hits: 1 } });
+                else await CachedCooldowns.updateAll({ key: "a" }, { $inc: { hits: 1 } });
+                spy.mockClear();
+                const coalesced = CachedCooldowns.fetch({ key: "b" });
+                release();
+                const result = await pending;
+                expect(await coalesced).toBe(result);
+                expect(await CachedCooldowns.fetch({ key: "b" })).toBe(result);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                release();
+                spy.mockRestore();
+            }
+        }
+    );
+
+    it("clears every entry when an update changes a parent or child of a dotted cache key", async () => {
+        const builder = attach(
+            createMongoSchema(
+                "nestedCacheKeys",
+                { agency: { id: String }, hits: Number },
+                { cache: { key: "agency.id", ttl: 60_000 } }
+            )
+        );
+        await builder.insertMany([
+            { agency: { id: "a" }, hits: 1 },
+            { agency: { id: "b" }, hits: 1 }
+        ]);
+        const other = await builder.fetch({ "agency.id": "b" });
+        await builder.update({ "agency.id": "a" }, { $set: { agency: { id: "c" } } });
+        expect(await builder.fetch({ "agency.id": "a" })).toBeNull();
+        expect(await builder.fetch({ "agency.id": "b" })).not.toBe(other);
+
+        const cached = await builder.fetch({ "agency.id": "b" });
+        await builder.update({ "agency.id": "c" }, [{ $set: { "agency.id.child": "d" } }]);
+        expect(await builder.fetch({ "agency.id": "c" })).toBeNull();
+        expect(await builder.fetch({ "agency.id": "b" })).not.toBe(cached);
     });
 });
 

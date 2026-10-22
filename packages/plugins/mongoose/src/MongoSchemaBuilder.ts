@@ -136,6 +136,30 @@ function isCacheKeyValue(value: unknown): value is string | number | boolean | m
     );
 }
 
+// Only narrow invalidation when every modified path leaves the cache key intact.
+function preservesCacheKey(update: unknown, key: string): boolean {
+    const overlaps = (path: string) => path === key || path.startsWith(`${key}.`) || key.startsWith(`${path}.`);
+    if (Array.isArray(update)) {
+        return update.every(
+            stage =>
+                isPlainObject(stage) &&
+                Object.entries(stage).every(([operator, fields]) => {
+                    if (operator === "$set" || operator === "$addFields") return preservesCacheKey(fields, key);
+                    if (operator !== "$unset") return false;
+                    const paths = typeof fields === "string" ? [fields] : fields;
+                    return Array.isArray(paths) && paths.every(p => typeof p === "string" && !overlaps(p));
+                })
+        );
+    }
+    if (!isPlainObject(update)) return false;
+
+    return Object.entries(update).every(([path, fields]) => {
+        if (!path.startsWith("$")) return !overlaps(path);
+        if (!isPlainObject(fields) || Object.keys(fields).some(overlaps)) return false;
+        return path !== "$rename" || Object.values(fields).every(p => typeof p === "string" && !overlaps(p));
+    });
+}
+
 /**
  * Freezes plain objects and arrays in place, leaving class instances such as ObjectId, Date, Decimal128, and Buffer
  * untouched. Freezing those reaches their internal typed arrays and throws.
@@ -281,6 +305,23 @@ export class MongoSchemaBuilder<
 
         this.cacheEntries.delete(cacheKey);
         this.inFlight.delete(cacheKey);
+    }
+
+    private invalidateUpdateCache(
+        filter: QueryFilter<LeanDoc<Def, Opts>>,
+        update: unknown,
+        options?: { collation?: unknown }
+    ): void {
+        const key = this.options.cache?.key;
+        const condition = key && isPlainObject(filter) ? filter[key] : undefined;
+        const value = isPlainObject(condition) ? condition.$eq : condition;
+        const targeted =
+            key &&
+            isCacheKeyValue(value) &&
+            !options?.collation &&
+            !this.options.collation &&
+            preservesCacheKey(update, key);
+        this.invalidateCache(targeted ? { [key]: value } : undefined);
     }
 
     // One unreferenced timer per builder removes expired one-time keys even when reads stop.
@@ -548,7 +589,7 @@ export class MongoSchemaBuilder<
             );
             return result;
         } finally {
-            this.invalidateCache();
+            this.invalidateUpdateCache(filter, update, options);
         }
     }
 
@@ -578,7 +619,7 @@ export class MongoSchemaBuilder<
 
             return result as unknown as ProjectedWriteDoc<Def, Opts, Options>;
         } finally {
-            this.invalidateCache();
+            this.invalidateUpdateCache(filter, update, queryOptions);
         }
     }
 
@@ -910,7 +951,7 @@ export class MongoSchemaBuilder<
 
             return result as UpdateResult<Def, Opts, Options>;
         } finally {
-            this.invalidateCache();
+            this.invalidateUpdateCache(filter, update, queryOptions);
         }
     }
 
@@ -935,7 +976,7 @@ export class MongoSchemaBuilder<
             );
             return result;
         } finally {
-            this.invalidateCache();
+            this.invalidateUpdateCache(filter, update, options);
         }
     }
 
