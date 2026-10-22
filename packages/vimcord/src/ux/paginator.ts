@@ -1,6 +1,5 @@
 import type {
     BaseMessageOptions,
-    InteractionUpdateOptions,
     MessageActionRowComponentBuilder,
     MessageComponentInteraction,
     ModalSubmitInteraction,
@@ -514,38 +513,6 @@ export class Paginator {
         return this.state.message;
     }
 
-    private async updatePage(
-        interaction: PaginatorResponseInteraction,
-        page: PageResolvable,
-        index: PageIndex
-    ): Promise<void> {
-        if (!this.state.message || (!this.state.interaction && !this.state.message.editable))
-            throw new Error("[Paginator] Cannot refresh because the message is not editable");
-        if (!("update" in interaction)) {
-            await interaction.deferUpdate();
-            await this.editPage(page, index);
-            return;
-        }
-        const data = this.buildSendOptions(page, this.state.sendOptions, index);
-        const flags =
-            data.flags === undefined
-                ? undefined
-                : new MessageFlagsBitField(data.flags as never).remove(
-                      MessageFlags.Ephemeral,
-                      MessageFlags.SuppressNotifications
-                  ).bitfield;
-        const response = await interaction.update({
-            content: data.content,
-            embeds: data.embeds,
-            components: data.components,
-            files: data.files,
-            allowedMentions: data.allowedMentions,
-            flags,
-            withResponse: true
-        } as InteractionUpdateOptions & { withResponse: true });
-        this.state.message = response.resource?.message ?? this.state.message;
-    }
-
     // Only slow loads need a placeholder. The load starts immediately, and errors remain observable by the caller.
     private async showLoading(pending: Promise<unknown>, index: PageIndex): Promise<boolean> {
         if (!this.isLazyDestination(index) || !this.options.onLoading) return false;
@@ -595,11 +562,7 @@ export class Paginator {
         requested: PageIndex,
         interaction?: PaginatorResponseInteraction
     ): Promise<void> {
-        if (
-            interaction &&
-            !hasResponded(interaction) &&
-            (this.isLazyDestination(requested) || !this.state.active || this.navigationBusy)
-        ) {
+        if (interaction && !hasResponded(interaction)) {
             await interaction.deferUpdate().catch(() => {});
         }
         if (!this.state.active || this.navigationBusy) return;
@@ -643,8 +606,7 @@ export class Paginator {
                 return;
             }
             const { page, index: destination } = loaded;
-            if (interaction && !hasResponded(interaction)) await this.updatePage(interaction, page, destination);
-            else await this.editPage(page, destination);
+            await this.editPage(page, destination);
             if (!this.state.active) return;
             this.state.currentPage = page;
             this.state.index = destination;

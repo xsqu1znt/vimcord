@@ -1,14 +1,18 @@
 import type { DynaSendOptions } from "./dynaSend.js";
 
 import EventEmitter from "node:events";
+import { Readable } from "node:stream";
 import {
     ActionRowBuilder,
     BaseInteraction,
     ButtonBuilder,
     ButtonStyle,
+    Client,
     Collection,
     ComponentType,
-    ContainerBuilder
+    ContainerBuilder,
+    MessageComponentInteraction,
+    MessagePayload
 } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
@@ -197,7 +201,7 @@ describe("Paginator chapter select ordering", () => {
             const select = createInteraction("paginator:chapter", ["draft"]);
             collector.emit("collect", select);
             await settle();
-            const selected = select.update.mock.lastCall![0] as DynaSendOptions;
+            const selected = vi.mocked(dynaSend).mock.lastCall![1];
             expect(selected.content).toBe("Draft0");
             expect(getRowIds(selected.components)).toEqual([chapter, ...supplied, nav]);
             expect(selected.components?.[0]?.toJSON()).toMatchObject({
@@ -214,7 +218,7 @@ describe("Paginator chapter select ordering", () => {
             const next = createInteraction("paginator:next");
             collector.emit("collect", next);
             await settle();
-            const navigated = next.update.mock.lastCall![0] as DynaSendOptions;
+            const navigated = vi.mocked(dynaSend).mock.lastCall![1];
             expect(navigated.content).toBe("Draft1");
             expect(getRowIds(navigated.components)).toEqual([chapter, ...supplied, nav]);
             expect(navigated.allowedMentions).toEqual({ repliedUser: false });
@@ -394,8 +398,11 @@ describe("Paginator collection and navigation", () => {
         const { collector } = await sendPaginator(paginator);
 
         for (const id of ["next", "back", "last", "first", "skip-next", "skip-back"]) {
-            collector.emit("collect", createInteraction(`paginator:${id}`));
+            const i = createInteraction(`paginator:${id}`);
+            collector.emit("collect", i);
             await settle();
+            expect(i.deferUpdate).toHaveBeenCalledOnce();
+            expect(i.update).not.toHaveBeenCalled();
         }
 
         vi.spyOn(BetterModal.prototype, "showAndAwait").mockResolvedValue({
@@ -409,6 +416,11 @@ describe("Paginator collection and navigation", () => {
         collector.emit("collect", createInteraction("paginator:chapter", [paginator.chapters[1]!.id]));
         await settle();
         await paginator.setPage(0, 4);
+        const noop = createInteraction("paginator:last");
+        collector.emit("collect", noop);
+        await settle();
+        expect(noop.deferUpdate).toHaveBeenCalledOnce();
+        expect(noop.update).not.toHaveBeenCalled();
         await paginator.refresh();
 
         expect(events).toEqual([
@@ -434,10 +446,11 @@ describe("Paginator collection and navigation", () => {
         collector.emit("collect", interaction);
         await settle();
 
-        const components = (interaction.update.mock.calls[0]?.[0] as { components: { toJSON(): unknown }[] }).components;
-        const json = components.map(c => c.toJSON()) as any[];
-        expect(json[0].components[0].options[1].default).toBe(true);
-        expect(json.flatMap(row => row.components).some(component => component.custom_id === "paginator:next")).toBe(true);
+        const components = vi.mocked(dynaSend).mock.lastCall![1].components!;
+        expect(components[0]!.toJSON()).toMatchObject({
+            components: [{ options: [{}, { default: true }] }]
+        });
+        expect(getRowIds(components).flat()).toContain("paginator:next");
     });
 
     it("forces withResponse for fresh interaction sends", async () => {
@@ -720,17 +733,146 @@ describe("Paginator loaders and API boundaries", () => {
 });
 
 describe("Paginator acknowledgement and snapshots", () => {
-    it("updates a prepared page in one call and keeps the returned snapshot for timeout cleanup", async () => {
+    it.each(["static", "cached chapter", "chapter select", "cached chapter select", "jump submission"] as const)(
+        "waits for acknowledgement before building the destination for %s navigation",
+        async navigation => {
+            const page = {
+                get content() {
+                    return "Destination";
+                }
+            };
+            const loader = vi.fn(() => ["A", page]);
+            const p = new Paginator({ timeout: 1000, jump: true });
+            if (navigation === "cached chapter") p.addLazyChapter(loader, { label: "Cached" });
+            else p.addChapter(["A", page], { label: "A" });
+            if (navigation === "chapter select") p.addChapter([page], { label: "B", value: "b" });
+            if (navigation === "cached chapter select") {
+                loader.mockImplementation(() => [page]);
+                p.addLazyChapter(loader, { label: "Cached", value: "b" });
+            }
+            const { collector } = await sendPaginator(p);
+            if (navigation === "cached chapter select") {
+                await p.setPage(1, 0);
+                await p.setPage(0, 0);
+            }
+            vi.mocked(dynaSend).mockClear();
+            const gate = deferred<void>();
+            const i = createInteraction(navigation.includes("chapter select") ? "paginator:chapter" : "paginator:next", [
+                "b"
+            ]);
+            i.deferUpdate.mockImplementation(async () => {
+                await gate.promise;
+                i.deferred = true;
+            });
+            const readPage = vi.spyOn(page, "content", "get").mockImplementation(() => {
+                expect(i.deferred).toBe(true);
+                return "Destination";
+            });
+            const showModal = vi.fn(async () => {});
+            const opening = Object.assign(createInteraction("paginator:jump"), { showModal });
+            if (navigation === "jump submission") {
+                vi.spyOn(BetterModal.prototype, "awaitSubmit").mockResolvedValue({
+                    interaction: i as never,
+                    getField: () => "2",
+                    reply: vi.fn(),
+                    followUp: vi.fn()
+                });
+            }
+            collector.emit("collect", navigation === "jump submission" ? opening : i);
+            await settle();
+            expect(i.deferUpdate).toHaveBeenCalledOnce();
+            expect(readPage).not.toHaveBeenCalled();
+            expect(dynaSend).not.toHaveBeenCalled();
+            gate.resolve();
+            await settle();
+
+            expect(readPage).toHaveBeenCalled();
+            expect(i.update).not.toHaveBeenCalled();
+            expect(vi.mocked(dynaSend).mock.lastCall![1]).toMatchObject({
+                content: "Destination",
+                sendMethod: SendMethod.MessageEdit
+            });
+            if (navigation.startsWith("cached chapter")) expect(loader).toHaveBeenCalledOnce();
+            if (navigation === "jump submission") {
+                expect(showModal).toHaveBeenCalledOnce();
+                expect(opening.deferUpdate).not.toHaveBeenCalled();
+            }
+        }
+    );
+
+    it("acknowledges before Discord.js prepares an attachment taking longer than the initial-response deadline", async () => {
+        const client = new Client({ intents: [] });
+        const i = createInteraction("paginator:next");
+        Object.setPrototypeOf(i, MessageComponentInteraction.prototype);
+        Object.defineProperty(i, "client", { value: client });
+        const startedAt = Date.now();
+        const acknowledgements: number[] = [];
+        const post = vi.spyOn(client.rest, "post").mockImplementation(async () => {
+            const elapsed = Date.now() - startedAt;
+            acknowledgements.push(elapsed);
+            if (elapsed >= 3000) throw new Error("Unknown interaction: initial response exceeded 3 seconds");
+            return {};
+        });
+        i.deferUpdate.mockImplementation(async () => {
+            await MessageComponentInteraction.prototype.deferUpdate.call(i as never);
+        });
+        i.update.mockImplementation(async options => {
+            await MessageComponentInteraction.prototype.update.call(i as never, options as never);
+            return { resource: { message: null } };
+        });
+        const file = Readable.from(
+            (async function* () {
+                await new Promise(r => setTimeout(r, 3200));
+                yield Buffer.from("attachment contents");
+            })()
+        );
+        const p = new Paginator({ pages: ["A", { files: [{ attachment: file, name: "slow.txt" }] }], timeout: 10000 });
+        const finished = deferred<void>();
+        const paginate = vi.fn(() => finished.resolve());
+        p.on("paginate", paginate);
+        const { message, collector } = await sendPaginator(p);
+        const edited = vi.fn();
+        vi.mocked(dynaSend).mockImplementationOnce(async (_handler, data) => {
+            const payload = await MessagePayload.create(i as never, data as never)
+                .resolveBody()
+                .resolveFiles();
+            expect(payload.files?.[0]?.data).toEqual(Buffer.from("attachment contents"));
+            edited();
+            return message as never;
+        });
+        const error = vi.spyOn(console, "error").mockImplementation(() => finished.resolve());
+        try {
+            collector.emit("collect", i);
+            await finished.promise;
+            await settle();
+            expect(acknowledgements).toHaveLength(1);
+            expect(acknowledgements[0]).toBeLessThan(3000);
+            expect(post).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ body: { type: 6 } }));
+            expect(edited).toHaveBeenCalledOnce();
+            expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3200);
+            expect(paginate).toHaveBeenCalledWith(expect.objectContaining({ destination: { chapter: 0, nested: 1 } }));
+            expect(error).not.toHaveBeenCalled();
+        } finally {
+            file.destroy();
+            await client.destroy();
+        }
+    }, 10000);
+
+    it("defers a prepared page and keeps the edited snapshot for timeout cleanup", async () => {
         const p = new Paginator({ pages: ["A", "B"], timeout: 1000, onResolve: ResolveAction.ClearComponents });
         const { collector } = await sendPaginator(p);
         const latest = createMessage([new ActionRowBuilder<ButtonBuilder>()]).message;
         const i = createInteraction("paginator:next");
-        i.update.mockResolvedValue({ resource: { message: latest } });
+        vi.mocked(dynaSend).mockResolvedValueOnce(latest as never);
         collector.emit("collect", i);
         await settle();
-        expect(i.deferUpdate).not.toHaveBeenCalled();
-        expect(i.update).toHaveBeenCalledWith(expect.objectContaining({ content: "B", withResponse: true }));
-        expect(dynaSend).toHaveBeenCalledTimes(1);
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+        expect(i.update).not.toHaveBeenCalled();
+        expect(dynaSend).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ content: "B", sendMethod: SendMethod.MessageEdit })
+        );
+        expect(dynaSend).toHaveBeenCalledTimes(2);
         collector.emit("end", [], "time");
         await settle();
         expect(latest.edit).toHaveBeenCalledWith({ components: [] });
@@ -757,11 +899,16 @@ describe("Paginator acknowledgement and snapshots", () => {
 
     it("defers lazy loads immediately but skips loading edits for a fast load", async () => {
         const loading = vi.fn(() => "Loading");
-        const p = new Paginator({ timeout: 1000, onLoading: loading }).addPageLoader(2, n => Promise.resolve(String(n)), {
-            label: "Pages"
-        });
-        const { collector } = await sendPaginator(p);
         const i = createInteraction("paginator:next");
+        const p = new Paginator({ timeout: 1000, onLoading: loading }).addPageLoader(
+            2,
+            n => {
+                if (n === 1) expect(i.deferred).toBe(true);
+                return Promise.resolve(String(n));
+            },
+            { label: "Pages" }
+        );
+        const { collector } = await sendPaginator(p);
         collector.emit("collect", i);
         await settle();
         expect(i.deferUpdate).toHaveBeenCalledOnce();
@@ -769,16 +916,21 @@ describe("Paginator acknowledgement and snapshots", () => {
         expect(vi.mocked(dynaSend).mock.calls.map(c => c[1].content)).toEqual(["0", "1"]);
     });
 
-    it("removes creation-only flags when updating an ephemeral message", async () => {
+    it("removes creation-only flags when navigating an ephemeral message through its sending webhook", async () => {
         const { message, collector } = createMessage();
+        Object.assign(message, { id: "ephemeral", editable: false });
+        const editMessage = vi.fn().mockResolvedValue(message);
+        const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { editMessage } });
         vi.mocked(dynaSend).mockResolvedValue(message as never);
         const p = new Paginator({ pages: ["A", "B"], timeout: 1000 });
-        await p.send({} as never, { flags: ["Ephemeral", "SuppressNotifications", "SuppressEmbeds"] });
+        await p.send(handler, { flags: ["Ephemeral", "SuppressNotifications", "SuppressEmbeds"] });
         const i = createInteraction("paginator:next");
-        i.update.mockResolvedValue({ resource: { message } });
         collector.emit("collect", i);
         await settle();
-        expect(i.update.mock.calls[0]?.[0]).toMatchObject({ flags: 4 });
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+        expect(i.update).not.toHaveBeenCalled();
+        expect(editMessage).toHaveBeenCalledWith("ephemeral", expect.objectContaining({ content: "B", flags: 4 }));
+        expect(message.edit).not.toHaveBeenCalled();
     });
 });
 
