@@ -1,5 +1,11 @@
 # @vimcord/plugin-mongoose
 
+## 1.4.2
+
+### Patch Changes
+
+- [#46](https://github.com/xsqu1znt/vimcord/pull/46) [`589148d`](https://github.com/xsqu1znt/vimcord/commit/589148d1d5872c6d9f611e443a1ca00c2c5e05fb) Thanks [@xsqu1znt](https://github.com/xsqu1znt)! - Allow aggregation pipelines in the `updateAll()` update argument while preserving its `mongo.UpdateResult` return type.
+
 ## 1.4.1
 
 ### Patch Changes
