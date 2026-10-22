@@ -1,4 +1,4 @@
-import type { QueryOptions, Types } from "mongoose";
+import type { mongo, QueryOptions, Types, UpdateQuery, UpdateWithAggregationPipeline } from "mongoose";
 import type { Vimcord } from "vimcord";
 import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
 
@@ -428,6 +428,64 @@ describe("update() with an aggregation pipeline", () => {
 
         expect(typeof result?.save).toBe("function");
         expect(result?.hits).toBe(4);
+    });
+});
+
+describe("updateAll()", () => {
+    it("remaps array IDs with a pipeline and counts only changed documents", async () => {
+        const albums = attach(createMongoSchema("albums", { key: String, invIds: [String] }));
+        expectTypeOf<Parameters<typeof albums.updateAll>[1]>().toEqualTypeOf<
+            UpdateQuery<InferDoc<typeof albums>> | UpdateWithAggregationPipeline
+        >();
+        await albums.insertMany([
+            { key: "a", invIds: ["old", "keep", "old"] },
+            { key: "b", invIds: ["other", "old"] },
+            { key: "c", invIds: ["keep"] },
+            { key: "d", invIds: ["outside"] }
+        ]);
+
+        const result = await albums.updateAll(
+            { invIds: { $in: ["old", "keep"] } },
+            [
+                {
+                    $set: {
+                        invIds: {
+                            $map: {
+                                input: "$invIds",
+                                as: "id",
+                                in: {
+                                    $switch: {
+                                        branches: [{ case: { $eq: ["$$id", "old"] }, then: "new" }],
+                                        default: "$$id"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ],
+            { updatePipeline: true }
+        );
+
+        expectTypeOf(result).toEqualTypeOf<mongo.UpdateResult>();
+        expect(result).toMatchObject({ acknowledged: true, matchedCount: 3, modifiedCount: 2 });
+        const docs = await albums.fetchAll({}, undefined, { sort: { key: 1 } });
+        expect(docs.map(d => d.invIds)).toEqual([["new", "keep", "new"], ["other", "new"], ["keep"], ["outside"]]);
+    });
+
+    it("keeps accepting update objects and returning write counts", async () => {
+        await Cooldowns.insertMany([
+            { key: "a", hits: 1 },
+            { key: "b", hits: 4 },
+            { key: "c", hits: 9 }
+        ]);
+
+        const result = await Cooldowns.updateAll({ hits: { $lt: 5 } }, { $inc: { hits: 1 } });
+
+        expectTypeOf(result).toEqualTypeOf<mongo.UpdateResult>();
+        expect(result).toMatchObject({ acknowledged: true, matchedCount: 2, modifiedCount: 2 });
+        const docs = await Cooldowns.fetchAll({}, undefined, { sort: { key: 1 } });
+        expect(docs.map(d => d.hits)).toEqual([2, 5, 9]);
     });
 });
 

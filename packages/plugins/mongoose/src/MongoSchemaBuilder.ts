@@ -918,12 +918,12 @@ export class MongoSchemaBuilder<
      * Updates every document that matches a filter.
      *
      * @param filter The filter used to match documents
-     * @param update The update to apply
+     * @param update The update object or aggregation pipeline to apply
      * @param options The options to pass to MongoDB and Mongoose
      */
     async updateAll(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
-        update: UpdateQuery<LeanDoc<Def, Opts>>,
+        update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.UpdateResult> {
         const model = this.compileModel();
