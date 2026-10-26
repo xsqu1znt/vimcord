@@ -1,5 +1,11 @@
 # vimcord
 
+## 4.5.1
+
+### Patch Changes
+
+- [#50](https://github.com/xsqu1znt/vimcord/pull/50) [`7fc6314`](https://github.com/xsqu1znt/vimcord/commit/7fc63148656e0267d1da3f9f8a69cf982ed19ce8) Thanks [@xsqu1znt](https://github.com/xsqu1znt)! - Paginator navigation no longer times out on slow pages ([#49](https://github.com/xsqu1znt/vimcord/pull/49)). Arrow buttons, chapter selection and jump-modal submissions acknowledge the interaction with `deferUpdate()` before preparing the next page or attachment, then edit the existing message.
+
 ## 4.5.0
 
 ### Minor Changes

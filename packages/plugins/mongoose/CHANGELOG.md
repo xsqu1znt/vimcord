@@ -1,5 +1,13 @@
 # @vimcord/plugin-mongoose
 
+## 1.4.2
+
+### Patch Changes
+
+- [#46](https://github.com/xsqu1znt/vimcord/pull/46) [`589148d`](https://github.com/xsqu1znt/vimcord/commit/589148d1d5872c6d9f611e443a1ca00c2c5e05fb) Thanks [@xsqu1znt](https://github.com/xsqu1znt)! - Allow aggregation pipelines in the `updateAll()` update argument while preserving its `mongo.UpdateResult` return type.
+
+- [#50](https://github.com/xsqu1znt/vimcord/pull/50) [`7fc6314`](https://github.com/xsqu1znt/vimcord/commit/7fc63148656e0267d1da3f9f8a69cf982ed19ce8) Thanks [@xsqu1znt](https://github.com/xsqu1znt)! - Keyed updates keep unrelated cache entries ([#47](https://github.com/xsqu1znt/vimcord/pull/47)). `update()`, `upsert()`, `updateOne()` and `updateAll()` now invalidate only the pinned cache key when the update leaves that path untouched, so frequent writes to one document no longer evict cached reads for others. Key changes, overlapping paths, `$rename` destinations, collations and document-replacing pipelines still clear the whole cache.
+
 ## 1.4.1
 
 ### Patch Changes
