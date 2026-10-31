@@ -432,7 +432,7 @@ describe("update() with an aggregation pipeline", () => {
 });
 
 describe("updateAll()", () => {
-    it("remaps array IDs with a pipeline and counts only changed documents", async () => {
+    it("remaps array IDs with a pipeline without the updatePipeline option and counts only changed documents", async () => {
         const albums = attach(createMongoSchema("albums", { key: String, invIds: [String] }));
         expectTypeOf<Parameters<typeof albums.updateAll>[1]>().toEqualTypeOf<
             UpdateQuery<InferDoc<typeof albums>> | UpdateWithAggregationPipeline
@@ -444,28 +444,24 @@ describe("updateAll()", () => {
             { key: "d", invIds: ["outside"] }
         ]);
 
-        const result = await albums.updateAll(
-            { invIds: { $in: ["old", "keep"] } },
-            [
-                {
-                    $set: {
-                        invIds: {
-                            $map: {
-                                input: "$invIds",
-                                as: "id",
-                                in: {
-                                    $switch: {
-                                        branches: [{ case: { $eq: ["$$id", "old"] }, then: "new" }],
-                                        default: "$$id"
-                                    }
+        const result = await albums.updateAll({ invIds: { $in: ["old", "keep"] } }, [
+            {
+                $set: {
+                    invIds: {
+                        $map: {
+                            input: "$invIds",
+                            as: "id",
+                            in: {
+                                $switch: {
+                                    branches: [{ case: { $eq: ["$$id", "old"] }, then: "new" }],
+                                    default: "$$id"
                                 }
                             }
                         }
                     }
                 }
-            ],
-            { updatePipeline: true }
-        );
+            }
+        ]);
 
         expectTypeOf(result).toEqualTypeOf<mongo.UpdateResult>();
         expect(result).toMatchObject({ acknowledged: true, matchedCount: 3, modifiedCount: 2 });
@@ -486,6 +482,17 @@ describe("updateAll()", () => {
         expect(result).toMatchObject({ acknowledged: true, matchedCount: 2, modifiedCount: 2 });
         const docs = await Cooldowns.fetchAll({}, undefined, { sort: { key: 1 } });
         expect(docs.map(d => d.hits)).toEqual([2, 5, 9]);
+    });
+});
+
+describe("updateOne() with an aggregation pipeline", () => {
+    it("applies the pipeline without the updatePipeline option", async () => {
+        await Cooldowns.create({ key: "a", hits: 4 });
+
+        const result = await Cooldowns.updateOne({ key: "a" }, bump);
+
+        expect(result).toMatchObject({ matchedCount: 1, modifiedCount: 1 });
+        expect(await Cooldowns.fetch({ key: "a" })).toMatchObject({ hits: 5 });
     });
 });
 
