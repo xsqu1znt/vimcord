@@ -45,7 +45,7 @@ Send counts remain one per command. Support still defers once; the other scenari
 
 ## Simplification retained
 
-Across the original baseline and this follow-up, runtime source shrinks by a net **169 lines**, excluding tests, documentation, and the benchmark harness.
+Across the original baseline and the dispatch, logging, and network follow-ups, runtime source shrinks by a net **136 lines**, excluding tests, documentation, and the benchmark harness.
 
 - Command dispatch reaches the module directly, without private slash/context dispatch wrappers or a separate async usage-logging frame.
 - Unconfigured built-in commands reach their handler directly. Configured conditions, permissions, hooks, deferral, concurrency control, readiness waits, deployment rules, verbose logging, and subclass overrides retain the full pipeline.
@@ -70,12 +70,13 @@ The original command options, routing, hooks, permissions, manual dispatch, conc
 
 - `testCommandPermissions()` and protected readiness/test stages may return immediately; use `await` rather than assuming `.then()` is available. Protected `testConditions()` may return a plain test result.
 - Omitted protected `permissions` is now `undefined`; subclass code should use optional access.
+- Protected `runHandler()` and `measureExecution()` were removed. Invocation timing replaces them; subclasses that used them must adapt to the `prepareExecute()` and `shouldMeasureExecution()` stages.
 - Hooks see the same invocation context as the handler by default. Existing custom context factories remain supported, including route-specific deferral when factories copy contexts.
 - Embed text-length and URL validation occurs at Discord instead of in `EmbedBuilder`. Color resolution and the 25-field limit remain local; timestamp zero serializes as the Unix epoch.
 - Usage-record `durationMs` is populated when pipeline timing is requested. The displayed execute timing remains available with execute-only logging.
 - `mount()` is opt-in; do not also install manual dispatch listeners for the same events.
 
-Validation: **417 tests across 27 files, workspace type checks, and all package builds pass**. Added coverage checks synchronous/asynchronous condition sequencing, direct handlers returning thenables, rejection timing, configuration changes between invocations, and prefix whitespace/aliases/hook arguments.
+Validation: **422 tests across 27 files, workspace type checks, and all package builds pass**. Added coverage checks synchronous/asynchronous condition sequencing, direct handlers returning thenables, rejection timing, configuration changes between invocations, prefix whitespace/aliases/hook arguments, and prepared-page interaction updates.
 
 ## Run
 

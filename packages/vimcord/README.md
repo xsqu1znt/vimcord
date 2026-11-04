@@ -327,6 +327,8 @@ Command-local hooks override `client.globals.hooks`, and `client.globals.hooks` 
 
 Built-in modules pass one invocation context through checks, hooks, and execution. Changes a hook makes to that context are visible to the handler. Custom `createModuleCTX`/`createHookCTX` overrides are still supported. Protected `checkInjection()` and `performTests()` can now return a boolean or a promise; asynchronous overrides can use `await super.performTests(ctx)`. Protected `testConditions()` may also return a plain test result; use `await` in overrides. Omitted protected `permissions` is now `undefined`, so subclass code should use optional access.
 
+Protected `runHandler()` and `measureExecution()` were removed. Handler timing now belongs to the invocation; subclasses calling or overriding those methods must adapt. `prepareExecute()` runs handler setup before timing starts, and `shouldMeasureExecution()` controls timing collection.
+
 ### BetterEmbed
 
 ```ts

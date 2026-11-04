@@ -55,6 +55,8 @@ Five measured invocations per app/variant, after warmup. Times are milliseconds 
 
 These ratios record this run; they do not establish framework gains or regressions. This patch does not change these ordinary reply paths. The preserved and updated bundles contain identical compiled `dispatchMessage`, prefix `dispatch`/`createModuleCTX`, BetterEmbed `send`/`toJSON`, and `dynaSend` functions. The dispatch-free control also varies substantially. A short live run cannot isolate small CPU costs through that variation, and rerunning until a favorable ratio appears would not demonstrate an optimization.
 
+Response-body delivery and CPU time were not measured independently. In particular, much of support's additional time occurred after response headers arrived. Network variation is a plausible explanation for the higher timings, not an established cause; more randomized paired samples and separate body-delivery/CPU timing are needed to diagnose them.
+
 [network-prefix.json](network-prefix.json) contains all 90 invocations (15 warmups, 75 measured), bundle hashes, p50/p95 summaries, automated input-send-to-reply-completion summaries, and cleanup status. The run removed its 181 public messages with no cleanup failures. Both interactive sessions also removed their temporary guild command and owned public messages. Human command invocations and other users' messages were left alone.
 
 ## Transport exploration
