@@ -1,9 +1,10 @@
 import EventEmitter from "node:events";
 import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle } from "discord.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
 import { ResolveAction } from "./shared.js";
+import { defineGlobalUxConfig } from "./uxConfig.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -29,6 +30,10 @@ function createFakeMessage() {
     };
     return { message, collector };
 }
+
+afterEach(() => {
+    defineGlobalUxConfig({ prompt: { highlightSelectedButton: false } });
+});
 
 describe("promptMessage", () => {
     it("forces withResponse so a fresh interaction reply's collector actually starts", async () => {
@@ -64,23 +69,6 @@ describe("promptMessage", () => {
         const result = await resultPromise;
         expect(result.status).toBe("confirmed");
     });
-
-    it("settles the prompt even when the collector ends synchronously inside onCollector", async () => {
-        const { message, collector } = createFakeMessage();
-        vi.mocked(dynaSend).mockResolvedValue(message);
-
-        const resultPromise = promptMessage({} as any, {
-            timeout: 1000,
-            onCollector: () => {
-                // "end" fires before onCollector itself returns; the completion listener must
-                // already be registered or the prompt would hang forever waiting on it.
-                collector.emit("end", [], "stopped-during-oncollector");
-            }
-        });
-
-        const result = await resultPromise;
-        expect(result.status).toBe("timeout");
-    });
 });
 
 describe("prompt resolution payload", () => {
@@ -90,6 +78,7 @@ describe("prompt resolution payload", () => {
         ["voucher", "custom"],
         [null, "timeout"]
     ] as const)("combines %s with highlighted cleanup in one awaited edit", async (customId, status) => {
+        defineGlobalUxConfig({ prompt: { highlightSelectedButton: true } });
         const { message, collector } = createFakeMessage();
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId("prompt:confirm").setLabel("Yes").setStyle(ButtonStyle.Success),
@@ -119,9 +108,7 @@ describe("prompt resolution payload", () => {
             {} as never,
             {
                 timeout: 1000,
-                additionalButtons: [row.components[2]!],
-                resolveOnAdditionalButton: true,
-                highlightSelectedButton: true,
+                extraButtons: [row.components[2]!],
                 onResolve
             },
             { allowedMentions: { repliedUser: false } }
@@ -180,4 +167,19 @@ it("resolves an ephemeral prompt through its sending interaction", async () => {
     await pending;
     expect(deleteMessage).toHaveBeenCalledWith("ephemeral");
     expect(message.delete).not.toHaveBeenCalled();
+});
+
+it("always resolves on an extra button, with its customId", async () => {
+    const { message, collector } = createFakeMessage();
+    collector.stop.mockImplementation(reason => collector.emit("end", [], reason));
+    vi.mocked(dynaSend).mockResolvedValue(message);
+    const voucher = new ButtonBuilder().setCustomId("voucher").setLabel("Voucher").setStyle(ButtonStyle.Secondary);
+    const pending = promptMessage({} as never, { timeout: 1000, extraButtons: [voucher] });
+    await new Promise(resolve => setImmediate(resolve));
+    collector.emit("collect", {
+        user: { id: "u1" },
+        customId: "voucher",
+        deferUpdate: vi.fn().mockResolvedValue(undefined)
+    });
+    await expect(pending).resolves.toMatchObject({ status: "custom", customId: "voucher" });
 });

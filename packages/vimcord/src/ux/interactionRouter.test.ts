@@ -333,14 +333,9 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
         const promise = promptMessage(message, {
-            timeout: 1000,
+            timeout: status === "timeout" ? 1 : 1000,
             onResolve: ResolveAction.DoNothing,
-            resolveOnAdditionalButton: true,
-            additionalButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)],
-            onCollector: c => {
-                collectors.push(c);
-                if (status === "timeout") c.stop();
-            }
+            extraButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)]
         });
         await settle();
         if (status !== "timeout")

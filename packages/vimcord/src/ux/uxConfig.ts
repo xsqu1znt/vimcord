@@ -77,16 +77,17 @@ export interface UxConfig {
         /** Appearance defaults keyed by paginator button ID. */
         buttons: Record<UxPaginatorButtonId, UxPaginatorButtonConfig>;
     };
+    /** Modal defaults. */
+    modal: {
+        /** Time in milliseconds to wait for a submission. */
+        timeout: number;
+    };
     /** Confirmation prompt content and button defaults. */
     prompt: {
         /** Default prompt title. */
         defaultTitle: string;
         /** Default prompt description. */
         defaultDescription: string;
-        /** Default modal input label. */
-        inputLabel: string;
-        /** Default modal input placeholder. */
-        inputPlaceholder: string;
         /** Whether the selected prompt button is visually highlighted. */
         highlightSelectedButton: boolean;
         /** Default confirm and reject buttons. */
@@ -154,11 +155,12 @@ function createDefaultUxConfig(): UxConfig {
                 last: { label: ">>" }
             }
         },
+        modal: {
+            timeout: 60_000
+        },
         prompt: {
             defaultTitle: "Confirmation Required",
             defaultDescription: "Please confirm or reject this action.",
-            inputLabel: "Your answer",
-            inputPlaceholder: "Enter yes or no",
             highlightSelectedButton: false,
             buttons: {
                 confirm: new ButtonBuilder({ label: "Confirm", style: ButtonStyle.Success }),
