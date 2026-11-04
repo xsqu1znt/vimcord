@@ -10,7 +10,7 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
     override moduleType: string = "Command:Context";
 
     readonly builder: ContextMenuCommandBuilder;
-    readonly deferReply: MessageContextCommandModuleOptions["deferReply"];
+    override readonly deferReply: MessageContextCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<MessageContextCommandModuleOptions["registration"]>;
 
     constructor(options: MessageContextCommandModuleOptions) {
@@ -20,10 +20,10 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
 
         super({
             name: builder.name,
-            ...options,
-            execute: ctx => this.runHandler(ctx, options.execute, options.deferReply)
+            ...options
         });
 
+        this.directExecution = new.target === MessageContextCommandModule;
         this.builder = builder;
         this.deferReply = options.deferReply;
         this.registration = { global: true, ...options.registration };

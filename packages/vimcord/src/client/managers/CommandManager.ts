@@ -1,12 +1,11 @@
 import type { Interaction, Message, RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
-import type { CommandModuleMetadata, CommandModuleType, ModuleRunResult } from "@/abstracts/index.js";
+import type { CommandModuleType } from "@/abstracts/index.js";
 import type {
     MessageContextCommandModule,
     PrefixCommandModule,
     SlashCommandModule,
     UserContextCommandModule
 } from "@/modules/index.js";
-import type { CommandLoggingTiming } from "../globals.js";
 import type { Vimcord } from "../Vimcord.js";
 import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } from "./applicationCommandData.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
@@ -41,18 +40,20 @@ export interface DispatchMessageOptions {
 }
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
+// A dispatch reads the token synchronously before any handler can run.
+const PREFIX_TRIGGER = /\S+/g;
 const GUILD_SYNC_CONCURRENCY = 5;
-// Used for commands following the default and explicit opt-ins when global logging is off.
-const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
+    private readonly aliases = new Map<string, PrefixCommandModule[]>();
+
     constructor(client: Vimcord) {
         super(client);
-        this.indexes.set("alias", { key: m => m.aliases, map: new Map(), isArray: true });
+        this.indexes.set("alias", { key: m => m.aliases, map: this.aliases, isArray: true });
     }
 
     getByTrigger(trigger: string): PrefixCommandModule | undefined {
-        return this.getByName(trigger) ?? this.getIndex("alias", trigger.toLowerCase(), true)[0];
+        return this.getByName(trigger) ?? this.aliases.get(trigger.toLowerCase())?.[0];
     }
 }
 
@@ -267,90 +268,46 @@ export class CommandManager {
     /**
      * Dispatches a Discord interaction to the matching slash or context command module.
      */
-    async dispatchInteraction(interaction: Interaction): Promise<boolean> {
+    dispatchInteraction(interaction: Interaction): Promise<boolean> {
         if (interaction.isChatInputCommand()) {
             const command = this.slash.getByName(interaction.commandName);
-            return command ? this.runCommand(command, [interaction], interaction) : false;
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
         }
         if (interaction.isMessageContextMenuCommand()) {
             const command = this.context.message.getByName(interaction.commandName);
-            return command ? this.runCommand(command, [interaction], interaction) : false;
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
         }
         if (interaction.isUserContextMenuCommand()) {
             const command = this.context.user.getByName(interaction.commandName);
-            return command ? this.runCommand(command, [interaction], interaction) : false;
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
         }
         // Autocomplete bypasses command tests and usage timing; it fires on every keystroke.
         if (interaction.isAutocomplete()) {
-            return this.slash.getByName(interaction.commandName)?.handleAutocomplete(interaction) ?? false;
+            return this.slash.getByName(interaction.commandName)?.handleAutocomplete(interaction) ?? Promise.resolve(false);
         }
-        return false;
+        return Promise.resolve(false);
     }
 
     /**
      * Dispatches a Discord message to the matching prefix command module.
      */
-    async dispatchMessage(
-        message: Message,
-        allowedPrefixes: string[],
-        options: DispatchMessageOptions = {}
-    ): Promise<boolean> {
+    dispatchMessage(message: Message, allowedPrefixes: string[], options: DispatchMessageOptions = {}): Promise<boolean> {
         const prefix = this.findLongestPrefix(
             message.content,
             allowedPrefixes,
-            options.allowMention ? this.getMentionPrefixes() : []
+            options.allowMention ? this.getMentionPrefixes() : undefined
         );
-        if (!prefix) return false;
+        if (!prefix) return Promise.resolve(false);
 
         // The first token after the prefix is the command name or alias
-        const trigger = message.content.slice(prefix.length).trimStart().match(/^\S+/)?.[0];
-        if (!trigger) return false;
+        PREFIX_TRIGGER.lastIndex = prefix.length;
+        const trigger = PREFIX_TRIGGER.exec(message.content)?.[0];
+        if (!trigger) return Promise.resolve(false);
 
         const command = this.prefix.getByTrigger(trigger);
-        if (!command) return false;
+        if (!command) return Promise.resolve(false);
 
-        return this.runCommand(command, [message, prefix, trigger], message);
-    }
-
-    /** Runs a matched command and emits its usage log. Always returns true, because a command was matched. */
-    private async runCommand<Args extends unknown[]>(
-        command: { name: string; metadata: CommandModuleMetadata; runWithResult(...args: Args): Promise<ModuleRunResult> },
-        args: Args,
-        source: Message | Interaction
-    ): Promise<boolean> {
-        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
-        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        if (!logUsage) {
-            await command.runWithResult(...args);
-            return true;
-        }
-
-        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
-        const startedAt = performance.now();
-        const recognizedAt = Date.now();
-        const result = await command.runWithResult(...args);
-        const durationMs = performance.now() - startedAt;
-
-        if (result.executed) {
-            const deliveryMs = recognizedAt - source.createdTimestamp;
-            const timingValues: Record<CommandLoggingTiming, number | undefined> = {
-                delivery: deliveryMs < 0 ? undefined : deliveryMs,
-                preExecute: result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined,
-                execute: result.executionTiming?.durationMs,
-                total: durationMs
-            };
-            this.client.logger.commandUsed({
-                commandName: command.name,
-                userName: ("author" in source ? source.author : source.user).username,
-                guildName: source.guild?.name,
-                guildId: source.guild?.id,
-                durationMs,
-                timings: selected.map(t => ({ timing: t, durationMs: timingValues[t] })),
-                failed: Boolean(result.error)
-            });
-        }
-
-        return true;
+        return command.dispatch(message, prefix, trigger);
     }
 
     /** Mention forms Discord may send for this bot. Rebuilt only if the client user changes. */
@@ -366,12 +323,18 @@ export class CommandManager {
     }
 
     /** Returns the longest prefix the content starts with, so "!!" wins over "!". */
-    private findLongestPrefix(content: string, ...groups: readonly string[][]): string | undefined {
+    private findLongestPrefix(
+        content: string,
+        prefixes: readonly string[],
+        mentions?: readonly string[]
+    ): string | undefined {
         let match: string | undefined;
-        for (const group of groups) {
-            for (const candidate of group) {
-                if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
-            }
+        for (const candidate of prefixes) {
+            if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
+        }
+        if (!mentions) return match;
+        for (const candidate of mentions) {
+            if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
         }
         return match;
     }

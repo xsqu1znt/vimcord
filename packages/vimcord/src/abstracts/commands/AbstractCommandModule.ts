@@ -1,6 +1,7 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
+import type { ModuleExecutionTiming, ModuleRunResult } from "../AbstractModule.js";
 import type {
     CommandModuleArgs,
     CommandModuleContext,
@@ -17,6 +18,10 @@ import { ModuleError } from "@/errors/ModuleError.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
+// Used when global logging is omitted or a command explicitly opts back in.
+const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
+const MATCHED_COMMAND = () => true;
+
 function getCommandHooks<T extends CommandModuleType>(
     type: T,
     hooks: GlobalCommandHooks | undefined
@@ -32,7 +37,9 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     CommandModuleHooks<T>
 > {
     abstract readonly type: T;
-    protected readonly permissions: CommandModulePermissions;
+    protected directExecution = false;
+    readonly deferReply?: Parameters<typeof applyDeferReply>[1];
+    protected readonly permissions: CommandModulePermissions | undefined;
     override readonly hooks: CommandModuleHooks<T>;
     readonly description?: string;
     override readonly metadata: CommandModuleMetadata;
@@ -47,25 +54,126 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         });
 
         this.description = options.description;
-        this.permissions = options.permissions ?? {};
+        this.permissions = options.permissions;
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
     }
 
-    /** Defers only when requested, then calls the user handler with optional usage timing. */
-    protected runHandler(
-        ctx: CommandModuleContext<T>,
-        handler: (ctx: CommandModuleContext<T>) => unknown,
-        deferReply?: Parameters<typeof applyDeferReply>[1]
-    ): unknown {
-        if (deferReply && "interaction" in ctx && !ctx.interaction.replied && !ctx.interaction.deferred) {
-            return applyDeferReply(ctx.interaction, deferReply).then(() => this.runHandler(ctx, handler));
+    /** Dispatches a matched command and emits only the selected usage timings. */
+    dispatch(...args: CommandModuleArgs<T>): Promise<boolean> {
+        // --- Select usage timing ---
+        const logging = this.client!.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
+        const logUsage = this.metadata.logUsage ?? (logging !== false && logging.length > 0);
+        let complete: ((result: ModuleRunResult) => boolean) | undefined;
+        let measure = false;
+        if (logUsage) {
+            const selected = logging === false || !logging.length ? DEFAULT_COMMAND_LOGGING : logging;
+            const measurePipeline = selected.includes("total") || selected.includes("preExecute");
+            const startedAt = measurePipeline ? performance.now() : 0;
+            const recognizedAt = selected.includes("delivery") ? Date.now() : 0;
+            measure = selected.includes("execute") || selected.includes("preExecute");
+            complete = result => {
+                if (!result.executed) return true;
+                const source = args[0];
+                const guild = source.guild;
+                const totalDuration = measurePipeline ? performance.now() - startedAt : undefined;
+                const timings = selected.map(timing => {
+                    let durationMs: number | undefined;
+                    switch (timing) {
+                        case "delivery": {
+                            const delivery = recognizedAt - source.createdTimestamp;
+                            durationMs = delivery >= 0 ? delivery : undefined;
+                            break;
+                        }
+                        case "preExecute":
+                            durationMs = result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined;
+                            break;
+                        case "execute":
+                            durationMs = result.executionTiming?.durationMs;
+                            break;
+                        case "total":
+                            durationMs = totalDuration;
+                    }
+                    return { timing, durationMs };
+                });
+                this.client!.logger.commandUsed({
+                    commandName: this.name,
+                    userName: ("author" in source ? source.author : source.user).username,
+                    guildName: guild?.name,
+                    guildId: guild?.id,
+                    durationMs: totalDuration,
+                    timings,
+                    failed: Boolean(result.error)
+                });
+                return true;
+            };
         }
 
+        // --- Run optional module stages ---
+        if (
+            !this.canExecuteDirectly() ||
+            !this.enabled ||
+            !this.client ||
+            (this.requiresReady && !this.client.isReady()) ||
+            this.client.logger.options.verbose ||
+            this.permissions ||
+            this.conditions.length ||
+            this.singleInvocation ||
+            this.deployment.environment !== "both" ||
+            ("author" in args[0] ? args[0].author : args[0].user).bot ||
+            this.getHook("preExecute") ||
+            this.getHook("postExecute")
+        ) {
+            return this.invoke(args, complete ?? MATCHED_COMMAND, measure);
+        }
+
+        // --- Call the handler directly ---
+        const ctx = this.createModuleCTX(args);
+        const executionTiming: ModuleExecutionTiming | undefined = measure
+            ? { startedAt: performance.now(), durationMs: 0 }
+            : undefined;
+        const finish = complete
+            ? (response: unknown): boolean => {
+                  if (executionTiming) executionTiming.durationMs = performance.now() - executionTiming.startedAt;
+                  return complete({ executed: true, response, executionTiming });
+              }
+            : MATCHED_COMMAND;
+        const failed = (error: unknown): Promise<boolean> => {
+            if (executionTiming) executionTiming.durationMs = performance.now() - executionTiming.startedAt;
+            const hookCTX = this.createHookCTX(ctx, args);
+            hookCTX.error = error as Error;
+            return this.runHook("onError", hookCTX, async () =>
+                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error as Error)
+            ).then(() =>
+                complete ? complete({ executed: true, response: undefined, error: error as Error, executionTiming }) : true
+            );
+        };
+        try {
+            return Promise.resolve(this.execute(ctx)).then(finish, failed);
+        } catch (error) {
+            return failed(error);
+        }
+    }
+
+    protected canExecuteDirectly(): boolean {
+        return this.directExecution && !this.deferReply;
+    }
+
+    protected override shouldMeasureExecution(): boolean {
+        if (this.metadata.logUsage === false) return false;
         const logging = this.client?.globals.app.commandLogging;
-        if (this.metadata.logUsage === false) return handler.call(this, ctx);
-        if ((logging === false || logging?.length === 0) && this.metadata.logUsage !== true) return handler.call(this, ctx);
-        return this.measureExecution(ctx, () => handler.call(this, ctx));
+        if (logging === false || logging?.length === 0) return this.metadata.logUsage === true;
+        return !logging || logging.includes("execute") || logging.includes("preExecute");
+    }
+
+    protected deferInteraction(ctx: CommandModuleContext<T>, deferReply = this.deferReply): void | Promise<void> {
+        if (deferReply && "interaction" in ctx && !ctx.interaction.replied && !ctx.interaction.deferred) {
+            return applyDeferReply(ctx.interaction, deferReply);
+        }
+    }
+
+    protected override prepareExecute(ctx: CommandModuleContext<T>): void | Promise<void> {
+        return this.deferInteraction(ctx);
     }
 
     protected override createModuleCTX(args: CommandModuleArgs<T>): CommandModuleContext<T> {
@@ -94,8 +202,9 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         return passed && this.testPermissions(ctx);
     }
 
-    private testPermissions(ctx: CommandModuleHookContext<T>): boolean | Promise<boolean> {
-        const result = testCommandPermissions(ctx, this.permissions);
+    protected testPermissions(ctx: CommandModuleHookContext<T>, permissions = this.permissions): boolean | Promise<boolean> {
+        if (!permissions && !resolveInvokingUser(ctx).bot) return true;
+        const result = testCommandPermissions(ctx, permissions ?? {});
         if (result instanceof Promise) return result.then(result => this.handlePermissionResult(ctx, result));
         return this.handlePermissionResult(ctx, result);
     }

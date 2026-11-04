@@ -3,7 +3,6 @@ import type {
     AppCommandModuleOptions,
     CommandModuleContext,
     CommandModuleHookContext,
-    ModuleTestResult,
     SlashCommandAutocompleteHandler,
     SlashCommandBuilderResolvable,
     SlashCommandModuleRoute
@@ -12,8 +11,8 @@ import type { Vimcord } from "@/client/index.js";
 
 import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import { testConditions } from "@/abstracts/testConditions.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
-import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { dynaSend, SendMethod } from "@/ux/index.js";
 
@@ -94,30 +93,12 @@ function createRoutePath(interaction: ChatInputCommandInteraction | Autocomplete
     return (group ? `${group}:${subcommand}` : subcommand).trim().toLowerCase();
 }
 
-async function testRouteConditions(
-    conditions: NonNullable<SlashCommandModuleRoute["conditions"]>,
-    ctx: CommandModuleHookContext<CommandModuleType.Slash>
-): Promise<ModuleTestResult> {
-    for (let i = 0; i < conditions.length; i++) {
-        const condition = conditions[i]!;
-
-        try {
-            const result = await condition(ctx);
-            if (!result.passed) return result;
-        } catch (err) {
-            return { passed: false, reason: `Route condition threw an error at index ${i}`, error: err as Error };
-        }
-    }
-
-    return { passed: true };
-}
-
 export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Slash> {
     override type: CommandModuleType.Slash = CommandModuleType.Slash;
     override moduleType: string = "Command:Slash";
 
     readonly builder: SlashCommandBuilderResolvable;
-    readonly deferReply: SlashCommandModuleOptions["deferReply"];
+    override readonly deferReply: SlashCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
     readonly routes: Map<string, SlashCommandModuleRoute>;
     readonly autocomplete: SlashCommandAutocompleteHandler | undefined;
@@ -141,6 +122,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         this.routes = routes;
         this.autocomplete = options.autocomplete;
         this.configuredExecute = options.execute;
+        this.directExecution = new.target === SlashCommandModule;
     }
 
     /**
@@ -192,35 +174,28 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         return this.testRouteRestrictions(ctx, route);
     }
 
-    private async testRouteRestrictions(
+    private testRouteRestrictions(
         ctx: CommandModuleHookContext<CommandModuleType.Slash>,
         route: SlashCommandModuleRoute
-    ): Promise<boolean> {
-        if (route.conditions?.length) {
-            const conditionResult = await testRouteConditions(route.conditions, ctx);
-            if (!conditionResult.passed) {
-                ctx.conditionTestResult = conditionResult;
-                await this.runHook("onConditionTestFail", ctx, async ctx => {
-                    ctx.error ??= conditionResult.error ?? new ModuleError(conditionResult.reason);
-                    await this.runHook("onError", ctx);
-                });
-                return false;
-            }
-        }
+    ): boolean | Promise<boolean> {
+        const result = testConditions(route.conditions ?? [], ctx, "Route condition");
+        const finish = (result: Awaited<ReturnType<typeof testConditions>>) => {
+            const passed = this.handleConditionResult(ctx, result);
+            if (typeof passed !== "boolean") return passed;
+            return passed && (!route.permissions || this.testPermissions(ctx, route.permissions));
+        };
+        return result instanceof Promise ? result.then(finish) : finish(result);
+    }
 
-        if (route.permissions) {
-            const permissionResult = await testCommandPermissions(ctx, route.permissions);
-            if (!permissionResult.passed) {
-                ctx.permissionTestResult = permissionResult;
-                await this.runHook("onPermissionTestFail", ctx, async ctx => {
-                    ctx.error ??= new ModuleError(permissionResult.reason);
-                    await this.runHook("onError", ctx);
-                });
-                return false;
-            }
-        }
+    protected override canExecuteDirectly(): boolean {
+        return !this.routes.size && super.canExecuteDirectly();
+    }
 
-        return true;
+    protected override prepareExecute(ctx: InvocationContext): void | Promise<void> {
+        if (ctx[ROUTE_PATH] === undefined && this.routes.size) ctx[ROUTE_PATH] = createRoutePath(ctx.interaction);
+        const path = ctx[ROUTE_PATH];
+        const route = path ? this.routes.get(path) : undefined;
+        return this.deferInteraction(ctx, resolveDeferReply(route?.deferReply, this.deferReply));
     }
 
     /** Reuses the resolved path while preserving live route-map changes made by hooks. */
@@ -231,9 +206,8 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
                 : createRoutePath(ctx.interaction)
             : null;
         const route = path ? this.routes.get(path) : undefined;
-        if (route)
-            return this.runHandler(ctx, () => route.handler(ctx), resolveDeferReply(route.deferReply, this.deferReply));
-        if (this.configuredExecute) return this.runHandler(ctx, this.configuredExecute, this.deferReply);
+        if (route) return route.handler(ctx);
+        return this.configuredExecute?.call(this, ctx);
     }
 
     private async handleUnknownRoute(

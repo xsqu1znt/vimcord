@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import ts from "typescript";
 import { manualRouting, mountedRouting } from "./routing.mjs";
 
-const OPTIONS = { repetitions: 3, baselineCommit: "c40fe1ff023388db82b5dc5063db27a32d1cd705" };
+const OPTIONS = { targetSpeedup: 3, repetitions: 3, baselineCommit: "c40fe1ff023388db82b5dc5063db27a32d1cd705" };
 const baselinePath = process.argv[2];
 if (!baselinePath) throw new Error("Usage: node benchmarks/compare.mjs /absolute/path/to/baseline/index.mjs");
 const currentPath = new URL("../dist/index.js", import.meta.url);
@@ -74,6 +74,10 @@ try {
             .update(await readFile(currentPath))
             .digest("hex"),
         summary,
+        minimumSpeedup: Math.min(...summary.map(row => row.speedup)),
+        minimumPromiseReduction: Math.min(...summary.map(row => row.baselinePromises / row.currentPromises)),
+        targetSpeedup: OPTIONS.targetSpeedup,
+        passedEveryScenario: summary.every(row => row.speedup >= OPTIONS.targetSpeedup),
         equalWorkloadSpeedup:
             summary.reduce((sum, row) => sum + row.baselineNs, 0) / summary.reduce((sum, row) => sum + row.currentNs, 0),
         geometricMeanSpeedup: Math.exp(summary.reduce((sum, row) => sum + Math.log(row.speedup), 0) / summary.length),
@@ -89,6 +93,9 @@ try {
     console.log(
         JSON.stringify(
             {
+                minimumSpeedup: report.minimumSpeedup,
+                minimumPromiseReduction: report.minimumPromiseReduction,
+                passedEveryScenario: report.passedEveryScenario,
                 equalWorkloadSpeedup: report.equalWorkloadSpeedup,
                 geometricMeanSpeedup: report.geometricMeanSpeedup,
                 routingAuthoring: report.routingAuthoring
@@ -97,6 +104,7 @@ try {
             2
         )
     );
+    if (!report.passedEveryScenario) process.exitCode = 1;
 } finally {
     await rm(directory, { recursive: true, force: true });
 }

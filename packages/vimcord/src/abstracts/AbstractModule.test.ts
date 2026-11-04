@@ -86,7 +86,7 @@ describe("AbstractModule stage compatibility", () => {
             }
             protected override testConditions(ctx: ModuleHookContext<[string]>) {
                 calls.push("conditions");
-                return super.testConditions(ctx).then(result => result);
+                return Promise.resolve(super.testConditions(ctx)).then(result => result);
             }
             protected override performTests(ctx: ModuleHookContext<[string]>) {
                 calls.push("tests");

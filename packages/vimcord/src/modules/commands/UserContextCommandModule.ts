@@ -10,7 +10,7 @@ export class UserContextCommandModule extends AbstractCommandModule<CommandModul
     override moduleType: string = "Command:Context";
 
     readonly builder: ContextMenuCommandBuilder;
-    readonly deferReply: UserContextCommandModuleOptions["deferReply"];
+    override readonly deferReply: UserContextCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<UserContextCommandModuleOptions["registration"]>;
 
     constructor(options: UserContextCommandModuleOptions) {
@@ -20,10 +20,10 @@ export class UserContextCommandModule extends AbstractCommandModule<CommandModul
 
         super({
             name: builder.name,
-            ...options,
-            execute: ctx => this.runHandler(ctx, options.execute, options.deferReply)
+            ...options
         });
 
+        this.directExecution = new.target === UserContextCommandModule;
         this.builder = builder;
         this.deferReply = options.deferReply;
         this.registration = { global: true, ...options.registration };
