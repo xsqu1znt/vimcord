@@ -1,4 +1,4 @@
-import type { Interaction, Message } from "discord.js";
+import type { ClientEvents, Interaction, Message } from "discord.js";
 import type { CommandLoggingTiming } from "../globals.js";
 
 import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
@@ -38,7 +38,7 @@ function createMessage(userName = "maya") {
         guild: { id: "guild", name: "Workshop" },
         guildId: "guild",
         createdTimestamp: CREATED_AT
-    } as unknown as Message;
+    } as unknown as ClientEvents["messageCreate"][0];
 }
 
 function createInteraction(kind: ApplicationCommandKind = "slash", subcommand: string | null = null) {
@@ -606,5 +606,55 @@ describe("CommandManager registration preparation", () => {
             body: { name: "new", description: "d", type: 1 }
         });
         expect(client.rest.put).not.toHaveBeenCalled();
+    });
+});
+
+describe("CommandManager routing lifecycle", () => {
+    it("mounts once, replaces prefix settings, and preserves other listeners on unmount", () => {
+        const client = createClient(false);
+        const commands = client.modules.commands;
+        const external = vi.fn();
+        client.on("interactionCreate", external);
+        const dispatchInteraction = vi.spyOn(commands, "dispatchInteraction").mockResolvedValue(true);
+        const dispatchMessage = vi.spyOn(commands, "dispatchMessage").mockResolvedValue(true);
+        commands.mount({ prefixes: ["!"] });
+        commands.mount({ prefixes: ["?"], allowMention: true });
+        const interaction = createInteraction() as unknown as Interaction;
+        const message = createMessage();
+        client.emit("interactionCreate", interaction);
+        client.emit("messageCreate", message);
+        expect(dispatchInteraction).toHaveBeenCalledExactlyOnceWith(interaction);
+        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], { prefixes: ["?"], allowMention: true });
+        commands.unmount();
+        commands.unmount();
+        expect(client.listeners("interactionCreate")).toEqual([external]);
+        expect(client.listeners("messageCreate")).toEqual([]);
+    });
+
+    it("mounts only interactions by default, supports mention-only routing, and cleans up on unload", () => {
+        const client = createClient(false);
+        const commands = client.modules.commands;
+        commands.mount();
+        expect(client.listenerCount("interactionCreate")).toBe(1);
+        expect(client.listenerCount("messageCreate")).toBe(0);
+        commands.mount({ allowMention: true });
+        expect(client.listenerCount("messageCreate")).toBe(1);
+        client.modules.unload();
+        expect(client.listenerCount("interactionCreate")).toBe(0);
+        expect(client.listenerCount("messageCreate")).toBe(0);
+    });
+
+    it("dispatches mounted commands without invoking handlers for bot messages", async () => {
+        const client = createClient(false);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
+        client.modules.commands.mount({ prefixes: ["!"] });
+        const message = createMessage();
+        client.emit("messageCreate", message);
+        expect(execute).toHaveBeenCalledOnce();
+        const bot = { ...message, author: { ...message.author, bot: true } } as typeof message;
+        client.emit("messageCreate", bot);
+        await Promise.resolve();
+        expect(execute).toHaveBeenCalledOnce();
     });
 });

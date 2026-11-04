@@ -1,13 +1,4 @@
-import type {
-    AutocompleteInteraction,
-    ChatInputCommandInteraction,
-    ContextMenuCommandInteraction,
-    Guild,
-    Interaction,
-    Message,
-    RESTPostAPIApplicationCommandsJSONBody,
-    User
-} from "discord.js";
+import type { Interaction, Message, RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
 import type { CommandModuleMetadata, CommandModuleType, ModuleRunResult } from "@/abstracts/index.js";
 import type {
     MessageContextCommandModule,
@@ -36,6 +27,11 @@ interface PreparedCommand {
     payload: RESTPostAPIApplicationCommandsJSONBody;
     key: string;
     signature: string;
+}
+
+export interface CommandRoutingOptions extends DispatchMessageOptions {
+    /** Message prefixes to listen for. Omit to listen only for application commands. */
+    prefixes?: string[];
 }
 
 export interface DispatchMessageOptions {
@@ -74,6 +70,8 @@ export class CommandManager {
     readonly slash: SlashCommandManager;
     readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
 
+    private interactionListener: ((interaction: Interaction) => Promise<boolean>) | undefined;
+    private messageListener: ((message: Message) => Promise<boolean>) | undefined;
     private cachedMentionUserId: string | undefined;
     private cachedMentionPrefixes: string[] = [];
 
@@ -81,6 +79,27 @@ export class CommandManager {
         this.prefix = new PrefixCommandManager(client);
         this.slash = new SlashCommandManager(client);
         this.context = { message: new MessageContextCommandManager(client), user: new UserContextCommandManager(client) };
+    }
+
+    /**
+     * Connects Discord events directly to command dispatch. Calling again replaces this manager's listeners.
+     * @param options Prefixes and mention handling; application commands are always enabled.
+     */
+    mount(options: CommandRoutingOptions = {}): void {
+        this.unmount();
+        this.interactionListener = this.dispatchInteraction.bind(this);
+        this.client.on("interactionCreate", this.interactionListener);
+        if (!options.prefixes?.length && !options.allowMention) return;
+        this.messageListener = message => this.dispatchMessage(message, options.prefixes ?? [], options);
+        this.client.on("messageCreate", this.messageListener);
+    }
+
+    /** Removes only the Discord event listeners installed by this manager. */
+    unmount(): void {
+        if (this.interactionListener) this.client.off("interactionCreate", this.interactionListener);
+        if (this.messageListener) this.client.off("messageCreate", this.messageListener);
+        this.interactionListener = undefined;
+        this.messageListener = undefined;
     }
 
     /**
@@ -249,19 +268,22 @@ export class CommandManager {
      * Dispatches a Discord interaction to the matching slash or context command module.
      */
     async dispatchInteraction(interaction: Interaction): Promise<boolean> {
-        // Route Discord interactions to the manager that owns the underlying command type
         if (interaction.isChatInputCommand()) {
-            return await this.dispatchSlash(interaction);
+            const command = this.slash.getByName(interaction.commandName);
+            return command ? this.runCommand(command, [interaction], interaction) : false;
         }
-
-        if (interaction.isContextMenuCommand()) {
-            return await this.dispatchContext(interaction);
+        if (interaction.isMessageContextMenuCommand()) {
+            const command = this.context.message.getByName(interaction.commandName);
+            return command ? this.runCommand(command, [interaction], interaction) : false;
         }
-
+        if (interaction.isUserContextMenuCommand()) {
+            const command = this.context.user.getByName(interaction.commandName);
+            return command ? this.runCommand(command, [interaction], interaction) : false;
+        }
+        // Autocomplete bypasses command tests and usage timing; it fires on every keystroke.
         if (interaction.isAutocomplete()) {
-            return await this.dispatchAutocomplete(interaction);
+            return this.slash.getByName(interaction.commandName)?.handleAutocomplete(interaction) ?? false;
         }
-
         return false;
     }
 
@@ -281,87 +303,36 @@ export class CommandManager {
         if (!prefix) return false;
 
         // The first token after the prefix is the command name or alias
-        const trigger = message.content.slice(prefix.length).trim().split(/\s+/, 1).shift();
+        const trigger = message.content.slice(prefix.length).trimStart().match(/^\S+/)?.[0];
         if (!trigger) return false;
 
         const command = this.prefix.getByTrigger(trigger);
         if (!command) return false;
 
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(message, prefix, trigger),
-            message.author,
-            message.guild,
-            message.createdTimestamp
-        );
-    }
-
-    private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<boolean> {
-        const command = this.slash.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(interaction),
-            interaction.user,
-            interaction.guild,
-            interaction.createdTimestamp
-        );
-    }
-
-    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
-        if (interaction.isMessageContextMenuCommand()) {
-            const command = this.context.message.getByName(interaction.commandName);
-            if (!command) return false;
-
-            return await this.runCommand(
-                command,
-                () => command.runWithResult(interaction),
-                interaction.user,
-                interaction.guild,
-                interaction.createdTimestamp
-            );
-        }
-
-        if (!interaction.isUserContextMenuCommand()) return false;
-        const command = this.context.user.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(interaction),
-            interaction.user,
-            interaction.guild,
-            interaction.createdTimestamp
-        );
-    }
-
-    /** Autocomplete skips the module pipeline and never emits a usage log; it fires per keystroke. */
-    private async dispatchAutocomplete(interaction: AutocompleteInteraction): Promise<boolean> {
-        const command = this.slash.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await command.handleAutocomplete(interaction);
+        return this.runCommand(command, [message, prefix, trigger], message);
     }
 
     /** Runs a matched command and emits its usage log. Always returns true, because a command was matched. */
-    private async runCommand(
-        command: { name: string; metadata: CommandModuleMetadata },
-        run: () => Promise<ModuleRunResult>,
-        user: User,
-        guild: Guild | null,
-        createdTimestamp: number
+    private async runCommand<Args extends unknown[]>(
+        command: { name: string; metadata: CommandModuleMetadata; runWithResult(...args: Args): Promise<ModuleRunResult> },
+        args: Args,
+        source: Message | Interaction
     ): Promise<boolean> {
+        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
+        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
+        if (!logUsage) {
+            await command.runWithResult(...args);
+            return true;
+        }
+
+        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
         const startedAt = performance.now();
         const recognizedAt = Date.now();
-        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
-        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
-        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        const result = await run();
+        const result = await command.runWithResult(...args);
         const durationMs = performance.now() - startedAt;
 
-        if (result.executed && logUsage) {
-            const deliveryMs = recognizedAt - createdTimestamp;
+        if (result.executed) {
+            const deliveryMs = recognizedAt - source.createdTimestamp;
             const timingValues: Record<CommandLoggingTiming, number | undefined> = {
                 delivery: deliveryMs < 0 ? undefined : deliveryMs,
                 preExecute: result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined,
@@ -370,9 +341,9 @@ export class CommandManager {
             };
             this.client.logger.commandUsed({
                 commandName: command.name,
-                userName: user.username,
-                guildName: guild?.name,
-                guildId: guild?.id,
+                userName: ("author" in source ? source.author : source.user).username,
+                guildName: source.guild?.name,
+                guildId: source.guild?.id,
                 durationMs,
                 timings: selected.map(t => ({ timing: t, durationMs: timingValues[t] })),
                 failed: Boolean(result.error)

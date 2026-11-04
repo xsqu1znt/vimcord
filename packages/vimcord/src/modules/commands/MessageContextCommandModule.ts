@@ -1,15 +1,7 @@
-import type {
-    AppCommandModuleOptions,
-    CommandModuleArgs,
-    CommandModuleContext,
-    CommandModuleHookContext,
-    ModuleHookContext
-} from "@/abstracts/index.js";
-import type { Vimcord } from "@/client/index.js";
+import type { AppCommandModuleOptions } from "@/abstracts/index.js";
 
 import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import { applyDeferReply } from "@/commands/commandDeferral.js";
 
 type MessageContextCommandModuleOptions = AppCommandModuleOptions<CommandModuleType.MessageContext>;
 
@@ -21,8 +13,6 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
     readonly deferReply: MessageContextCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<MessageContextCommandModuleOptions["registration"]>;
 
-    private readonly configuredExecute: MessageContextCommandModuleOptions["execute"];
-
     constructor(options: MessageContextCommandModuleOptions) {
         const builder =
             typeof options.builder === "function" ? options.builder(new ContextMenuCommandBuilder()) : options.builder;
@@ -31,38 +21,11 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
         super({
             name: builder.name,
             ...options,
-            execute: ctx => this.executeApp(ctx)
+            execute: ctx => this.runHandler(ctx, options.execute, options.deferReply)
         });
 
         this.builder = builder;
         this.deferReply = options.deferReply;
         this.registration = { global: true, ...options.registration };
-        this.configuredExecute = options.execute;
-    }
-
-    private async executeApp(ctx: CommandModuleContext<CommandModuleType.MessageContext>): Promise<unknown> {
-        await applyDeferReply(ctx.interaction, this.deferReply);
-        return await this.runHandler(ctx, () => this.configuredExecute(ctx));
-    }
-
-    protected override validate(): boolean {
-        return true;
-    }
-
-    protected override createModuleCTX(
-        args: CommandModuleArgs<CommandModuleType.MessageContext>
-    ): CommandModuleContext<CommandModuleType.MessageContext> {
-        return { client: this.client as Vimcord<true>, interaction: args[0] };
-    }
-
-    protected override createHookCTX(
-        moduleCTX: CommandModuleContext<CommandModuleType.MessageContext>,
-        args: CommandModuleArgs<CommandModuleType.MessageContext>
-    ): CommandModuleHookContext<CommandModuleType.MessageContext> {
-        return {
-            ...moduleCTX,
-            module: this as unknown as ModuleHookContext<CommandModuleArgs<CommandModuleType.MessageContext>>["module"],
-            args
-        };
     }
 }

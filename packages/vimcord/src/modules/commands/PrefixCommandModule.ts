@@ -2,9 +2,7 @@ import type { Message } from "discord.js";
 import type {
     CommandModuleArgs,
     CommandModuleContext,
-    CommandModuleHookContext,
     CommandModuleOptions,
-    ModuleHookContext,
     PrefixCommandModuleSubcommand
 } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
@@ -63,7 +61,7 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
         const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
         if (subcommand) return this.runHandler(ctx, () => subcommand.handler(ctx));
         if (!this.configuredExecute) return;
-        return this.runHandler(ctx, () => this.configuredExecute?.call(this, ctx));
+        return this.runHandler(ctx, this.configuredExecute);
     }
 
     protected override validate(): boolean {
@@ -100,17 +98,6 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
                 const rawParts = normalizedContent ? normalizedContent.split(separator).filter(Boolean) : [];
                 return rawParts;
             }
-        };
-    }
-
-    protected override createHookCTX(
-        moduleCTX: CommandModuleContext<CommandModuleType.Prefix>,
-        args: CommandModuleArgs<CommandModuleType.Prefix>
-    ): CommandModuleHookContext<CommandModuleType.Prefix> {
-        return {
-            ...moduleCTX,
-            module: this as unknown as ModuleHookContext<CommandModuleArgs<CommandModuleType.Prefix>>["module"],
-            args
         };
     }
 }

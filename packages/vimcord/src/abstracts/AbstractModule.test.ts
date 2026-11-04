@@ -90,7 +90,7 @@ describe("AbstractModule stage compatibility", () => {
             }
             protected override performTests(ctx: ModuleHookContext<[string]>) {
                 calls.push("tests");
-                return super.performTests(ctx).then(result => result);
+                return Promise.resolve(super.performTests(ctx)).then(result => result);
             }
         }
         const module = new CustomizedModule({

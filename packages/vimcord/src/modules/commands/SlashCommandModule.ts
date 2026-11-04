@@ -1,10 +1,8 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 import type {
     AppCommandModuleOptions,
-    CommandModuleArgs,
     CommandModuleContext,
     CommandModuleHookContext,
-    ModuleHookContext,
     ModuleTestResult,
     SlashCommandAutocompleteHandler,
     SlashCommandBuilderResolvable,
@@ -14,7 +12,7 @@ import type { Vimcord } from "@/client/index.js";
 
 import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import { applyDeferReply, resolveDeferReply } from "@/commands/commandDeferral.js";
+import { resolveDeferReply } from "@/commands/commandDeferral.js";
 import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { dynaSend, SendMethod } from "@/ux/index.js";
@@ -23,10 +21,9 @@ type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.
     execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
 };
 
-interface InvocationRoute {
-    resolved: boolean;
-    path?: string | null;
-}
+type InvocationContext = CommandModuleContext<CommandModuleType.Slash> & { [ROUTE_PATH]?: string | null };
+
+const ROUTE_PATH = Symbol("routePath");
 
 /** Discord's cap on the number of autocomplete choices returned in one response. */
 const MAX_AUTOCOMPLETE_CHOICES = 25;
@@ -125,7 +122,6 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     readonly routes: Map<string, SlashCommandModuleRoute>;
     readonly autocomplete: SlashCommandAutocompleteHandler | undefined;
 
-    private readonly invocationRoutes = new WeakMap<object, InvocationRoute>();
     private readonly configuredExecute: SlashCommandModuleOptions["execute"];
 
     constructor(options: SlashCommandModuleOptions) {
@@ -174,36 +170,32 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         return true;
     }
 
-    protected override validate(): boolean {
-        return true;
+    /** Tests routes only when configured, after the command's own restrictions pass. */
+    protected override performTests(ctx: CommandModuleHookContext<CommandModuleType.Slash>): boolean | Promise<boolean> {
+        const passed = super.performTests(ctx);
+        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testRoute(ctx));
+        return passed && this.testRoute(ctx);
     }
 
-    /**
-     * Layers route resolution on top of the command's own tests: once the command-level deployment,
-     * conditions, and permissions pass, a matched route's conditions and permissions run the same way.
-     * A route match failing here (or not matching at all) means `execute` never runs, so it never
-     * counts as an executed invocation.
-     */
-    protected override async performTests(ctx: CommandModuleHookContext<CommandModuleType.Slash>): Promise<boolean> {
-        const passedBaseTests = await super.performTests(ctx);
-        if (!passedBaseTests) return false;
-
-        const routePath = createRoutePath(ctx.interaction);
-        const selection = this.invocationRoutes.get(ctx);
-        if (selection) {
-            selection.resolved = true;
-            selection.path = routePath;
-        }
-        if (!routePath) return true;
-
+    private testRoute(ctx: CommandModuleHookContext<CommandModuleType.Slash>): boolean | Promise<boolean> {
         if (!this.routes.size) return true;
+        const routePath = createRoutePath(ctx.interaction);
+        (ctx as InvocationContext)[ROUTE_PATH] = routePath;
+        if (!routePath) return true;
 
         const route = this.routes.get(routePath);
         if (!route) {
-            await this.handleUnknownRoute(ctx, routePath);
-            return false;
+            return this.handleUnknownRoute(ctx, routePath).then(() => false);
         }
 
+        if (!route.conditions?.length && !route.permissions) return true;
+        return this.testRouteRestrictions(ctx, route);
+    }
+
+    private async testRouteRestrictions(
+        ctx: CommandModuleHookContext<CommandModuleType.Slash>,
+        route: SlashCommandModuleRoute
+    ): Promise<boolean> {
         if (route.conditions?.length) {
             const conditionResult = await testRouteConditions(route.conditions, ctx);
             if (!conditionResult.passed) {
@@ -232,18 +224,16 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     }
 
     /** Reuses the resolved path while preserving live route-map changes made by hooks. */
-    private async executeApp(ctx: CommandModuleContext<CommandModuleType.Slash>): Promise<unknown> {
-        const selection = this.invocationRoutes.get(ctx);
-        // Custom context factories can bypass the shared slot; keep their original route dispatch.
-        const path = selection?.resolved ? selection.path : createRoutePath(ctx.interaction);
+    private executeApp(ctx: InvocationContext): unknown {
+        const path = this.routes.size
+            ? ctx[ROUTE_PATH] !== undefined
+                ? ctx[ROUTE_PATH]
+                : createRoutePath(ctx.interaction)
+            : null;
         const route = path ? this.routes.get(path) : undefined;
-        if (route) {
-            await applyDeferReply(ctx.interaction, resolveDeferReply(route.deferReply, this.deferReply));
-            return await this.runHandler(ctx, () => route.handler(ctx));
-        }
-        await applyDeferReply(ctx.interaction, this.deferReply);
-        if (!this.configuredExecute) return;
-        return await this.runHandler(ctx, () => this.configuredExecute?.(ctx));
+        if (route)
+            return this.runHandler(ctx, () => route.handler(ctx), resolveDeferReply(route.deferReply, this.deferReply));
+        if (this.configuredExecute) return this.runHandler(ctx, this.configuredExecute, this.deferReply);
     }
 
     private async handleUnknownRoute(
@@ -265,26 +255,5 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
             flags: "Ephemeral",
             sendMethod: ctx.interaction.replied || ctx.interaction.deferred ? SendMethod.FollowUp : SendMethod.Reply
         });
-    }
-
-    protected override createModuleCTX(
-        args: CommandModuleArgs<CommandModuleType.Slash>
-    ): CommandModuleContext<CommandModuleType.Slash> {
-        const ctx = { client: this.client as Vimcord<true>, interaction: args[0] };
-        this.invocationRoutes.set(ctx, { resolved: false });
-        return ctx;
-    }
-
-    protected override createHookCTX(
-        moduleCTX: CommandModuleContext<CommandModuleType.Slash>,
-        args: CommandModuleArgs<CommandModuleType.Slash>
-    ): CommandModuleHookContext<CommandModuleType.Slash> {
-        const ctx = {
-            ...moduleCTX,
-            module: this as unknown as ModuleHookContext<CommandModuleArgs<CommandModuleType.Slash>>["module"],
-            args
-        };
-        this.invocationRoutes.set(ctx, this.invocationRoutes.get(moduleCTX)!);
-        return ctx;
     }
 }

@@ -117,20 +117,17 @@ await client.modules.load({
     events: { dir: "./src/events", suffix: ".event" }
 });
 
-client.on("interactionCreate", interaction => {
-    void client.modules.commands.dispatchInteraction(interaction);
-});
-
-client.on("messageCreate", message => {
-    if (message.author.bot) return;
-    void client.modules.commands.dispatchMessage(message, ["!"]);
-});
+client.modules.commands.mount({ prefixes: ["!"] });
 
 await client.login();
 await client.modules.commands.push();
 ```
 
+`mount()` connects application commands and optional message prefixes directly to their dispatchers. Use `mount()` with no options for a slash/context-only bot, or `{ allowMention: true }` for mention prefixes. Calling it again replaces its own listeners; `unmount()` and client destruction remove them. Use either `mount()` or your own dispatch listeners to avoid executing commands twice. The `dispatchInteraction()` and `dispatchMessage()` methods remain available for custom routing.
+
 ---
+
+Local dispatch and serialization benchmarks, application fixtures, and compatibility notes are in [`benchmarks/README.md`](benchmarks/README.md).
 
 ## Features
 
@@ -211,6 +208,8 @@ permissions: {
 ```
 
 `user`, `users`, `roles`, `guildOwner`, `botOwner`, and `botStaff` are access grants. Any one of them can allow a command. `guildOnly`, `guildWhitelist`, `guildBlacklist`, `userBlacklist`, `roleBlacklist`, `client`, and `allowBots` are hard restrictions. They all must pass. With no access grants, anyone who passes the hard restrictions can use the command.
+
+Local permission checks return immediately; staff-role or uncached guild-owner checks may return a promise. Use `await testCommandPermissions(ctx, permissions)` when calling the exported helper directly rather than chaining `.then()`.
 
 ### Autocomplete
 
@@ -326,6 +325,8 @@ defineGlobalCommandHooks({
 
 Command-local hooks override `client.globals.hooks`, and `client.globals.hooks` override `defineGlobalCommandHooks()`.
 
+Built-in modules pass one invocation context through checks, hooks, and execution. Changes a hook makes to that context are visible to the handler. Custom `createModuleCTX`/`createHookCTX` overrides are still supported. Protected `checkInjection()` and `performTests()` can now return a boolean or a promise; asynchronous overrides can use `await super.performTests(ctx)`.
+
 ### BetterEmbed
 
 ```ts
@@ -345,6 +346,8 @@ const embed = new BetterEmbed({
 
 await embed.send(interaction);
 ```
+
+`BetterEmbed.toJSON()` produces Discord API data directly. Token formatting, color resolution, timestamps, and the 25-field limit run locally; Discord validates text lengths and URLs when sent. Invalid text or URLs therefore fail at the Discord request rather than during local builder serialization. Timestamp `0` represents the Unix epoch.
 
 ### BetterContainer And Components V2
 
@@ -1018,36 +1021,15 @@ await client.status.set({
 Pass `production` and/or `development` profiles when their statuses differ. An omitted profile leaves that environment's
 status blank; profiles do not fall back across environments.
 
-### Command Dispatch Events
+### Command Routing
+
+Connect slash, autocomplete, context-menu, and prefix commands without wrapping dispatch in event modules:
 
 ```ts
-import { Events } from "discord.js";
-import { EventModule } from "vimcord";
-
-export default new EventModule({
-    name: "dispatchInteractions",
-    event: Events.InteractionCreate,
-    async execute({ client, args: [interaction] }) {
-        await client.modules.commands.dispatchInteraction(interaction);
-    }
-});
+client.modules.commands.mount({ prefixes: ["!", "?"], allowMention: true });
 ```
 
-```ts
-import { Events } from "discord.js";
-import { EventModule } from "vimcord";
-
-export default new EventModule({
-    name: "dispatchPrefixCommands",
-    event: Events.MessageCreate,
-    async execute({ client, args: [message] }) {
-        if (message.author.bot) return;
-        await client.modules.commands.dispatchMessage(message, ["!", "?"]);
-    }
-});
-```
-
-Pass `{ allowMention: true }` as a third argument to also treat a mention of the bot as a prefix.
+The manager listens directly to Discord.js events. Use `mount()` for application commands alone. Existing dispatch methods remain available when you need custom routing; do not wire both paths for the same events.
 
 ### Bot Staff Checks
 

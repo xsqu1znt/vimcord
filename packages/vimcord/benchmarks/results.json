@@ -1,0 +1,808 @@
+{
+    "baselineCommit": "c40fe1ff023388db82b5dc5063db27a32d1cd705",
+    "baselineSha256": "1b110ff6b432c8ea7a9ef1fc91efa2f6d3d1fe027567ca9ba46936356482df65",
+    "currentSha256": "97f72ec8acb59996ff56391ad1975fb0f15f710a8a17db3a290202c56f630d19",
+    "summary": [
+        {
+            "app": "utility",
+            "logging": false,
+            "baselineNs": 2735,
+            "currentNs": 1148,
+            "speedup": 2.382404181184669,
+            "baselinePromises": 22,
+            "currentPromises": 8,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "economy",
+            "logging": false,
+            "baselineNs": 2592,
+            "currentNs": 2136,
+            "speedup": 1.2134831460674158,
+            "baselinePromises": 14,
+            "currentPromises": 8,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "moderation",
+            "logging": false,
+            "baselineNs": 3680,
+            "currentNs": 1955,
+            "speedup": 1.8823529411764706,
+            "baselinePromises": 26,
+            "currentPromises": 15,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "support",
+            "logging": false,
+            "baselineNs": 30886,
+            "currentNs": 3256,
+            "speedup": 9.485872235872236,
+            "baselinePromises": 30,
+            "currentPromises": 15,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 1
+        },
+        {
+            "app": "bookmarks",
+            "logging": false,
+            "baselineNs": 2451,
+            "currentNs": 1487,
+            "speedup": 1.648285137861466,
+            "baselinePromises": 20,
+            "currentPromises": 8,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "utility",
+            "logging": true,
+            "baselineNs": 3810,
+            "currentNs": 1941,
+            "speedup": 1.9629057187017,
+            "baselinePromises": 24,
+            "currentPromises": 10,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "economy",
+            "logging": true,
+            "baselineNs": 3296,
+            "currentNs": 2689,
+            "speedup": 1.2257344737820752,
+            "baselinePromises": 16,
+            "currentPromises": 10,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "moderation",
+            "logging": true,
+            "baselineNs": 4191,
+            "currentNs": 2762,
+            "speedup": 1.5173787110789283,
+            "baselinePromises": 28,
+            "currentPromises": 17,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        },
+        {
+            "app": "support",
+            "logging": true,
+            "baselineNs": 32676,
+            "currentNs": 4605,
+            "speedup": 7.095765472312704,
+            "baselinePromises": 32,
+            "currentPromises": 17,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 1
+        },
+        {
+            "app": "bookmarks",
+            "logging": true,
+            "baselineNs": 3022,
+            "currentNs": 2333,
+            "speedup": 1.2953279039862837,
+            "baselinePromises": 22,
+            "currentPromises": 10,
+            "sendsPerCommand": 1,
+            "deferralsPerCommand": 0
+        }
+    ],
+    "equalWorkloadSpeedup": 3.6746873971701217,
+    "geometricMeanSpeedup": 2.2159648454868606,
+    "routingAuthoring": {
+        "before": {
+            "tokens": 62,
+            "lines": 7
+        },
+        "after": {
+            "tokens": 17,
+            "lines": 1
+        },
+        "tokenReduction": 3.6470588235294117
+    },
+    "runs": {
+        "baseline": [
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 2848,
+                        "minNs": 2660,
+                        "maxNs": 2999,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2729,
+                        "minNs": 2542,
+                        "maxNs": 2905,
+                        "promisesPerCommand": 14,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 3619,
+                        "minNs": 3387,
+                        "maxNs": 3683,
+                        "promisesPerCommand": 26,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 30512,
+                        "minNs": 29644,
+                        "maxNs": 32147,
+                        "promisesPerCommand": 30,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 2204,
+                        "minNs": 2043,
+                        "maxNs": 2365,
+                        "promisesPerCommand": 20,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 3435,
+                        "minNs": 3016,
+                        "maxNs": 3879,
+                        "promisesPerCommand": 24,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 2763,
+                        "minNs": 2697,
+                        "maxNs": 2967,
+                        "promisesPerCommand": 16,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 3955,
+                        "minNs": 3642,
+                        "maxNs": 4383,
+                        "promisesPerCommand": 28,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 32676,
+                        "minNs": 29621,
+                        "maxNs": 35505,
+                        "promisesPerCommand": 32,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 3137,
+                        "minNs": 2784,
+                        "maxNs": 3460,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            },
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 2735,
+                        "minNs": 2658,
+                        "maxNs": 3180,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2563,
+                        "minNs": 2452,
+                        "maxNs": 2782,
+                        "promisesPerCommand": 14,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 3680,
+                        "minNs": 3468,
+                        "maxNs": 3924,
+                        "promisesPerCommand": 26,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 31411,
+                        "minNs": 30352,
+                        "maxNs": 35837,
+                        "promisesPerCommand": 30,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 2628,
+                        "minNs": 2431,
+                        "maxNs": 3271,
+                        "promisesPerCommand": 20,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 4443,
+                        "minNs": 4185,
+                        "maxNs": 4656,
+                        "promisesPerCommand": 24,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 3296,
+                        "minNs": 3011,
+                        "maxNs": 3615,
+                        "promisesPerCommand": 16,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 4957,
+                        "minNs": 4572,
+                        "maxNs": 5633,
+                        "promisesPerCommand": 28,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 33255,
+                        "minNs": 30730,
+                        "maxNs": 36208,
+                        "promisesPerCommand": 32,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 2785,
+                        "minNs": 2615,
+                        "maxNs": 3075,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            },
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 2729,
+                        "minNs": 2586,
+                        "maxNs": 3784,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2592,
+                        "minNs": 2461,
+                        "maxNs": 5015,
+                        "promisesPerCommand": 14,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 3698,
+                        "minNs": 3291,
+                        "maxNs": 4196,
+                        "promisesPerCommand": 26,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 30886,
+                        "minNs": 29730,
+                        "maxNs": 32405,
+                        "promisesPerCommand": 30,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 2451,
+                        "minNs": 2238,
+                        "maxNs": 2800,
+                        "promisesPerCommand": 20,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 3810,
+                        "minNs": 3398,
+                        "maxNs": 4805,
+                        "promisesPerCommand": 24,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 3552,
+                        "minNs": 3150,
+                        "maxNs": 5879,
+                        "promisesPerCommand": 16,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 4191,
+                        "minNs": 4083,
+                        "maxNs": 4749,
+                        "promisesPerCommand": 28,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 29320,
+                        "minNs": 28373,
+                        "maxNs": 31811,
+                        "promisesPerCommand": 32,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 3022,
+                        "minNs": 2794,
+                        "maxNs": 4483,
+                        "promisesPerCommand": 22,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            }
+        ],
+        "current": [
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 1130,
+                        "minNs": 1032,
+                        "maxNs": 1838,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2136,
+                        "minNs": 1884,
+                        "maxNs": 3516,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 1955,
+                        "minNs": 1712,
+                        "maxNs": 2081,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 3195,
+                        "minNs": 2964,
+                        "maxNs": 3636,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 1472,
+                        "minNs": 1389,
+                        "maxNs": 1552,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 1934,
+                        "minNs": 1869,
+                        "maxNs": 2045,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 2645,
+                        "minNs": 2498,
+                        "maxNs": 2893,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 2708,
+                        "minNs": 2649,
+                        "maxNs": 3729,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 4605,
+                        "minNs": 3854,
+                        "maxNs": 5199,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 2340,
+                        "minNs": 2211,
+                        "maxNs": 2650,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            },
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 1179,
+                        "minNs": 1099,
+                        "maxNs": 1721,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2174,
+                        "minNs": 1981,
+                        "maxNs": 2463,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 2205,
+                        "minNs": 2085,
+                        "maxNs": 2373,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 3961,
+                        "minNs": 3190,
+                        "maxNs": 4224,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 1631,
+                        "minNs": 1370,
+                        "maxNs": 1775,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 1941,
+                        "minNs": 1889,
+                        "maxNs": 2167,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 3034,
+                        "minNs": 2794,
+                        "maxNs": 3264,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 3024,
+                        "minNs": 2830,
+                        "maxNs": 3190,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 4781,
+                        "minNs": 4097,
+                        "maxNs": 4912,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 2258,
+                        "minNs": 2146,
+                        "maxNs": 2343,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            },
+            {
+                "node": "v22.23.1",
+                "cpu": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+                "options": {
+                    "warmup": 5000,
+                    "iterations": 20000,
+                    "samples": 9,
+                    "promiseSamples": 100
+                },
+                "results": [
+                    {
+                        "app": "utility",
+                        "logging": false,
+                        "medianNs": 1148,
+                        "minNs": 1099,
+                        "maxNs": 1762,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": false,
+                        "medianNs": 2066,
+                        "minNs": 1985,
+                        "maxNs": 2225,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": false,
+                        "medianNs": 1925,
+                        "minNs": 1838,
+                        "maxNs": 2180,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": false,
+                        "medianNs": 3256,
+                        "minNs": 3032,
+                        "maxNs": 3937,
+                        "promisesPerCommand": 15,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": false,
+                        "medianNs": 1487,
+                        "minNs": 1430,
+                        "maxNs": 1637,
+                        "promisesPerCommand": 8,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "utility",
+                        "logging": true,
+                        "medianNs": 2083,
+                        "minNs": 1983,
+                        "maxNs": 2283,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "economy",
+                        "logging": true,
+                        "medianNs": 2689,
+                        "minNs": 2634,
+                        "maxNs": 2838,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "moderation",
+                        "logging": true,
+                        "medianNs": 2762,
+                        "minNs": 2691,
+                        "maxNs": 2870,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    },
+                    {
+                        "app": "support",
+                        "logging": true,
+                        "medianNs": 4194,
+                        "minNs": 4044,
+                        "maxNs": 4546,
+                        "promisesPerCommand": 17,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 1
+                    },
+                    {
+                        "app": "bookmarks",
+                        "logging": true,
+                        "medianNs": 2333,
+                        "minNs": 2099,
+                        "maxNs": 2573,
+                        "promisesPerCommand": 10,
+                        "sendsPerCommand": 1,
+                        "deferralsPerCommand": 0
+                    }
+                ]
+            }
+        ]
+    }
+}

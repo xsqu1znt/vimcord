@@ -160,7 +160,7 @@ export abstract class AbstractModule<
     readonly hooks: Hooks;
 
     /** Keys of invocations currently running, when `singleInvocation` is configured. */
-    private readonly activeInvocationKeys = new Set<string>();
+    private readonly activeInvocationKeys: Set<string> | undefined;
 
     protected readonly execute: (ctx: ModuleCTX) => unknown;
 
@@ -186,6 +186,7 @@ export abstract class AbstractModule<
         this.deployment = { environment: "both", ...deployment };
         this.conditions = conditions ?? [];
         this.singleInvocation = singleInvocation;
+        this.activeInvocationKeys = singleInvocation ? new Set() : undefined;
 
         this.hooks = (hooks ?? {}) as Hooks;
         this.execute = execute;
@@ -242,53 +243,39 @@ export abstract class AbstractModule<
      *
      * `testConditions` -> `hook:onConditionTestFail`
      */
-    protected async performTests(ctx: HookCTX): Promise<boolean> {
+    protected performTests(ctx: HookCTX): boolean | Promise<boolean> {
         const deploymentTestResult = this.testDeployment(ctx);
         if (!deploymentTestResult.passed) {
             ctx.deploymentTestResult = deploymentTestResult;
-
-            await this.runHook("onDeploymentTestFail", ctx, async ctx => {
-                if (!ctx.deploymentTestResult?.passed) {
-                    ctx.error ??= ctx.deploymentTestResult?.error ?? new ModuleError(ctx.deploymentTestResult!.reason);
-                }
+            return this.runHook("onDeploymentTestFail", ctx, async ctx => {
+                ctx.error ??= deploymentTestResult.error ?? new ModuleError(deploymentTestResult.reason);
                 await this.runHook("onError", ctx);
-            });
-
-            return false;
+            }).then(() => false);
         }
 
-        const conditionTestResult =
-            !this.conditions.length && this.testConditions === AbstractModule.prototype.testConditions
-                ? ({ passed: true } as const)
-                : await this.testConditions(ctx);
-        if (!conditionTestResult.passed) {
+        if (!this.conditions.length && this.testConditions === AbstractModule.prototype.testConditions) return true;
+
+        return this.testConditions(ctx).then(conditionTestResult => {
+            if (conditionTestResult.passed) return true;
             ctx.conditionTestResult = conditionTestResult;
-
-            await this.runHook("onConditionTestFail", ctx, async ctx => {
-                if (!ctx.conditionTestResult?.passed) {
-                    ctx.error ??= ctx.conditionTestResult?.error ?? new ModuleError(ctx.conditionTestResult!.reason);
-                }
+            return this.runHook("onConditionTestFail", ctx, async ctx => {
+                ctx.error ??= conditionTestResult.error ?? new ModuleError(conditionTestResult.reason);
                 await this.runHook("onError", ctx);
-            });
-
-            return false;
-        }
-
-        return true;
+            }).then(() => false);
+        });
     }
 
     // --- Internal Utilities ---
-    protected async checkInjection(): Promise<boolean> {
+    protected checkInjection(): boolean | Promise<boolean> {
         if (!this.client) {
             console.warn(`[Module] '${this.buildName()}' is not injected`);
             return false;
         }
-
         if (!this.requiresReady || this.client.isReady()) return true;
-
-        const ready = await this.client.awaitReady();
-        if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
-        return ready;
+        return this.client.awaitReady().then(ready => {
+            if (!ready) console.warn(`[Module] '${this.buildName()}' client is not ready`);
+            return ready;
+        });
     }
 
     protected buildName(): string {
@@ -312,26 +299,6 @@ export abstract class AbstractModule<
         }
     }
 
-    private injectionReady(): boolean | Promise<boolean> {
-        if (
-            this.checkInjection === AbstractModule.prototype.checkInjection &&
-            this.client &&
-            (!this.requiresReady || this.client.isReady())
-        )
-            return true;
-        return this.checkInjection();
-    }
-
-    private hasDefaultTests(): boolean {
-        return (
-            this.performTests === AbstractModule.prototype.performTests &&
-            this.testDeployment === AbstractModule.prototype.testDeployment &&
-            this.testConditions === AbstractModule.prototype.testConditions &&
-            this.deployment.environment === "both" &&
-            !this.conditions.length
-        );
-    }
-
     /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
     private timed<T>(message: () => string, fn: () => Promise<T> | T): Promise<T> | T {
         if (!this.client?.logger.options.verbose) return fn();
@@ -349,7 +316,7 @@ export abstract class AbstractModule<
         ctx: HookContext,
         fallback?: (ctx: HookContext) => Promise<void>
     ): Promise<void> {
-        const injected = this.injectionReady();
+        const injected = this.checkInjection();
         if (!(typeof injected === "boolean" ? injected : await injected)) return;
         const hookFn = this.getHook(hook) as ((ctx: HookContext) => Promise<void>) | undefined;
 
@@ -389,7 +356,7 @@ export abstract class AbstractModule<
     async runWithResult(...args: Args): Promise<ModuleRunResult> {
         let executed = false;
         if (!this.enabled) return { executed, response: undefined };
-        const injected = this.injectionReady();
+        const injected = this.checkInjection();
         if (!(typeof injected === "boolean" ? injected : await injected)) return { executed, response: undefined };
         const moduleCTX = this.createModuleCTX(args);
         const hookCTX = this.createHookCTX(moduleCTX, args);
@@ -398,8 +365,8 @@ export abstract class AbstractModule<
             const valid = this.validate();
             if (!valid) return { executed, response: undefined };
 
-            const passed = this.hasDefaultTests() || (await this.performTests(hookCTX));
-            if (!passed) return { executed, response: undefined };
+            const passed = this.performTests(hookCTX);
+            if (!(typeof passed === "boolean" ? passed : await passed)) return { executed, response: undefined };
 
             const preExecute = this.getHook("preExecute" as keyof Hooks) as
                 ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
@@ -420,11 +387,11 @@ export abstract class AbstractModule<
             let invocationKey: string | undefined;
             if (this.singleInvocation) {
                 invocationKey = this.singleInvocation.key(hookCTX);
-                if (this.activeInvocationKeys.has(invocationKey)) {
+                if (this.activeInvocationKeys!.has(invocationKey)) {
                     await this.runHook("onAlreadyRunning", hookCTX);
                     return { executed, response: undefined };
                 }
-                this.activeInvocationKeys.add(invocationKey);
+                this.activeInvocationKeys!.add(invocationKey);
             }
 
             executed = true;
@@ -435,7 +402,7 @@ export abstract class AbstractModule<
                     () => this.execute(moduleCTX)
                 );
             } finally {
-                if (invocationKey !== undefined) this.activeInvocationKeys.delete(invocationKey);
+                if (invocationKey !== undefined) this.activeInvocationKeys!.delete(invocationKey);
             }
 
             const postExecute = this.getHook("postExecute" as keyof Hooks) as
@@ -463,8 +430,12 @@ export abstract class AbstractModule<
     }
 
     /** Custom pre-check before tests are ran. */
-    protected abstract validate(): boolean;
+    protected validate(): boolean {
+        return true;
+    }
 
     protected abstract createModuleCTX(args: Args): ModuleCTX;
-    protected abstract createHookCTX(moduleCTX: ModuleCTX, args: Args): HookCTX;
+    protected createHookCTX(moduleCTX: ModuleCTX, args: Args): HookCTX {
+        return Object.assign(moduleCTX, { module: this, args }) as unknown as HookCTX;
+    }
 }
