@@ -1,11 +1,11 @@
 import type { Message, MessageEditOptions } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, SendHandler } from "./dynaSend.js";
-import type { OnResolve, Participant, ResolveResult, TimingOptions } from "./shared.js";
+import type { OnResolve, ParticipantsOption, ResolveResult, TimingOptions } from "./shared.js";
 
 import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
 import { dynaSend } from "./dynaSend.js";
-import { handleResolveAction, ResolveAction, resolveTiming } from "./shared.js";
+import { handleResolveAction, isMessageGone, resolveParticipants, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
@@ -24,8 +24,8 @@ export interface PromptMessageButtonOptions {
 
 /** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageBaseOptions {
-    /** Users allowed to interact with the prompt. */
-    participants?: Participant[];
+    /** Users allowed to interact with the prompt. Defaults to the invoker of the send target; `"anyone"` opts out. */
+    participants?: ParticipantsOption;
     /** Message content sent with the prompt. */
     content?: string;
     /** Embed sent with the prompt. */
@@ -34,7 +34,7 @@ export interface PromptMessageBaseOptions {
     buttons?: PromptMessageButtonOptions;
     /** Extra buttons appended after reject. Pressing one resolves the prompt with `status: "custom"` and its `customId`. */
     extraButtons?: ButtonBuilder[];
-    /** Cleanup action or awaited final payload, applied once after the decision. @default ResolveAction.DeleteMessage */
+    /** Cleanup action or awaited final payload, applied once after the decision. @default "disable" */
     onResolve?: OnResolve<PromptResolveContext>;
 }
 
@@ -154,8 +154,8 @@ export async function promptMessage(
     const collector = new BetterCollector(message, {
         ...options,
         type: ComponentType.Button,
-        participants: options.participants,
-        onResolve: ResolveAction.DoNothing
+        participants: resolveParticipants(options.participants, handler),
+        onResolve: "keep"
     });
 
     collector.on(
@@ -190,7 +190,7 @@ export async function promptMessage(
         );
     }
 
-    await new Promise<void>(resolve => collector.onEnd(() => resolve()));
+    const reason = await new Promise<string>(resolve => collector.onEnd((_collected, reason) => resolve(reason)));
 
     // Any ending without a resolving click is reported as "timeout"; only a click is a decision.
     const status: PromptStatus =
@@ -209,12 +209,11 @@ export async function promptMessage(
         message
     };
     const result =
-        typeof options.onResolve === "function"
-            ? await options.onResolve(context)
-            : (options.onResolve ?? ResolveAction.DeleteMessage);
+        typeof options.onResolve === "function" ? await options.onResolve(context) : (options.onResolve ?? "disable");
+    if (isMessageGone(reason)) return context;
     const action = typeof result === "string" ? result : result.action;
     let resolution: ResolveResult = result;
-    if (action === ResolveAction.DisableComponents && config.highlightSelectedButton) {
+    if (action === "disable" && config.highlightSelectedButton) {
         const payload = typeof result === "string" ? { action: result } : result;
         resolution = {
             ...payload,

@@ -19,7 +19,6 @@ import { dynaSend } from "./dynaSend.js";
 import * as routing from "./interactionRouter.js";
 import { Paginator } from "./paginator.js";
 import { promptMessage } from "./prompt.js";
-import { ResolveAction } from "./shared.js";
 
 vi.mock("./dynaSend.js", async original => ({ ...(await original<typeof import("./dynaSend.js")>()), dynaSend: vi.fn() }));
 
@@ -93,7 +92,8 @@ async function settle() {
 }
 
 function better(message: Message, options: ConstructorParameters<typeof BetterCollector>[1] = { timeout: 1000 }) {
-    const collector = new BetterCollector(message, options);
+    // These compare against Discord.js's own collector, which keeps history.
+    const collector = new BetterCollector(message, { retainHistory: true, ...options });
     collectors.push(collector);
     return collector;
 }
@@ -333,8 +333,9 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
         const promise = promptMessage(message, {
+            participants: "anyone",
             timeout: status === "timeout" ? 1 : 1000,
-            onResolve: ResolveAction.DoNothing,
+            onResolve: "keep",
             extraButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)]
         });
         await settle();
@@ -354,7 +355,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
     it("drives paginator navigation, asynchronous collect listeners, and timeout cleanup", async () => {
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
-        const p = new Paginator({ pages: ["a", "b"], idle: 30, onResolve: ResolveAction.ClearComponents });
+        const p = new Paginator({ participants: "anyone", pages: ["a", "b"], idle: 30, onResolve: "clear" });
         const order: string[] = [];
         p.on("collect", async () => {
             await Promise.resolve();

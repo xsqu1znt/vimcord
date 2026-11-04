@@ -1,9 +1,9 @@
 import type { InteractionBasedSendHandler } from "./dynaSend.js";
 
 import EventEmitter from "node:events";
+import { Collection, ComponentType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
-import { ResolveAction } from "./shared.js";
 
 vi.mock("./interactionRouter.js", () => ({
     createRoutedMessageCollector: (
@@ -13,7 +13,11 @@ vi.mock("./interactionRouter.js", () => ({
 }));
 
 function createMessage() {
-    const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
+    const collector = Object.assign(new EventEmitter(), {
+        stop: vi.fn(),
+        collected: new Collection(),
+        users: new Collection()
+    });
     let filter: (interaction: any) => boolean | Promise<boolean>;
     const message: any = {
         editable: true,
@@ -114,9 +118,9 @@ describe("BetterCollector onResolve", () => {
         const onResolve = vi.fn(async context => {
             expect(ended).toBe(true);
             expect(context).toEqual({ message, collected, reason: "manual" });
-            return { action: ResolveAction.DisableComponents, content: "Done" };
+            return { action: "disable" as const, content: "Done" };
         });
-        const bc = new BetterCollector(message, { timeout: 1000, onResolve });
+        const bc = new BetterCollector(message, { timeout: 1000, retainHistory: true, onResolve });
         bc.onEnd(async () => {
             await Promise.resolve();
             ended = true;
@@ -136,9 +140,54 @@ it("delivers an ephemeral collector's final payload through its sending interact
     new BetterCollector(message, {
         timeout: 1000,
         interaction: { webhook: { editMessage } } as unknown as InteractionBasedSendHandler,
-        onResolve: () => ({ action: ResolveAction.ClearComponents, content: "Done" })
+        onResolve: () => ({ action: "clear" as const, content: "Done" })
     });
     collector.emit("end", [], "time");
     await new Promise(resolve => setImmediate(resolve));
     expect(editMessage).toHaveBeenCalledWith("ephemeral", expect.objectContaining({ content: "Done" }));
+});
+
+describe("BetterCollector defaults", () => {
+    const row = {
+        toJSON: () => ({ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: "go" }] })
+    };
+
+    it("disables components on end, idles for the configured default, and retains no history", async () => {
+        const { message, collector } = createMessage();
+        message.components = [row];
+        message.edit = vi.fn().mockResolvedValue(message);
+        const create = vi.spyOn(message, "createMessageComponentCollector");
+        new BetterCollector(message);
+        expect(create.mock.calls[0]![0]).toMatchObject({ idle: 60_000, time: undefined });
+
+        collector.collected.set("1", {});
+        expect(collector.collected.get("1")).toBeUndefined();
+
+        collector.emit("end", [], "idle");
+        await new Promise(resolve => setImmediate(resolve));
+        expect(message.edit.mock.calls[0]![0].components[0].components[0].disabled).toBe(true);
+    });
+
+    it.each(["messageDelete", "channelDelete", "threadDelete", "guildDelete", "messageDeleteBulk"])(
+        "doesn't edit a message that ended with %s, but still runs the callback",
+        async reason => {
+            const { message, collector } = createMessage();
+            message.components = [row];
+            message.edit = vi.fn();
+            const onResolve = vi.fn(() => "disable" as const);
+            new BetterCollector(message, { onResolve });
+
+            collector.emit("end", [], reason);
+            await new Promise(resolve => setImmediate(resolve));
+
+            expect(onResolve).toHaveBeenCalledOnce();
+            expect(message.edit).not.toHaveBeenCalled();
+        }
+    );
+
+    it("rejects both idle and timeout", () => {
+        const { message } = createMessage();
+        // @ts-expect-error idle and timeout are mutually exclusive.
+        expect(() => new BetterCollector(message, { idle: 1, timeout: 1 })).toThrow(/Only one of/);
+    });
 });

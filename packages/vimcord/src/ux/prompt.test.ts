@@ -1,9 +1,16 @@
 import EventEmitter from "node:events";
-import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle } from "discord.js";
+import {
+    ActionRowBuilder,
+    BaseInteraction,
+    ButtonBuilder,
+    ButtonStyle,
+    Collection,
+    ComponentType,
+    Message
+} from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
-import { ResolveAction } from "./shared.js";
 import { defineGlobalUxConfig } from "./uxConfig.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
@@ -18,8 +25,22 @@ vi.mock("./interactionRouter.js", () => ({
     ) => message.createMessageComponentCollector(options)
 }));
 
+/** A real Message target, so instanceof picks the invoker up from it. */
+function createTarget(authorId: string, botId = "bot") {
+    const target = Object.create(Message.prototype) as Message;
+    Object.defineProperties(target, {
+        author: { value: { id: authorId } },
+        client: { value: { user: { id: botId } } }
+    });
+    return target;
+}
+
 function createFakeMessage() {
-    const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
+    const collector = Object.assign(new EventEmitter(), {
+        stop: vi.fn(),
+        collected: new Collection(),
+        users: new Collection()
+    });
     const message: any = {
         editable: true,
         deletable: true,
@@ -101,7 +122,7 @@ describe("prompt resolution payload", () => {
             if (customId) expect(deferUpdate).toHaveBeenCalled();
             expect(context).toMatchObject({ message, status });
             if (status === "custom") expect(context.customId).toBe("voucher");
-            return { action: ResolveAction.DisableComponents, embeds: [{ description: "Result" }] };
+            return { action: "disable" as const, embeds: [{ description: "Result" }] };
         });
         let settled = false;
         const pending = promptMessage(
@@ -144,7 +165,7 @@ describe("prompt resolution payload", () => {
         const failure = new Error("Discord edit failed");
         message.edit.mockRejectedValue(failure);
         vi.mocked(dynaSend).mockResolvedValue(message);
-        const onResolve = vi.fn(() => ({ action: ResolveAction.DisableComponents, content: "Paid result" }));
+        const onResolve = vi.fn(() => ({ action: "disable" as const, content: "Paid result" }));
         const pending = promptMessage({} as never, { timeout: 1000, onResolve });
         const rejected = expect(pending).rejects.toThrow(failure);
         await new Promise(resolve => setImmediate(resolve));
@@ -161,7 +182,7 @@ it("resolves an ephemeral prompt through its sending interaction", async () => {
     const deleteMessage = vi.fn().mockResolvedValue(undefined);
     const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { deleteMessage } });
     vi.mocked(dynaSend).mockResolvedValue(message);
-    const pending = promptMessage(handler, { timeout: 1000 });
+    const pending = promptMessage(handler, { timeout: 1000, onResolve: "delete" });
     await new Promise(resolve => setImmediate(resolve));
     collector.emit("end", [], "time");
     await pending;
@@ -182,4 +203,59 @@ it("always resolves on an extra button, with its customId", async () => {
         deferUpdate: vi.fn().mockResolvedValue(undefined)
     });
     await expect(pending).resolves.toMatchObject({ status: "custom", customId: "voucher" });
+});
+
+describe("prompt defaults", () => {
+    const row = {
+        toJSON: () => ({ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: "a" }] })
+    };
+
+    async function run(reason: string, options = {}) {
+        const { message, collector } = createFakeMessage();
+        message.components = [row];
+        vi.mocked(dynaSend).mockResolvedValue(message);
+        const pending = promptMessage({} as never, options);
+        await new Promise(resolve => setImmediate(resolve));
+        collector.emit("end", [], reason);
+        await pending;
+        return message;
+    }
+
+    it("disables on resolve rather than deleting, with no timing given", async () => {
+        const message = await run("idle");
+        expect(message.delete).not.toHaveBeenCalled();
+        expect(message.edit.mock.calls[0]![0].components[0].components[0].disabled).toBe(true);
+    });
+
+    it("doesn't edit a prompt whose message was deleted", async () => {
+        const message = await run("messageDelete");
+        expect(message.edit).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["only the invoker of a message", () => createTarget("invoker"), undefined, true],
+        ["anyone with anyone", () => createTarget("invoker"), "anyone" as const, false],
+        ["anyone when the target is the bot's own message", () => createTarget("bot"), undefined, false],
+        ["anyone on a target with no invoker", () => ({}) as never, undefined, false]
+    ])("lets in %s", async (_name, target, participants, restricted) => {
+        const { message } = createFakeMessage();
+        let filter!: (i: unknown) => Promise<boolean>;
+        message.createMessageComponentCollector = (options: { filter: typeof filter }) => {
+            filter = options.filter;
+            return Object.assign(new EventEmitter(), {
+                stop: vi.fn(),
+                collected: new Collection(),
+                users: new Collection()
+            });
+        };
+        vi.mocked(dynaSend).mockResolvedValue(message);
+        void promptMessage(target(), { participants });
+        await new Promise(resolve => setImmediate(resolve));
+        const click = {
+            user: { id: "someone-else" },
+            customId: "prompt:confirm",
+            reply: vi.fn().mockResolvedValue(undefined)
+        };
+        expect(await filter(click)).toBe(!restricted);
+    });
 });

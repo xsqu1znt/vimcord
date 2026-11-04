@@ -1,8 +1,8 @@
 import type { ColorResolvable } from "discord.js";
 import type { PartialDeep } from "../types/helpers.js";
+import type { ResolveAction } from "./shared.js";
 
 import { ButtonBuilder, ButtonStyle } from "discord.js";
-import { ResolveAction } from "./shared.js";
 
 /** A Discord custom emoji descriptor. */
 export interface UxCustomEmojiConfig {
@@ -17,7 +17,7 @@ export interface UxCustomEmojiConfig {
 /** A Unicode emoji or Discord custom emoji descriptor. */
 export type UxEmojiConfig = string | UxCustomEmojiConfig;
 /** Configurable paginator navigation button IDs. */
-export type UxPaginatorButtonId = "first" | "skipBack" | "back" | "jump" | "next" | "skipNext" | "last";
+export type UxPaginatorButtonId = "first" | "back" | "jump" | "next" | "last";
 
 /** Global appearance for one paginator button. */
 export interface UxPaginatorButtonConfig {
@@ -51,6 +51,8 @@ export interface UxConfig {
     embedColor: ColorResolvable | ColorResolvable[] | null;
     /** Default development embed color or random color pool. */
     embedColorDev: ColorResolvable | ColorResolvable[] | null;
+    /** Idle time in milliseconds for paginators, prompts, and collectors given no timing. */
+    defaultIdle: number;
     /** Collector behavior and access messages. */
     collector: {
         /** Ephemeral message shown while a user's prior action is running. */
@@ -60,8 +62,6 @@ export interface UxConfig {
     };
     /** Paginator navigation, timeout, and message defaults. */
     paginator: {
-        /** Default number of pages moved by skip controls. */
-        skipSize: number;
         /** Default timeout resolution action. */
         onResolve: ResolveAction;
         /** Message shown to users who are not paginator participants. */
@@ -124,13 +124,13 @@ function createDefaultUxConfig(): UxConfig {
         devMode: false,
         embedColor: null,
         embedColorDev: null,
+        defaultIdle: 60_000,
         collector: {
             userLockMessage: "Please wait, your previous action is still processing.",
             notAParticipantMessage: "You are not allowed to use this."
         },
         paginator: {
-            skipSize: 5,
-            onResolve: ResolveAction.ClearComponents,
+            onResolve: "disable",
             notAParticipantMessage: "You are not allowed to use this.",
             jumpModal: {
                 title: "Jump to Page",
@@ -147,11 +147,9 @@ function createDefaultUxConfig(): UxConfig {
             },
             buttons: {
                 first: { label: "<<" },
-                skipBack: { label: "Skip Back" },
                 back: { label: "<" },
                 jump: { label: "Jump" },
                 next: { label: ">" },
-                skipNext: { label: "Skip Forward" },
                 last: { label: ">>" }
             }
         },

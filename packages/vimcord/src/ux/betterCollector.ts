@@ -9,7 +9,7 @@ import type { InteractionBasedSendHandler } from "./dynaSend.js";
 import type { OnResolve, Participant, TimingOptions } from "./shared.js";
 
 import { createRoutedMessageCollector } from "./interactionRouter.js";
-import { handleResolveAction, ResolveAction, resolveParticipantId, resolveTiming } from "./shared.js";
+import { handleResolveAction, isMessageGone, resolveParticipantId, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 type ListenerFn = (interaction: MessageComponentInteraction) => unknown;
@@ -33,7 +33,7 @@ interface CollectorEventMap {
     end: [MessageComponentInteraction[], string];
 }
 
-/** Collector completion passed to onResolve. History is empty when retainHistory is false. */
+/** Collector completion passed to onResolve. History is empty unless retainHistory is on. */
 export interface CollectorResolveContext {
     message: Message;
     reason: string;
@@ -63,10 +63,11 @@ interface BetterCollectorBaseOptions<ComponentType extends MessageComponentType>
     max?: number | null;
     maxComponents?: number | null;
     maxUsers?: number | null;
-    /** Retain interactions for onEnd callbacks. Disable when only limits/end reasons are needed. @default true */
+    /** Retain interactions for onEnd and onResolve callbacks. @default false */
     retainHistory?: boolean;
     /** Interaction used to send the message, required for ephemeral cleanup. */
     interaction?: InteractionBasedSendHandler;
+    /** Cleanup action or awaited final payload, applied once after the collector ends. @default "disable" */
     onResolve?: OnResolve<CollectorResolveContext>;
     notAParticipantMessage?: string | null;
     defer?: boolean | { update?: boolean; flags?: InteractionDeferReplyOptions["flags"] };
@@ -110,7 +111,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     private readonly endListeners: ((collected: MessageComponentInteraction[], reason: string) => unknown)[] = [];
     private readonly activeUsers = new Set<string>();
 
-    constructor(message: Message, options: BetterCollectorOptions<C>) {
+    constructor(message: Message, options: BetterCollectorOptions<C> = {}) {
         this.message = message;
         this.interaction = options.interaction;
         const config = getGlobalUxConfig().collector;
@@ -126,8 +127,8 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             max: options.max ?? null,
             maxComponents: options.maxComponents ?? null,
             maxUsers: options.maxUsers ?? null,
-            retainHistory: options.retainHistory ?? true,
-            onResolve: options.onResolve ?? ResolveAction.DoNothing,
+            retainHistory: options.retainHistory ?? false,
+            onResolve: options.onResolve ?? "disable",
             notAParticipantMessage: options.notAParticipantMessage ?? config.notAParticipantMessage,
             defer: options.defer ?? false
         };
@@ -368,6 +369,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
             typeof this.options.onResolve === "function"
                 ? await this.options.onResolve({ message: this.message, reason, collected })
                 : this.options.onResolve;
+        if (isMessageGone(reason)) return;
         await handleResolveAction(this.message, result, undefined, this.interaction);
     }
 
