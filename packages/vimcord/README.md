@@ -127,8 +127,6 @@ await client.modules.commands.push();
 
 ---
 
-Local dispatch and serialization benchmarks, application fixtures, and compatibility notes are in [`benchmarks/README.md`](benchmarks/README.md).
-
 ## Features
 
 ### Slash Commands
@@ -839,7 +837,7 @@ makes caching it worse than no cache.
 
 ### Client Logger
 
-Command usage logs show execute time by default. Fixed labels, prefixes, and second-precision timestamps are reused; prefix and palette changes refresh their cached output. See [`benchmarks/logging.md`](benchmarks/logging.md) for paired logging-on/off measurements.
+Command usage logs show execute time by default. Fixed labels, prefixes, and second-precision timestamps are reused; prefix and palette changes refresh their cached output.
 
 Select timings in the order you want them displayed:
 

@@ -22,12 +22,8 @@
     "type": "module",
     "scripts": {
         "build": "tsup",
-        "bench": "node benchmarks/run.mjs",
-        "bench:compare": "node benchmarks/compare.mjs",
-        "bench:logging": "node benchmarks/logging.mjs",
-        "bench:network": "node benchmarks/network.mjs",
         "check": "tsc --noEmit",
-        "format": "prettier --write \"./**/*.{ts,mjs,json}\""
+        "format": "prettier --write \"./**/*.{ts,json}\""
     },
     "devDependencies": {
         "@types/node": "^25.8.0"
