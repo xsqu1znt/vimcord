@@ -837,7 +837,9 @@ makes caching it worse than no cache.
 
 ### Client Logger
 
-Command usage logs show execute time by default. Select timings in the order you want them displayed:
+Command usage logs show execute time by default. Fixed labels, prefixes, and second-precision timestamps are reused; prefix and palette changes refresh their cached output. See [`benchmarks/logging.md`](benchmarks/logging.md) for paired logging-on/off measurements.
+
+Select timings in the order you want them displayed:
 
 ```ts
 client.configure({

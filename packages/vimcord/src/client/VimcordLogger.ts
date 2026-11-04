@@ -66,8 +66,15 @@ const COMMAND_TIMING_LABELS = {
     total: "total"
 } as const;
 
+function createCommandStyle(muted: string, error: string) {
+    const formatGuild = ansis.hex(muted);
+    return { muted, error, formatGuild, label: formatGuild("COMMAND"), failed: ansis.hex(error)("| failed") };
+}
+
 /** Vimcord-specific logger for startup, command, module, and plugin output. */
 export class VimcordLogger extends Logger {
+    private commandStyle: ReturnType<typeof createCommandStyle> | undefined;
+
     /** Creates a Vimcord logger with optional display overrides. */
     constructor(options: LoggerOptions = {}) {
         super({ prefix: "⚡ vimcord", ...options });
@@ -184,23 +191,29 @@ export class VimcordLogger extends Logger {
     /** Logs a completed command execution. */
     commandUsed({ commandName, userName, guildName, durationMs, timings, failed }: VimcordCommandLogData): void {
         const { colors } = this.options;
-        const timingLabels = timings
-            ? timings.map(t =>
-                  ansis.dim(
-                      `| ${COMMAND_TIMING_LABELS[t.timing]} ${t.durationMs === undefined ? "n/a" : `${t.durationMs.toFixed(1)}ms`}`
-                  )
-              )
-            : durationMs === undefined
-              ? []
-              : [ansis.dim(`| ${durationMs.toFixed(1)}ms`)];
-        this.log(
-            ansis.hex(colors.muted)("COMMAND"),
+        if (this.commandStyle?.muted !== colors.muted || this.commandStyle.error !== colors.error) {
+            this.commandStyle = createCommandStyle(colors.muted, colors.error);
+        }
+        const style = this.commandStyle;
+        const parts = [
+            style.label,
             ansis.yellow(`/${commandName}`),
             `used by ${userName}`,
-            ansis.hex(colors.muted)(`in ${guildName ?? "Unknown Guild"}`),
-            ...timingLabels,
-            ...(failed ? [ansis.hex(colors.error)("| failed")] : [])
-        );
+            style.formatGuild(`in ${guildName ?? "Unknown Guild"}`)
+        ];
+        if (timings) {
+            for (const { timing, durationMs } of timings) {
+                parts.push(
+                    ansis.dim(
+                        `| ${COMMAND_TIMING_LABELS[timing]} ${durationMs === undefined ? "n/a" : `${durationMs.toFixed(1)}ms`}`
+                    )
+                );
+            }
+        } else if (durationMs !== undefined) {
+            parts.push(ansis.dim(`| ${durationMs.toFixed(1)}ms`));
+        }
+        if (failed) parts.push(style.failed);
+        this.log(...parts);
     }
 
     /** Logs module-scoped output without flattening structured values. */

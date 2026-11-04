@@ -1,8 +1,10 @@
 # Bot application benchmarks
 
-The **3× latency target in every scenario is not met**: 3 of 10 scenarios pass. The minimum speedup is **1.76×**. `bench:compare` exits with status 1 whenever any scenario misses the target; combined averages do not determine acceptance.
+The **3× latency target in every scenario is not met**: 4 of 10 scenarios pass. The minimum speedup is **1.77×**. `bench:compare` exits with status 1 whenever any scenario misses the target; combined averages do not determine acceptance.
 
 Every scenario allocates at least **3.00× fewer promises**. This is a resource improvement, not a substitute for the latency target.
+
+For the logging-specific follow-up, including real formatter costs, see [logging.md](logging.md).
 
 ## Applications and protocol
 
@@ -24,24 +26,24 @@ Baseline: `c40fe1ff023388db82b5dc5063db27a32d1cd705`. Node `v22.23.1`, AMD Ryzen
 
 | Application | Logging | Baseline µs | Updated µs | Speedup | Promises/command | 3× gate |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| utility | off | 2.057 | 0.563 | 3.65× | 22 → 3 | pass |
-| economy | off | 1.990 | 1.103 | 1.80× | 14 → 3 | FAIL |
-| moderation | off | 2.726 | 1.036 | 2.63× | 26 → 4 | FAIL |
-| support | off | 27.124 | 2.304 | 11.77× | 30 → 10 | pass |
-| bookmarks | off | 1.733 | 0.816 | 2.12× | 20 → 3 | FAIL |
-| utility | on | 2.589 | 0.869 | 2.98× | 24 → 3 | FAIL |
-| economy | on | 2.351 | 1.333 | 1.76× | 16 → 3 | FAIL |
-| moderation | on | 3.091 | 1.320 | 2.34× | 28 → 4 | FAIL |
-| support | on | 25.950 | 2.538 | 10.22× | 32 → 10 | pass |
-| bookmarks | on | 2.124 | 1.000 | 2.12× | 22 → 3 | FAIL |
+| utility | off | 2.029 | 0.608 | 3.34× | 22 → 3 | pass |
+| economy | off | 2.115 | 1.193 | 1.77× | 14 → 3 | FAIL |
+| moderation | off | 2.696 | 1.084 | 2.49× | 26 → 4 | FAIL |
+| support | off | 27.437 | 2.369 | 11.58× | 30 → 10 | pass |
+| bookmarks | off | 1.740 | 0.836 | 2.08× | 20 → 3 | FAIL |
+| utility | on | 2.619 | 0.836 | 3.13× | 24 → 3 | pass |
+| economy | on | 2.375 | 1.262 | 1.88× | 16 → 3 | FAIL |
+| moderation | on | 3.101 | 1.301 | 2.38× | 28 → 4 | FAIL |
+| support | on | 26.146 | 2.537 | 10.31× | 32 → 10 | pass |
+| bookmarks | on | 2.146 | 0.954 | 2.25× | 22 → 3 | FAIL |
 
-The equal-count batch improves **5.57×**, and the geometric mean is **3.21×**. Support contributes most of the batch saving. Neither aggregate result satisfies the per-scenario target. Earlier exploratory comparisons against saved timings were optimistic because the original build also runs faster under the conditions of these fresh paired runs.
+The equal-count batch improves **5.58×**, and the geometric mean is **3.21×**. Support contributes most of the batch saving. Neither aggregate result satisfies the per-scenario target. Earlier exploratory comparisons against saved timings were optimistic because the original build also runs faster under the conditions of these fresh paired runs.
 
 Send counts remain one per command. Support still defers once; the other scenarios do not defer. Discord request count and wire payload size have not been reduced.
 
 ## Simplification retained
 
-Across the original baseline and this follow-up, runtime source shrinks by a net **247 lines**, excluding tests, documentation, and the benchmark harness.
+Across the original baseline and this follow-up, runtime source shrinks by a net **169 lines**, excluding tests, documentation, and the benchmark harness.
 
 - Command dispatch reaches the module directly, without private slash/context dispatch wrappers or a separate async usage-logging frame.
 - Unconfigured built-in commands reach their handler directly. Configured conditions, permissions, hooks, deferral, concurrency control, readiness waits, deployment rules, verbose logging, and subclass overrides retain the full pipeline.
@@ -56,7 +58,7 @@ Across the original baseline and this follow-up, runtime source shrinks by a net
 
 ## Remaining gap and profiling
 
-Economy remains the weakest case. CPU profiles identify reply serialization, garbage collection, prefix-context construction, tokenization, and dispatch as its remaining costs. A throwaway application-only probe measured about 619 ns per command; a stripped router using the same handler measured about 789 ns. The fresh paired baseline's economy/off target is 663 ns. Those probes are diagnostics, not a mathematical lower bound or a replacement for the public-API benchmark.
+Economy remains the weakest case. CPU profiles identify reply serialization, garbage collection, prefix-context construction, tokenization, and dispatch as its remaining costs. A throwaway application-only probe measured about 619 ns per command; a stripped router using the same handler measured about 789 ns. The fresh paired baseline's economy/off target is 705 ns. Those probes are diagnostics, not a mathematical lower bound or a replacement for the public-API benchmark.
 
 Additional local cuts flattened out. Parser-offset plumbing was removed after it failed to demonstrate a useful gain; the original three-argument prefix invocation remains intact. No fixture was weakened, transport work skipped, logging disabled, or timing threshold relaxed to make the gate pass. Further work must demonstrate improvement in these same per-scenario measurements.
 
@@ -71,7 +73,7 @@ The original command options, routing, hooks, permissions, manual dispatch, conc
 - Usage-record `durationMs` is populated when pipeline timing is requested. The displayed execute timing remains available with execute-only logging.
 - `mount()` is opt-in; do not also install manual dispatch listeners for the same events.
 
-Validation: **411 tests across 25 files, workspace type checks, and all package builds pass**. Added coverage checks synchronous/asynchronous condition sequencing, direct handlers returning thenables, rejection timing, configuration changes between invocations, and prefix whitespace/aliases/hook arguments.
+Validation: **417 tests across 27 files, workspace type checks, and all package builds pass**. Added coverage checks synchronous/asynchronous condition sequencing, direct handlers returning thenables, rejection timing, configuration changes between invocations, and prefix whitespace/aliases/hook arguments.
 
 ## Run
 

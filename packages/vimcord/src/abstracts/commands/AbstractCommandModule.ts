@@ -1,7 +1,8 @@
+import type { CommandLoggingTiming } from "@/client/globals.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
-import type { ModuleExecutionTiming, ModuleRunResult } from "../AbstractModule.js";
+import type { ModuleRunResult } from "../AbstractModule.js";
 import type {
     CommandModuleArgs,
     CommandModuleContext,
@@ -64,49 +65,17 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         // --- Select usage timing ---
         const logging = this.client!.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
         const logUsage = this.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        let complete: ((result: ModuleRunResult) => boolean) | undefined;
+        let selected: readonly CommandLoggingTiming[] | undefined;
+        let startedAt: number | undefined;
+        let recognizedAt: number | undefined;
         let measure = false;
         if (logUsage) {
-            const selected = logging === false || !logging.length ? DEFAULT_COMMAND_LOGGING : logging;
-            const measurePipeline = selected.includes("total") || selected.includes("preExecute");
-            const startedAt = measurePipeline ? performance.now() : 0;
-            const recognizedAt = selected.includes("delivery") ? Date.now() : 0;
-            measure = selected.includes("execute") || selected.includes("preExecute");
-            complete = result => {
-                if (!result.executed) return true;
-                const source = args[0];
-                const guild = source.guild;
-                const totalDuration = measurePipeline ? performance.now() - startedAt : undefined;
-                const timings = selected.map(timing => {
-                    let durationMs: number | undefined;
-                    switch (timing) {
-                        case "delivery": {
-                            const delivery = recognizedAt - source.createdTimestamp;
-                            durationMs = delivery >= 0 ? delivery : undefined;
-                            break;
-                        }
-                        case "preExecute":
-                            durationMs = result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined;
-                            break;
-                        case "execute":
-                            durationMs = result.executionTiming?.durationMs;
-                            break;
-                        case "total":
-                            durationMs = totalDuration;
-                    }
-                    return { timing, durationMs };
-                });
-                this.client!.logger.commandUsed({
-                    commandName: this.name,
-                    userName: ("author" in source ? source.author : source.user).username,
-                    guildName: guild?.name,
-                    guildId: guild?.id,
-                    durationMs: totalDuration,
-                    timings,
-                    failed: Boolean(result.error)
-                });
-                return true;
-            };
+            selected = logging === false || !logging.length ? DEFAULT_COMMAND_LOGGING : logging;
+            const executeOnly = selected.length === 1 && selected[0] === "execute";
+            measure = executeOnly || selected.includes("execute") || selected.includes("preExecute");
+            if (!executeOnly && (selected.includes("total") || selected.includes("preExecute")))
+                startedAt = performance.now();
+            if (!executeOnly && selected.includes("delivery")) recognizedAt = Date.now();
         }
 
         // --- Run optional module stages ---
@@ -124,35 +93,107 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             this.getHook("preExecute") ||
             this.getHook("postExecute")
         ) {
-            return this.invoke(args, complete ?? MATCHED_COMMAND, measure);
+            const complete = selected
+                ? (result: ModuleRunResult): boolean => {
+                      if (result.executed)
+                          this.logUsage(
+                              args[0],
+                              selected,
+                              startedAt,
+                              recognizedAt,
+                              result.executionTiming?.startedAt,
+                              result.executionTiming?.durationMs,
+                              result.error
+                          );
+                      return true;
+                  }
+                : MATCHED_COMMAND;
+            return this.invoke(args, complete, measure);
         }
 
         // --- Call the handler directly ---
         const ctx = this.createModuleCTX(args);
-        const executionTiming: ModuleExecutionTiming | undefined = measure
-            ? { startedAt: performance.now(), durationMs: 0 }
-            : undefined;
-        const finish = complete
-            ? (response: unknown): boolean => {
-                  if (executionTiming) executionTiming.durationMs = performance.now() - executionTiming.startedAt;
-                  return complete({ executed: true, response, executionTiming });
+        const executionStartedAt = measure ? performance.now() : undefined;
+        const finish = selected
+            ? (): boolean => {
+                  const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
+                  this.logUsage(args[0], selected, startedAt, recognizedAt, executionStartedAt, durationMs);
+                  return true;
               }
             : MATCHED_COMMAND;
         const failed = (error: unknown): Promise<boolean> => {
-            if (executionTiming) executionTiming.durationMs = performance.now() - executionTiming.startedAt;
+            const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
             const hookCTX = this.createHookCTX(ctx, args);
             hookCTX.error = error as Error;
             return this.runHook("onError", hookCTX, async () =>
                 this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error as Error)
-            ).then(() =>
-                complete ? complete({ executed: true, response: undefined, error: error as Error, executionTiming }) : true
-            );
+            ).then(() => {
+                if (selected)
+                    this.logUsage(
+                        args[0],
+                        selected,
+                        startedAt,
+                        recognizedAt,
+                        executionStartedAt,
+                        durationMs,
+                        error as Error
+                    );
+                return true;
+            });
         };
         try {
             return Promise.resolve(this.execute(ctx)).then(finish, failed);
         } catch (error) {
             return failed(error);
         }
+    }
+
+    /** Builds the final log entry directly, without an intermediate invocation result for direct handlers. */
+    private logUsage(
+        source: CommandModuleArgs<T>[0],
+        selected: readonly CommandLoggingTiming[],
+        startedAt: number | undefined,
+        recognizedAt: number | undefined,
+        executionStartedAt: number | undefined,
+        executionDurationMs: number | undefined,
+        error?: Error
+    ): void {
+        const totalDuration = startedAt === undefined ? undefined : performance.now() - startedAt;
+        const timings =
+            selected.length === 1 && selected[0] === "execute"
+                ? [{ timing: "execute" as const, durationMs: executionDurationMs }]
+                : selected.map(timing => {
+                      let durationMs: number | undefined;
+                      switch (timing) {
+                          case "delivery": {
+                              const delivery = recognizedAt === undefined ? -1 : recognizedAt - source.createdTimestamp;
+                              durationMs = delivery >= 0 ? delivery : undefined;
+                              break;
+                          }
+                          case "preExecute":
+                              durationMs =
+                                  executionStartedAt === undefined || startedAt === undefined
+                                      ? undefined
+                                      : executionStartedAt - startedAt;
+                              break;
+                          case "execute":
+                              durationMs = executionDurationMs;
+                              break;
+                          case "total":
+                              durationMs = totalDuration;
+                      }
+                      return { timing, durationMs };
+                  });
+        const guild = source.guild;
+        this.client!.logger.commandUsed({
+            commandName: this.name,
+            userName: ("author" in source ? source.author : source.user).username,
+            guildName: guild?.name,
+            guildId: guild?.id,
+            durationMs: totalDuration,
+            timings,
+            failed: Boolean(error)
+        });
     }
 
     protected canExecuteDirectly(): boolean {

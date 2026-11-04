@@ -24,6 +24,7 @@
         "build": "tsup",
         "bench": "node benchmarks/run.mjs",
         "bench:compare": "node benchmarks/compare.mjs",
+        "bench:logging": "node benchmarks/logging.mjs",
         "check": "tsc --noEmit",
         "format": "prettier --write \"./**/*.{ts,mjs,json}\""
     },
