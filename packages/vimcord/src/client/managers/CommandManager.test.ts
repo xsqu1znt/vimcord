@@ -1,4 +1,4 @@
-import type { Interaction, Message } from "discord.js";
+import type { ClientEvents, Interaction, Message } from "discord.js";
 import type { CommandLoggingTiming } from "../globals.js";
 
 import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
@@ -38,7 +38,7 @@ function createMessage(userName = "maya") {
         guild: { id: "guild", name: "Workshop" },
         guildId: "guild",
         createdTimestamp: CREATED_AT
-    } as unknown as Message;
+    } as unknown as ClientEvents["messageCreate"][0];
 }
 
 function createInteraction(kind: ApplicationCommandKind = "slash", subcommand: string | null = null) {
@@ -607,4 +607,160 @@ describe("CommandManager registration preparation", () => {
         });
         expect(client.rest.put).not.toHaveBeenCalled();
     });
+});
+
+describe("CommandManager routing lifecycle", () => {
+    it("mounts once, replaces prefix settings, and preserves other listeners on unmount", () => {
+        const client = createClient(false);
+        const commands = client.modules.commands;
+        const external = vi.fn();
+        client.on("interactionCreate", external);
+        const dispatchInteraction = vi.spyOn(commands, "dispatchInteraction").mockResolvedValue(true);
+        const dispatchMessage = vi.spyOn(commands, "dispatchMessage").mockResolvedValue(true);
+        commands.mount({ prefixes: ["!"] });
+        commands.mount({ prefixes: ["?"], allowMention: true });
+        const interaction = createInteraction() as unknown as Interaction;
+        const message = createMessage();
+        client.emit("interactionCreate", interaction);
+        client.emit("messageCreate", message);
+        expect(dispatchInteraction).toHaveBeenCalledExactlyOnceWith(interaction);
+        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], { prefixes: ["?"], allowMention: true });
+        commands.unmount();
+        commands.unmount();
+        expect(client.listeners("interactionCreate")).toEqual([external]);
+        expect(client.listeners("messageCreate")).toEqual([]);
+    });
+
+    it("mounts only interactions by default, supports mention-only routing, and cleans up on unload", () => {
+        const client = createClient(false);
+        const commands = client.modules.commands;
+        commands.mount();
+        expect(client.listenerCount("interactionCreate")).toBe(1);
+        expect(client.listenerCount("messageCreate")).toBe(0);
+        commands.mount({ allowMention: true });
+        expect(client.listenerCount("messageCreate")).toBe(1);
+        client.modules.unload();
+        expect(client.listenerCount("interactionCreate")).toBe(0);
+        expect(client.listenerCount("messageCreate")).toBe(0);
+    });
+
+    it("dispatches mounted commands without invoking handlers for bot messages", async () => {
+        const client = createClient(false);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
+        client.modules.commands.mount({ prefixes: ["!"] });
+        const message = createMessage();
+        client.emit("messageCreate", message);
+        expect(execute).toHaveBeenCalledOnce();
+        const bot = { ...message, author: { ...message.author, bot: true } } as typeof message;
+        client.emit("messageCreate", bot);
+        await Promise.resolve();
+        expect(execute).toHaveBeenCalledOnce();
+    });
+});
+
+describe("direct command execution", () => {
+    it("awaits thenable handlers and measures execution without unused delivery or pipeline clocks", async () => {
+        const client = createClient(["execute"]);
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                execute: () => ({
+                    then: (resolve: (value: string) => void) => {
+                        advance(30);
+                        resolve("done");
+                    }
+                })
+            })
+        );
+        const message = createMessage();
+        Object.defineProperty(message, "createdTimestamp", {
+            get: () => {
+                throw new Error("Unused timestamp read");
+            }
+        });
+        vi.mocked(Date.now).mockClear();
+        vi.mocked(performance.now).mockClear();
+        await expect(client.modules.commands.dispatchMessage(message, ["!"])).resolves.toBe(true);
+        expect(Date.now).not.toHaveBeenCalled();
+        expect(performance.now).toHaveBeenCalledTimes(2);
+        expect(client.logger.commandUsed).toHaveBeenCalledWith(
+            expect.objectContaining({
+                timings: [{ timing: "execute", durationMs: 30 }],
+                failed: false
+            })
+        );
+    });
+
+    it("keeps thenable rejection timing separate from error hooks", async () => {
+        const client = createClient(["execute"]);
+        const error = new Error("Query failed");
+        const onError = vi.fn(async () => advance(8));
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                hooks: { onError },
+                execute: () => ({
+                    then: (_resolve: unknown, reject: (error: Error) => void) => {
+                        advance(30);
+                        reject(error);
+                    }
+                })
+            })
+        );
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ error }));
+        expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                timings: [{ timing: "execute", durationMs: 30 }],
+                failed: true
+            })
+        );
+    });
+
+    it("observes conditions and hooks added after the first direct invocation", async () => {
+        const client = createClient(false);
+        const execute = vi.fn();
+        const command = new PrefixCommandModule({ name: "balance", requiresReady: false, execute });
+        client.modules.commands.prefix.register(command);
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        command.hooks.preExecute = async () => {};
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        delete command.hooks.preExecute;
+        command.conditions.push(() => ({ passed: false, reason: "Blocked" }));
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it.each(["!bank deposit 5", "!  BANK\tDEPOSIT\t5", "!wallet   put  5"])(
+        "preserves routing and hook args for %s",
+        async content => {
+            const client = createClient(false);
+            const handler = vi.fn();
+            let args: unknown[] = [];
+            client.modules.commands.prefix.register(
+                new PrefixCommandModule({
+                    name: "bank",
+                    aliases: ["wallet"],
+                    requiresReady: false,
+                    subcommands: { deposit: { aliases: ["put"], handler } },
+                    hooks: {
+                        preExecute: async (ctx, next) => {
+                            args = ctx.args;
+                            next();
+                        }
+                    }
+                })
+            );
+            const message = createMessage();
+            message.content = content;
+            await client.modules.commands.dispatchMessage(message, ["!"]);
+            expect(handler).toHaveBeenCalledWith(expect.objectContaining({ subcommand: "deposit", messageContent: "5" }));
+            expect(args).toHaveLength(3);
+            expect(args[0]).toBe(message);
+            expect(args[1]).toBe("!");
+        }
+    );
 });

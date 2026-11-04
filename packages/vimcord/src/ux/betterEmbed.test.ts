@@ -74,3 +74,47 @@ describe("BetterEmbed token formatting", () => {
         await client.destroy();
     });
 });
+
+describe("BetterEmbed API payload", () => {
+    it("serializes rich fields with Discord API keys and keeps returned payloads independent", () => {
+        const embed = new BetterEmbed({
+            author: { text: "Author", icon: "https://example.com/author.png", hyperlink: "https://example.com/author" },
+            title: { text: "Title", hyperlink: "https://example.com/title" },
+            description: ["First", false, "", "Last"],
+            footer: { text: "Footer", icon: "https://example.com/footer.png" },
+            thumbnailUrl: "https://example.com/thumb.png",
+            imageUrl: "https://example.com/image.png",
+            fields: [{ name: "Field", value: "Value", inline: true }],
+            color: "Red",
+            timestamp: new Date("2026-01-01T00:00:00Z")
+        });
+        const payload = embed.toJSON();
+        expect(payload).toEqual({
+            author: { name: "Author", icon_url: "https://example.com/author.png", url: "https://example.com/author" },
+            title: "Title",
+            url: "https://example.com/title",
+            description: "First\n\nLast",
+            footer: { text: "Footer", icon_url: "https://example.com/footer.png" },
+            thumbnail: { url: "https://example.com/thumb.png" },
+            image: { url: "https://example.com/image.png" },
+            fields: [{ name: "Field", value: "Value", inline: true }],
+            color: 0xed4245,
+            timestamp: "2026-01-01T00:00:00.000Z"
+        });
+        payload.fields![0]!.name = "Changed";
+        payload.author!.name = "Changed";
+        expect(embed.toJSON().fields![0]!.name).toBe("Field");
+        expect(embed.toJSON().author!.name).toBe("Author");
+    });
+
+    it("resolves dynamic colors and time per serialization, including epoch zero", () => {
+        const random = vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.99);
+        const embed = new BetterEmbed({ color: [0, 0xffffff], timestamp: 0 });
+        try {
+            expect(embed.toJSON()).toMatchObject({ color: 0, timestamp: "1970-01-01T00:00:00.000Z" });
+            expect(embed.toJSON().color).toBe(0xffffff);
+        } finally {
+            random.mockRestore();
+        }
+    });
+});

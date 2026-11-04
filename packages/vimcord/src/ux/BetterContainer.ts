@@ -215,7 +215,7 @@ export class BetterContainer {
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      */
-    async send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
+    send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
         this.build();
 
         const sendOptions: RequiredDynaSendOptions = {

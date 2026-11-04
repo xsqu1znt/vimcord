@@ -22,6 +22,7 @@ import {
     ButtonStyle,
     ComponentType,
     ContainerBuilder,
+    EmbedBuilder,
     Message,
     MessageFlags,
     MessageFlagsBitField,
@@ -399,6 +400,21 @@ export class Paginator {
         return source.kind === "pageLoader" || (source.kind === "chapterLoader" && source.pages === null);
     }
 
+    // Built-in prepared pages need no user code or upload before their update can acknowledge the click.
+    private canUpdateImmediately(index: PageIndex): boolean {
+        if (this.state.sendOptions?.files?.length) return false;
+        const source = this.getChapter(index.chapter).source;
+        if (source.kind === "pageLoader" || !source.pages) return false;
+        const page = source.pages[index.nested];
+        return (
+            typeof page === "string" ||
+            page instanceof EmbedBuilder ||
+            page instanceof BetterEmbed ||
+            page instanceof ContainerBuilder ||
+            page instanceof BetterContainer
+        );
+    }
+
     private async resolveDestination(chapterIndex: number, nestedIndex: number): Promise<PageIndex> {
         if (!this.chapters.length) throw new Error("[Paginator] Cannot set a page without any chapters");
         const chapter = wrapIndex(chapterIndex, this.chapters.length - 1);
@@ -485,27 +501,37 @@ export class Paginator {
         return { ...data, embeds, files, components };
     }
 
-    private async editPage(page: PageResolvable, index: PageIndex = this.state.index): Promise<Message | null> {
+    private async editPage(
+        page: PageResolvable,
+        index: PageIndex = this.state.index,
+        interaction?: PaginatorResponseInteraction
+    ): Promise<Message | null> {
         const message = this.state.message;
         if (!message || (!this.state.interaction && !message.editable))
             throw new Error("[Paginator] Cannot refresh because the message is not editable");
         // Keep the returned snapshot even after timeout so cleanup edits the latest component data.
         const data = this.buildSendOptions(page, this.state.sendOptions, index);
+        const editOptions = {
+            content: data.content,
+            embeds: data.embeds,
+            components: data.components,
+            files: data.files,
+            allowedMentions: data.allowedMentions,
+            flags:
+                data.flags === undefined
+                    ? undefined
+                    : new MessageFlagsBitField(data.flags as never).remove(
+                          MessageFlags.Ephemeral,
+                          MessageFlags.SuppressNotifications
+                      ).bitfield
+        };
+        if (interaction && !hasResponded(interaction) && interaction.isMessageComponent()) {
+            const response = await interaction.update({ ...editOptions, withResponse: true });
+            this.state.message = response.resource?.message ?? message;
+            return this.state.message;
+        }
         this.state.message = this.state.interaction
-            ? await this.state.interaction.webhook.editMessage(message.id, {
-                  content: data.content,
-                  embeds: data.embeds,
-                  components: data.components,
-                  files: data.files,
-                  allowedMentions: data.allowedMentions,
-                  flags:
-                      data.flags === undefined
-                          ? undefined
-                          : new MessageFlagsBitField(data.flags as never).remove(
-                                MessageFlags.Ephemeral,
-                                MessageFlags.SuppressNotifications
-                            ).bitfield
-              })
+            ? await this.state.interaction.webhook.editMessage(message.id, editOptions)
             : await dynaSend(message, {
                   ...data,
                   sendMethod: SendMethod.MessageEdit
@@ -562,7 +588,14 @@ export class Paginator {
         requested: PageIndex,
         interaction?: PaginatorResponseInteraction
     ): Promise<void> {
-        if (interaction && !hasResponded(interaction)) {
+        if (
+            interaction &&
+            !hasResponded(interaction) &&
+            (!this.state.active ||
+                this.navigationBusy ||
+                !interaction.isMessageComponent() ||
+                !this.canUpdateImmediately(requested))
+        ) {
             await interaction.deferUpdate().catch(() => {});
         }
         if (!this.state.active || this.navigationBusy) return;
@@ -606,7 +639,7 @@ export class Paginator {
                 return;
             }
             const { page, index: destination } = loaded;
-            await this.editPage(page, destination);
+            await this.editPage(page, destination, interaction);
             if (!this.state.active) return;
             this.state.currentPage = page;
             this.state.index = destination;
@@ -697,7 +730,7 @@ export class Paginator {
         );
         collector.on(NAV_CUSTOM_IDS.last, async i => {
             const chapter = this.state.index.chapter;
-            const requested = { chapter, nested: this.getPageCount(this.getChapter()) ?? 0 };
+            const requested = { chapter, nested: (this.getPageCount(this.getChapter()) ?? 1) - 1 };
             await this.runNavigationRequest(
                 "last",
                 async () => {

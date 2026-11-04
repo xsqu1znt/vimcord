@@ -193,14 +193,18 @@ describe("SlashCommandModule invocation snapshots", () => {
             }
         }
         const handler = vi.fn();
+        const deferReply = vi.fn();
         const module = new CustomContextModule({
             builder: builderWithSubcommands(),
             execute: () => {},
-            routes: [{ path: "ping", handler }]
+            routes: [{ path: "ping", handler, deferReply: true }]
         });
         module.inject(createClient());
-        expect(await module.runWithResult(createInteraction("ping"))).toMatchObject({ executed: true });
+        const interaction = createInteraction("ping");
+        interaction.deferReply = deferReply;
+        expect(await module.runWithResult(interaction)).toMatchObject({ executed: true });
         expect(handler).toHaveBeenCalledOnce();
+        expect(deferReply).toHaveBeenCalledOnce();
     });
 
     it("resolves the path once and preserves live route changes from preExecute hooks", async () => {

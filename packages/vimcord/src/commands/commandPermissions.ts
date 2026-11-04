@@ -105,48 +105,7 @@ function getPrefixChannelPermissions(message: Message, member: GuildMember | nul
     return message.channel.permissionsFor(member);
 }
 
-function testGuildContext(
-    guildId: string | null,
-    guildOnly: boolean | undefined,
-    guildWhitelist: GuildResolvable[] | undefined,
-    guildBlacklist: GuildResolvable[] | undefined
-): PermissionTestResult {
-    if (guildOnly && !guildId) return { passed: false, reason: MissingPermissionReason.NotInGuild };
-
-    if (guildId && guildBlacklist?.some(guild => resolveGuildId(guild) === guildId)) {
-        return { passed: false, reason: MissingPermissionReason.GuildBlacklisted };
-    }
-
-    if (guildWhitelist?.length && !guildId) return { passed: false, reason: MissingPermissionReason.NotInGuild };
-
-    if (guildId && guildWhitelist?.length && !guildWhitelist.some(guild => resolveGuildId(guild) === guildId)) {
-        return { passed: false, reason: MissingPermissionReason.GuildNotWhitelisted };
-    }
-
-    return { passed: true };
-}
-
-function testBotPresence(user: User, allowBots: boolean | undefined): PermissionTestResult {
-    return !allowBots && user.bot ? { passed: false, reason: MissingPermissionReason.IsBot } : { passed: true };
-}
-
-function testUserBlacklist(userId: string, users: UserResolvable[] | undefined): PermissionTestResult {
-    if (users?.some(user => resolveUserId(user) === userId)) {
-        return { passed: false, reason: MissingPermissionReason.UserBlacklisted };
-    }
-
-    return { passed: true };
-}
-
-function testRoles(
-    member: CommandMember,
-    requiredRoles: RoleResolvable[] | undefined,
-    blockedRoles?: RoleResolvable[]
-): PermissionTestResult {
-    if (blockedRoles?.some(role => hasRole(member, resolveRoleId(role)))) {
-        return { passed: false, reason: MissingPermissionReason.RoleBlacklisted };
-    }
-
+function testRoles(member: CommandMember, requiredRoles: RoleResolvable[] | undefined): PermissionTestResult {
     if (!requiredRoles?.length) return { passed: true };
     if (!requiredRoles.some(role => hasRole(member, resolveRoleId(role)))) {
         return { passed: false, reason: MissingPermissionReason.Role, missingRoles: requiredRoles };
@@ -250,10 +209,10 @@ function hasConfiguredGrants(permissions: CommandModulePermissions): boolean {
  * @param ctx The command invocation.
  * @param permissions The command permission settings.
  */
-export async function testCommandPermissions<K extends CommandModuleType>(
+export function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleHookContext<K>,
     permissions: CommandModulePermissions
-): Promise<PermissionTestResult> {
+): PermissionTestResult | Promise<PermissionTestResult> {
     const source = resolveCommandSource(ctx);
     const isMessage = "author" in source;
     const user = isMessage ? source.author : source.user;
@@ -262,18 +221,28 @@ export async function testCommandPermissions<K extends CommandModuleType>(
     const staff = ctx.client.globals.staff;
 
     // --- Hard restrictions ---
-    let result = testGuildContext(guildId, permissions.guildOnly, permissions.guildWhitelist, permissions.guildBlacklist);
-    if (!result.passed) return result;
+    if (!guildId && (permissions.guildOnly || permissions.guildWhitelist?.length)) {
+        return { passed: false, reason: MissingPermissionReason.NotInGuild };
+    }
+    if (guildId && permissions.guildBlacklist?.some(guild => resolveGuildId(guild) === guildId)) {
+        return { passed: false, reason: MissingPermissionReason.GuildBlacklisted };
+    }
+    if (
+        guildId &&
+        permissions.guildWhitelist?.length &&
+        !permissions.guildWhitelist.some(guild => resolveGuildId(guild) === guildId)
+    ) {
+        return { passed: false, reason: MissingPermissionReason.GuildNotWhitelisted };
+    }
+    if (!permissions.allowBots && user.bot) return { passed: false, reason: MissingPermissionReason.IsBot };
+    if (permissions.userBlacklist?.some(blocked => resolveUserId(blocked) === user.id)) {
+        return { passed: false, reason: MissingPermissionReason.UserBlacklisted };
+    }
+    if (permissions.roleBlacklist?.some(role => hasRole(member, resolveRoleId(role)))) {
+        return { passed: false, reason: MissingPermissionReason.RoleBlacklisted };
+    }
 
-    result = testBotPresence(user, permissions.allowBots);
-    if (!result.passed) return result;
-
-    result = testUserBlacklist(user.id, permissions.userBlacklist);
-    if (!result.passed) return result;
-
-    result = testRoles(member, undefined, permissions.roleBlacklist);
-    if (!result.passed) return result;
-
+    let result: PermissionTestResult;
     if (guildId && permissions.client?.length) {
         const clientPermissions = isMessage
             ? getPrefixChannelPermissions(source, source.guild?.members.me ?? null)
@@ -326,52 +295,56 @@ export async function testCommandPermissions<K extends CommandModuleType>(
     if (permissions.botOwner && !botOwnerFailed) return { passed: true };
     if (permissions.botStaff && (isKnownBotStaff || isStaffBypasserById)) return { passed: true };
 
-    const administratorRequired = !userPermissionResult.passed && requiresAdministrator(permissions.user);
-    let staffRoleIds: Promise<string[]> | undefined;
-    const getStaffRoleIds = () => (staffRoleIds ??= ctx.client.getStaffGuildRoleIds(user.id));
-    const getBotStaff = async () => {
-        if (isKnownBotStaff) return true;
-        if (!staff.superUserRoles.length) return false;
+    return testRemoteGrants();
 
-        const roleIds = await getStaffRoleIds();
-        return staff.superUserRoles.some(id => roleIds.includes(id));
-    };
+    async function testRemoteGrants(): Promise<PermissionTestResult> {
+        const administratorRequired = !userPermissionResult.passed && requiresAdministrator(permissions.user);
+        let staffRoleIds: Promise<string[]> | undefined;
+        const getStaffRoleIds = () => (staffRoleIds ??= ctx.client.getStaffGuildRoleIds(user.id));
+        const getBotStaff = async () => {
+            if (isKnownBotStaff) return true;
+            if (!staff.superUserRoles.length) return false;
 
-    if (administratorRequired) {
-        const bypasses = staff.bypassesGuildAdmin;
-        let bypassAdministrator =
-            (bypasses.botOwner && staff.ownerId === user.id) ||
-            (bypasses.superUsers && staff.superUsers.includes(user.id)) ||
-            (bypasses.allBotStaff && isKnownBotStaff) ||
-            (bypasses.bypassers && isStaffBypasserById);
-        if (!bypassAdministrator && bypasses.allBotStaff) bypassAdministrator = await getBotStaff();
-        if (!bypassAdministrator && bypasses.bypassers && staffBypassEntries.length) {
-            bypassAdministrator = isStaffBypasserById || (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds));
+            const roleIds = await getStaffRoleIds();
+            return staff.superUserRoles.some(id => roleIds.includes(id));
+        };
+
+        if (administratorRequired) {
+            const bypasses = staff.bypassesGuildAdmin;
+            let bypassAdministrator =
+                (bypasses.botOwner && staff.ownerId === user.id) ||
+                (bypasses.superUsers && staff.superUsers.includes(user.id)) ||
+                (bypasses.allBotStaff && isKnownBotStaff) ||
+                (bypasses.bypassers && isStaffBypasserById);
+            if (!bypassAdministrator && bypasses.allBotStaff) bypassAdministrator = await getBotStaff();
+            if (!bypassAdministrator && bypasses.bypassers && staffBypassEntries.length) {
+                bypassAdministrator = isStaffBypasserById || (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds));
+            }
+            if (bypassAdministrator) {
+                result = testUserPermissions(userPermissions, permissions.user, true);
+                if (result.passed) return result;
+                firstFailure = result;
+            }
         }
-        if (bypassAdministrator) {
-            result = testUserPermissions(userPermissions, permissions.user, true);
-            if (result.passed) return result;
-            firstFailure = result;
+
+        if (permissions.guildOwner && guildId && !cachedGuild) {
+            const guild = await ctx.client.fetchGuild(guildId);
+            if (guild?.ownerId === user.id) return { passed: true };
+            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
         }
-    }
 
-    if (permissions.guildOwner && guildId && !cachedGuild) {
-        const guild = await ctx.client.fetchGuild(guildId);
-        if (guild?.ownerId === user.id) return { passed: true };
-        firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
-    }
-
-    if (botOwnerFailed) {
-        firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotOwner };
-    }
-
-    if (permissions.botStaff) {
-        if (await getBotStaff()) return { passed: true };
-        if (staffBypassEntries.length && (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds))) {
-            return { passed: true };
+        if (botOwnerFailed) {
+            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotOwner };
         }
-        firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
-    }
 
-    return firstFailure ?? { passed: true };
+        if (permissions.botStaff) {
+            if (await getBotStaff()) return { passed: true };
+            if (staffBypassEntries.length && (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds))) {
+                return { passed: true };
+            }
+            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
+        }
+
+        return firstFailure ?? { passed: true };
+    }
 }

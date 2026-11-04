@@ -1,7 +1,7 @@
 import type { APIEmbed, APIEmbedField, Client, ColorResolvable, Message, TextBasedChannel } from "discord.js";
 import type { DynaSendOptions, InteractionResolveable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
 
-import { EmbedBuilder, GuildMember, User } from "discord.js";
+import { GuildMember, resolveColor, User } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
 import { resolveGlobalEmbedColor } from "./uxConfig.js";
 
@@ -148,7 +148,6 @@ function normalizeDescription(description: BetterEmbedState["description"]): str
 }
 
 export class BetterEmbed {
-    private embed = new EmbedBuilder();
     private data: BetterEmbedState;
 
     constructor(data: BetterEmbedData = {}) {
@@ -168,55 +167,52 @@ export class BetterEmbed {
     }
 
     /**
-     * Rebuilds the embed from stored data. Setters only update stored data; this runs once at the
+     * Creates the Discord payload directly from stored data. Setters only update data; this runs at the
      * `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly
      * once per serialization, not once per setter call.
      */
-    private build(): void {
+    toJSON(): APIEmbed {
         const formatting = this.createFormattingContext();
         const author = normalizeAuthor(this.data.author);
         const title = normalizeTitle(this.data.title);
         const footer = normalizeFooter(this.data.footer);
         const description = normalizeDescription(this.data.description);
-        const embed = new EmbedBuilder();
+        const embed: APIEmbed = {};
 
         // --- Text Blocks ---
         if (author?.text) {
-            embed.setAuthor({
+            embed.author = {
                 name: this.formatText(author.text, formatting),
-                iconURL: this.resolveIcon(author.icon, formatting),
+                icon_url: this.resolveIcon(author.icon, formatting),
                 url: author.hyperlink ? this.formatText(author.hyperlink, formatting) : undefined
-            });
+            };
         }
 
         if (title?.text) {
-            embed.setTitle(this.formatText(title.text, formatting));
-            if (title.hyperlink) embed.setURL(this.formatText(title.hyperlink, formatting));
+            embed.title = this.formatText(title.text, formatting);
+            if (title.hyperlink) embed.url = this.formatText(title.hyperlink, formatting);
         }
 
-        if (description) embed.setDescription(this.formatText(description, formatting));
+        if (description) embed.description = this.formatText(description, formatting);
 
         if (footer?.text) {
-            embed.setFooter({
+            embed.footer = {
                 text: this.formatText(footer.text, formatting),
-                iconURL: this.resolveIcon(footer.icon, formatting)
-            });
+                icon_url: this.resolveIcon(footer.icon, formatting)
+            };
         }
 
         // --- Media ---
-        if (this.data.thumbnailUrl) embed.setThumbnail(this.formatText(this.data.thumbnailUrl, formatting));
-        if (this.data.imageUrl) embed.setImage(this.formatText(this.data.imageUrl, formatting));
+        if (this.data.thumbnailUrl) embed.thumbnail = { url: this.formatText(this.data.thumbnailUrl, formatting) };
+        if (this.data.imageUrl) embed.image = { url: this.formatText(this.data.imageUrl, formatting) };
 
         // --- Metadata ---
         const color = this.resolveColor();
-        if (color !== null) embed.setColor(color);
+        if (color !== null) embed.color = resolveColor(color);
 
         const timestamp = this.data.timestamp;
         if (timestamp !== null && timestamp !== false) {
-            // discord.js's own EmbedBuilder.setTimestamp() falsy-checks its argument, so a literal
-            // epoch-zero timestamp (0) is still dropped downstream. That's a discord.js limitation,
-            // not something this layer can fix without bypassing its builder.
-            embed.setTimestamp(timestamp === true ? Date.now() : timestamp);
+            embed.timestamp = new Date(timestamp === true ? Date.now() : timestamp).toISOString();
         }
 
         const validFields = this.data.fields.filter(isEmbedField);
@@ -230,9 +226,8 @@ export class BetterEmbed {
             value: this.formatText(field.value, formatting)
         }));
 
-        if (fields.length) embed.setFields(fields);
-
-        this.embed = embed;
+        if (fields.length) embed.fields = fields;
+        return embed;
     }
 
     private createFormattingContext(): FormattingContext {
@@ -316,14 +311,6 @@ export class BetterEmbed {
      */
     clone(overrides: Partial<BetterEmbedData> = {}): BetterEmbed {
         return new BetterEmbed({ ...this.data, ...overrides });
-    }
-
-    /**
-     * Converts the embed into Discord API embed JSON.
-     */
-    toJSON(): APIEmbed {
-        this.build();
-        return this.embed.toJSON();
     }
 
     /**
@@ -435,7 +422,7 @@ export class BetterEmbed {
      * @param options Additional dynaSend options
      * @param overrides Data to apply to a cloned embed before sending
      */
-    async send(
+    send(
         handler: SendHandler,
         options: DynaSendOptions = {},
         overrides?: Partial<BetterEmbedData>

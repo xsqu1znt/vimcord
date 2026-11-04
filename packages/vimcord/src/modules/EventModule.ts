@@ -41,15 +41,7 @@ export class EventModule<
         this.once = options.once ?? false;
     }
 
-    protected override validate(): boolean {
-        return true;
-    }
-
     protected override createModuleCTX(args: Args): EventModuleContext<Args> {
         return { client: this.client as Vimcord, args };
-    }
-
-    protected override createHookCTX(moduleCTX: EventModuleContext<Args>): EventModuleHookContext<Args> {
-        return { ...moduleCTX, module: this as unknown as ModuleHookContext<Args>["module"] };
     }
 }

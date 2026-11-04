@@ -1,21 +1,11 @@
-import type {
-    AutocompleteInteraction,
-    ChatInputCommandInteraction,
-    ContextMenuCommandInteraction,
-    Guild,
-    Interaction,
-    Message,
-    RESTPostAPIApplicationCommandsJSONBody,
-    User
-} from "discord.js";
-import type { CommandModuleMetadata, CommandModuleType, ModuleRunResult } from "@/abstracts/index.js";
+import type { Interaction, Message, RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
+import type { CommandModuleType } from "@/abstracts/index.js";
 import type {
     MessageContextCommandModule,
     PrefixCommandModule,
     SlashCommandModule,
     UserContextCommandModule
 } from "@/modules/index.js";
-import type { CommandLoggingTiming } from "../globals.js";
 import type { Vimcord } from "../Vimcord.js";
 import type { ApplicationCommandRegistrationScope, RemoteApplicationCommand } from "./applicationCommandData.js";
 import type { CommandFilter } from "./BaseCommandManager.js";
@@ -38,6 +28,11 @@ interface PreparedCommand {
     signature: string;
 }
 
+export interface CommandRoutingOptions extends DispatchMessageOptions {
+    /** Message prefixes to listen for. Omit to listen only for application commands. */
+    prefixes?: string[];
+}
+
 export interface DispatchMessageOptions {
     /** Treat a mention of the bot as a prefix.
      * @default false */
@@ -45,18 +40,20 @@ export interface DispatchMessageOptions {
 }
 
 const COMMAND_MANAGER_LOGGER = "CommandManager";
+// A dispatch reads the token synchronously before any handler can run.
+const PREFIX_TRIGGER = /\S+/g;
 const GUILD_SYNC_CONCURRENCY = 5;
-// Used for commands following the default and explicit opt-ins when global logging is off.
-const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
+    private readonly aliases = new Map<string, PrefixCommandModule[]>();
+
     constructor(client: Vimcord) {
         super(client);
-        this.indexes.set("alias", { key: m => m.aliases, map: new Map(), isArray: true });
+        this.indexes.set("alias", { key: m => m.aliases, map: this.aliases, isArray: true });
     }
 
     getByTrigger(trigger: string): PrefixCommandModule | undefined {
-        return this.getByName(trigger) ?? this.getIndex("alias", trigger.toLowerCase(), true)[0];
+        return this.getByName(trigger) ?? this.aliases.get(trigger.toLowerCase())?.[0];
     }
 }
 
@@ -74,6 +71,8 @@ export class CommandManager {
     readonly slash: SlashCommandManager;
     readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
 
+    private interactionListener: ((interaction: Interaction) => Promise<boolean>) | undefined;
+    private messageListener: ((message: Message) => Promise<boolean>) | undefined;
     private cachedMentionUserId: string | undefined;
     private cachedMentionPrefixes: string[] = [];
 
@@ -81,6 +80,27 @@ export class CommandManager {
         this.prefix = new PrefixCommandManager(client);
         this.slash = new SlashCommandManager(client);
         this.context = { message: new MessageContextCommandManager(client), user: new UserContextCommandManager(client) };
+    }
+
+    /**
+     * Connects Discord events directly to command dispatch. Calling again replaces this manager's listeners.
+     * @param options Prefixes and mention handling; application commands are always enabled.
+     */
+    mount(options: CommandRoutingOptions = {}): void {
+        this.unmount();
+        this.interactionListener = this.dispatchInteraction.bind(this);
+        this.client.on("interactionCreate", this.interactionListener);
+        if (!options.prefixes?.length && !options.allowMention) return;
+        this.messageListener = message => this.dispatchMessage(message, options.prefixes ?? [], options);
+        this.client.on("messageCreate", this.messageListener);
+    }
+
+    /** Removes only the Discord event listeners installed by this manager. */
+    unmount(): void {
+        if (this.interactionListener) this.client.off("interactionCreate", this.interactionListener);
+        if (this.messageListener) this.client.off("messageCreate", this.messageListener);
+        this.interactionListener = undefined;
+        this.messageListener = undefined;
     }
 
     /**
@@ -248,138 +268,46 @@ export class CommandManager {
     /**
      * Dispatches a Discord interaction to the matching slash or context command module.
      */
-    async dispatchInteraction(interaction: Interaction): Promise<boolean> {
-        // Route Discord interactions to the manager that owns the underlying command type
+    dispatchInteraction(interaction: Interaction): Promise<boolean> {
         if (interaction.isChatInputCommand()) {
-            return await this.dispatchSlash(interaction);
+            const command = this.slash.getByName(interaction.commandName);
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
         }
-
-        if (interaction.isContextMenuCommand()) {
-            return await this.dispatchContext(interaction);
+        if (interaction.isMessageContextMenuCommand()) {
+            const command = this.context.message.getByName(interaction.commandName);
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
         }
-
+        if (interaction.isUserContextMenuCommand()) {
+            const command = this.context.user.getByName(interaction.commandName);
+            return command ? command.dispatch(interaction) : Promise.resolve(false);
+        }
+        // Autocomplete bypasses command tests and usage timing; it fires on every keystroke.
         if (interaction.isAutocomplete()) {
-            return await this.dispatchAutocomplete(interaction);
+            return this.slash.getByName(interaction.commandName)?.handleAutocomplete(interaction) ?? Promise.resolve(false);
         }
-
-        return false;
+        return Promise.resolve(false);
     }
 
     /**
      * Dispatches a Discord message to the matching prefix command module.
      */
-    async dispatchMessage(
-        message: Message,
-        allowedPrefixes: string[],
-        options: DispatchMessageOptions = {}
-    ): Promise<boolean> {
+    dispatchMessage(message: Message, allowedPrefixes: string[], options: DispatchMessageOptions = {}): Promise<boolean> {
         const prefix = this.findLongestPrefix(
             message.content,
             allowedPrefixes,
-            options.allowMention ? this.getMentionPrefixes() : []
+            options.allowMention ? this.getMentionPrefixes() : undefined
         );
-        if (!prefix) return false;
+        if (!prefix) return Promise.resolve(false);
 
         // The first token after the prefix is the command name or alias
-        const trigger = message.content.slice(prefix.length).trim().split(/\s+/, 1).shift();
-        if (!trigger) return false;
+        PREFIX_TRIGGER.lastIndex = prefix.length;
+        const trigger = PREFIX_TRIGGER.exec(message.content)?.[0];
+        if (!trigger) return Promise.resolve(false);
 
         const command = this.prefix.getByTrigger(trigger);
-        if (!command) return false;
+        if (!command) return Promise.resolve(false);
 
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(message, prefix, trigger),
-            message.author,
-            message.guild,
-            message.createdTimestamp
-        );
-    }
-
-    private async dispatchSlash(interaction: ChatInputCommandInteraction): Promise<boolean> {
-        const command = this.slash.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(interaction),
-            interaction.user,
-            interaction.guild,
-            interaction.createdTimestamp
-        );
-    }
-
-    private async dispatchContext(interaction: ContextMenuCommandInteraction): Promise<boolean> {
-        if (interaction.isMessageContextMenuCommand()) {
-            const command = this.context.message.getByName(interaction.commandName);
-            if (!command) return false;
-
-            return await this.runCommand(
-                command,
-                () => command.runWithResult(interaction),
-                interaction.user,
-                interaction.guild,
-                interaction.createdTimestamp
-            );
-        }
-
-        if (!interaction.isUserContextMenuCommand()) return false;
-        const command = this.context.user.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await this.runCommand(
-            command,
-            () => command.runWithResult(interaction),
-            interaction.user,
-            interaction.guild,
-            interaction.createdTimestamp
-        );
-    }
-
-    /** Autocomplete skips the module pipeline and never emits a usage log; it fires per keystroke. */
-    private async dispatchAutocomplete(interaction: AutocompleteInteraction): Promise<boolean> {
-        const command = this.slash.getByName(interaction.commandName);
-        if (!command) return false;
-
-        return await command.handleAutocomplete(interaction);
-    }
-
-    /** Runs a matched command and emits its usage log. Always returns true, because a command was matched. */
-    private async runCommand(
-        command: { name: string; metadata: CommandModuleMetadata },
-        run: () => Promise<ModuleRunResult>,
-        user: User,
-        guild: Guild | null,
-        createdTimestamp: number
-    ): Promise<boolean> {
-        const startedAt = performance.now();
-        const recognizedAt = Date.now();
-        const logging = this.client.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
-        const selected = logging === false || logging.length === 0 ? DEFAULT_COMMAND_LOGGING : logging;
-        const logUsage = command.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        const result = await run();
-        const durationMs = performance.now() - startedAt;
-
-        if (result.executed && logUsage) {
-            const deliveryMs = recognizedAt - createdTimestamp;
-            const timingValues: Record<CommandLoggingTiming, number | undefined> = {
-                delivery: deliveryMs < 0 ? undefined : deliveryMs,
-                preExecute: result.executionTiming ? result.executionTiming.startedAt - startedAt : undefined,
-                execute: result.executionTiming?.durationMs,
-                total: durationMs
-            };
-            this.client.logger.commandUsed({
-                commandName: command.name,
-                userName: user.username,
-                guildName: guild?.name,
-                guildId: guild?.id,
-                durationMs,
-                timings: selected.map(t => ({ timing: t, durationMs: timingValues[t] })),
-                failed: Boolean(result.error)
-            });
-        }
-
-        return true;
+        return command.dispatch(message, prefix, trigger);
     }
 
     /** Mention forms Discord may send for this bot. Rebuilt only if the client user changes. */
@@ -395,12 +323,18 @@ export class CommandManager {
     }
 
     /** Returns the longest prefix the content starts with, so "!!" wins over "!". */
-    private findLongestPrefix(content: string, ...groups: readonly string[][]): string | undefined {
+    private findLongestPrefix(
+        content: string,
+        prefixes: readonly string[],
+        mentions?: readonly string[]
+    ): string | undefined {
         let match: string | undefined;
-        for (const group of groups) {
-            for (const candidate of group) {
-                if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
-            }
+        for (const candidate of prefixes) {
+            if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
+        }
+        if (!mentions) return match;
+        for (const candidate of mentions) {
+            if (candidate.length > (match?.length ?? 0) && content.startsWith(candidate)) match = candidate;
         }
         return match;
     }

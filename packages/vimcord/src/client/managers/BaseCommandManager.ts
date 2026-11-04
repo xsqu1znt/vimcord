@@ -17,10 +17,12 @@ export abstract class BaseCommandManager<
     K extends CommandModuleType = CommandModuleType,
     T extends AbstractCommandModule<K> = AbstractCommandModule<K>
 > extends AbstractModuleImporter<T, CommandModuleIndexType> {
+    private readonly names = new Map<string, T>();
+
     constructor(client: Vimcord) {
         super(client);
 
-        this.indexes.set("name", { key: m => m.name.toLowerCase(), map: new Map() });
+        this.indexes.set("name", { key: m => m.name.toLowerCase(), map: this.names });
         this.indexes.set("category", { key: m => m.metadata.category, map: new Map(), isArray: true });
         this.indexes.set("tag", { key: m => m.metadata.tags, map: new Map(), isArray: true });
     }
@@ -48,7 +50,7 @@ export abstract class BaseCommandManager<
     }
 
     getByName(name: string): T | undefined {
-        return this.getIndex("name", name.toLowerCase());
+        return this.names.get(name.toLowerCase());
     }
 
     getByCategory(category: string): T[] {

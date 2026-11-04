@@ -55,6 +55,12 @@ export interface LoaderHandle {
     fail(finalMessage: string, error?: unknown): void;
 }
 
+interface DisplayCache {
+    value: string;
+    color: string;
+    text: string;
+}
+
 type LoaderEntry = {
     animated: boolean;
     cycle?: () => string;
@@ -91,6 +97,9 @@ const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("en-US", {
     second: "2-digit"
 });
 
+// Timestamp output has second precision; all loggers share the same local-time formatter.
+const TIMESTAMP_CACHE = { second: NaN, text: "" };
+
 // --- Helpers ---
 
 /** Strips ANSI color sequences from a string. */
@@ -111,6 +120,8 @@ export class Logger {
 
     private readonly activeLoaders = new Map<number, LoaderEntry>();
     private nextLoaderId = 0;
+    private prefixCache: DisplayCache | undefined;
+    private timestampCache: DisplayCache | undefined;
 
     /** Creates a logger with optional prefix, verbosity, and color overrides. */
     constructor(options: LoggerOptions = {}) {
@@ -125,7 +136,11 @@ export class Logger {
 
     private formatPrefix(): string {
         const { prefix, colors } = this.options;
-        return prefix ? ansis.bold.hex(colors.primary)(prefix) : "";
+        if (!prefix) return "";
+        if (this.prefixCache?.value === prefix && this.prefixCache.color === colors.primary) return this.prefixCache.text;
+        const text = ansis.bold.hex(colors.primary)(prefix);
+        this.prefixCache = { value: prefix, color: colors.primary, text };
+        return text;
     }
 
     private formatLabel(type: "debug" | "info" | "success" | "warn" | "error"): string {
@@ -249,9 +264,18 @@ export class Logger {
 
     /** Returns a colored `[HH:mm:ss]` timestamp. */
     protected timestamp(): string {
-        const time = TIMESTAMP_FORMATTER.format(new Date());
-
-        return ansis.hex(this.options.colors.muted)(`[${time}]`);
+        const now = Date.now();
+        const second = Math.floor(now / 1000);
+        if (TIMESTAMP_CACHE.second !== second) {
+            TIMESTAMP_CACHE.second = second;
+            TIMESTAMP_CACHE.text = `[${TIMESTAMP_FORMATTER.format(now)}]`;
+        }
+        const color = this.options.colors.muted;
+        if (this.timestampCache?.value === TIMESTAMP_CACHE.text && this.timestampCache.color === color)
+            return this.timestampCache.text;
+        const text = ansis.hex(color)(TIMESTAMP_CACHE.text);
+        this.timestampCache = { value: TIMESTAMP_CACHE.text, color, text };
+        return text;
     }
 
     /** Writes directly to a console stream while preserving active TTY loaders. */

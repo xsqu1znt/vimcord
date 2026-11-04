@@ -82,6 +82,7 @@ function click(message: Message, customId = "btn", userId = "a", componentType =
             return { resource: { message } };
         }),
         followUp: vi.fn().mockResolvedValue(undefined),
+        isMessageComponent: () => true,
         isStringSelectMenu: () => componentType === ComponentType.StringSelect
     };
 }

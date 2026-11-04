@@ -77,6 +77,7 @@ export class ModuleManager {
 
     /** Unloads all modules. */
     unload(): void {
+        this.commands.unmount();
         this.events.clear();
         this.commands.slash.clear();
         this.commands.prefix.clear();

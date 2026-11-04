@@ -169,127 +169,35 @@ function validateSendMethod(handler: SendHandler, method: SendMethod): void {
     }
 }
 
-// Constructs the message options object for a given send method
-type MessageDataMap = {
-    [SendMethod.Reply]: InteractionReplyOptions;
-    [SendMethod.EditReply]: InteractionEditReplyOptions;
-    [SendMethod.FollowUp]: InteractionReplyOptions;
-    [SendMethod.Channel]: MessageCreateOptions;
-    [SendMethod.MessageReply]: MessageReplyOptions;
-    [SendMethod.MessageEdit]: MessageEditOptions;
-    [SendMethod.UserDM]: MessageCreateOptions;
-};
-
-// Constructs the message options object for a given send method
-// Applies method-specific filtering (e.g., removing Ephemeral flag for Channel sends)
-function createMessageData<M extends SendMethod>(options: DynaSendOptions, method: M): MessageDataMap[M] {
-    const sharedBase = {
-        content: options.content,
-        embeds: options.embeds,
-        components: options.components,
-        files: options.files,
-        allowedMentions: options.allowedMentions
-    };
-
-    switch (method) {
-        // Interaction reply - flags allowed, supports withResponse
-        case SendMethod.Reply:
-            return {
-                ...sharedBase,
-                tts: options.tts,
-                flags: options.flags,
-                withResponse: options.withResponse,
-                poll: options.poll
-            } as MessageDataMap[M];
-
-        // Edit existing reply - filter out Ephemeral and SuppressNotifications
-        case SendMethod.EditReply:
-            return {
-                ...sharedBase,
-                flags: filterFlags(options.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS),
-                withResponse: options.withResponse,
-                poll: options.poll
-            } as MessageDataMap[M];
-
-        // Follow-up to interaction - flags allowed
-        case SendMethod.FollowUp:
-            return {
-                ...sharedBase,
-                tts: options.tts,
-                flags: options.flags,
-                poll: options.poll
-            } as MessageDataMap[M];
-
-        // Channel send - filter out Ephemeral (not applicable to channels)
-        case SendMethod.Channel:
-            return {
-                ...sharedBase,
-                tts: options.tts,
-                flags: filterFlags(options.flags, EXCLUDE_EPHEMERAL),
-                poll: options.poll,
-                stickers: options.stickers,
-                reply: options.reply,
-                forward: options.forward
-            } as MessageDataMap[M];
-
-        // Message reply - filter out Ephemeral
-        case SendMethod.MessageReply:
-            return {
-                ...sharedBase,
-                tts: options.tts,
-                flags: filterFlags(options.flags, EXCLUDE_EPHEMERAL),
-                poll: options.poll,
-                stickers: options.stickers
-            } as MessageDataMap[M];
-
-        // Message edit - filter out Ephemeral and SuppressNotifications
-        case SendMethod.MessageEdit:
-            return {
-                ...sharedBase,
-                flags: filterFlags(options.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS)
-            } as MessageDataMap[M];
-
-        // User DM - filter out Ephemeral
-        case SendMethod.UserDM:
-            return {
-                ...sharedBase,
-                tts: options.tts,
-                flags: filterFlags(options.flags, EXCLUDE_EPHEMERAL),
-                poll: options.poll,
-                stickers: options.stickers,
-                forward: options.forward
-            } as MessageDataMap[M];
-    }
-}
-
 // Executes the actual send using the handler's appropriate method
-async function executeSend<M extends SendMethod>(
+function executeSend(
     handler: SendHandler,
-    method: M,
-    data: MessageDataMap[M]
+    method: SendMethod,
+    data: Omit<DynaSendOptions, "sendMethod" | "deleteAfter">
 ): Promise<Message | null> {
     switch (method) {
         // Reply to an interaction (initial response)
         case SendMethod.Reply: {
-            const response = await (handler as RepliableInteraction).reply(data as InteractionReplyOptions);
-            return isInteractionCallback(response) ? (response.resource?.message ?? null) : null;
+            return (handler as RepliableInteraction)
+                .reply(data as InteractionReplyOptions)
+                .then(response => (isInteractionCallback(response) ? (response.resource?.message ?? null) : null));
         }
 
         // Edit an existing interaction reply
         case SendMethod.EditReply:
-            return await (handler as RepliableInteraction).editReply(data as InteractionEditReplyOptions);
+            return (handler as RepliableInteraction).editReply(data as InteractionEditReplyOptions);
 
         // Follow-up to an already-replied interaction
         case SendMethod.FollowUp:
-            return await (handler as RepliableInteraction).followUp(data as InteractionReplyOptions);
+            return (handler as RepliableInteraction).followUp(data as InteractionReplyOptions);
 
         // Send to a text-based channel
         case SendMethod.Channel:
-            return await (handler as GuildTextBasedChannel).send(data as MessageCreateOptions);
+            return (handler as GuildTextBasedChannel).send(data as MessageCreateOptions);
 
         // Reply to an existing message
         case SendMethod.MessageReply:
-            return await (handler as Message).reply(data as MessageReplyOptions);
+            return (handler as Message).reply(data as MessageReplyOptions);
 
         // Edit an existing message
         case SendMethod.MessageEdit: {
@@ -297,12 +205,12 @@ async function executeSend<M extends SendMethod>(
             if (!message.editable) {
                 throw new Error("[DynaSend] Message is not editable");
             }
-            return await message.edit(data as MessageEditOptions);
+            return message.edit(data as MessageEditOptions);
         }
 
         // Send DM to a user or guild member
         case SendMethod.UserDM:
-            return await (handler as GuildMember | User).send(data as MessageCreateOptions);
+            return (handler as GuildMember | User).send(data as MessageCreateOptions);
 
         default:
             throw new Error(`[DynaSend] Unknown send method '${method}'`);
@@ -333,14 +241,16 @@ function scheduleDelete(message: Message, delay: number): void {
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
     const sendMethod = options.sendMethod ?? detectSendMethod(handler);
 
-    validateSendMethod(handler, sendMethod);
+    if (options.sendMethod) validateSendMethod(handler, sendMethod);
 
-    const messageData = createMessageData(options, sendMethod);
-    const message = await executeSend(handler, sendMethod, messageData);
-
-    if (options.deleteAfter && message) {
-        scheduleDelete(message, options.deleteAfter);
+    const { sendMethod: _sendMethod, deleteAfter, ...data } = options;
+    if (sendMethod === SendMethod.EditReply || sendMethod === SendMethod.MessageEdit) {
+        data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS);
+    } else if (sendMethod !== SendMethod.Reply && sendMethod !== SendMethod.FollowUp) {
+        data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL);
     }
+    const message = await executeSend(handler, sendMethod, data);
+    if (deleteAfter && message) scheduleDelete(message, deleteAfter);
 
     return message;
 }
