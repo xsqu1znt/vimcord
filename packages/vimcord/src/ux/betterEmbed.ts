@@ -1,5 +1,12 @@
 import type { APIEmbed, APIEmbedField, ColorResolvable, Message } from "discord.js";
-import type { DynaSendOptions, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type {
+    DynaSendOptions,
+    InteractionBasedSendHandler,
+    MessageReturningSendOptions,
+    MessageSendHandler,
+    RequiredDynaSendOptions,
+    SendHandler
+} from "./dynaSend.js";
 
 import { resolveColor } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
@@ -264,10 +271,18 @@ export class BetterEmbed {
 
     /**
      * Sends this embed through dynaSend.
+     * A fresh interaction reply resolves to `null` unless `withResponse` is set.
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      * @param overrides Data to apply to a cloned embed before sending
      */
+    send(handler: MessageSendHandler, options?: DynaSendOptions, overrides?: Partial<BetterEmbedData>): Promise<Message>;
+    send(
+        handler: SendHandler,
+        options: DynaSendOptions & MessageReturningSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<Message>;
+    send(handler: SendHandler, options?: DynaSendOptions, overrides?: Partial<BetterEmbedData>): Promise<Message | null>;
     send(
         handler: SendHandler,
         options: DynaSendOptions = {},
@@ -277,5 +292,23 @@ export class BetterEmbed {
         const sendOptions: RequiredDynaSendOptions = { ...options, embeds };
 
         return dynaSend(handler, sendOptions);
+    }
+
+    /**
+     * Sends this embed as a follow-up to an interaction.
+     * @param interaction Interaction to follow up on
+     * @param options Additional dynaSend options
+     */
+    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<Message> {
+        return dynaSend(interaction, { ...options, embeds: [this, ...(options.embeds ?? [])], sendMethod: "followUp" });
+    }
+
+    /**
+     * Edits a message, or an interaction's reply, to show this embed.
+     * @param target Message or interaction to edit
+     * @param options Additional dynaSend options
+     */
+    edit(target: InteractionBasedSendHandler | Message, options: DynaSendOptions = {}): Promise<Message> {
+        return dynaSend(target, { ...options, embeds: [this, ...(options.embeds ?? [])], sendMethod: "edit" });
     }
 }

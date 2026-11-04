@@ -110,9 +110,7 @@ export class BetterCollector<C extends MessageComponentType = MessageComponentTy
     private readonly endListeners: ((collected: MessageComponentInteraction[], reason: string) => unknown)[] = [];
     private readonly activeUsers = new Set<string>();
 
-    constructor(message: Message | null | undefined, options: BetterCollectorOptions<C>) {
-        if (!message) throw new Error("Message is null or undefined");
-
+    constructor(message: Message, options: BetterCollectorOptions<C>) {
         this.message = message;
         this.interaction = options.interaction;
         const config = getGlobalUxConfig().collector;

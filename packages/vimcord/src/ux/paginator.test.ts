@@ -17,7 +17,7 @@ import {
 } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
-import { dynaSend, SendMethod } from "./dynaSend.js";
+import { dynaSend } from "./dynaSend.js";
 import { PaginationType, Paginator } from "./paginator.js";
 import { ResolveAction } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
@@ -444,9 +444,7 @@ describe("Paginator collection and navigation", () => {
             "chapter:0.3>1.0",
             "set:1.0>0.4"
         ]);
-        expect(vi.mocked(dynaSend).mock.calls.at(-1)?.[1]).toEqual(
-            expect.objectContaining({ sendMethod: SendMethod.MessageEdit })
-        );
+        expect(vi.mocked(dynaSend).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ sendMethod: "edit" }));
     });
 
     it("renders navigation and chapter selection for the destination chapter", async () => {
@@ -800,7 +798,7 @@ describe("Paginator acknowledgement and snapshots", () => {
             expect(i.update).not.toHaveBeenCalled();
             expect(vi.mocked(dynaSend).mock.lastCall![1]).toMatchObject({
                 content: "Destination",
-                sendMethod: SendMethod.MessageEdit
+                sendMethod: "edit"
             });
             if (navigation.startsWith("cached chapter")) expect(loader).toHaveBeenCalledOnce();
             if (navigation === "jump submission") {

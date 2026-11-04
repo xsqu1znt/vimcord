@@ -45,15 +45,11 @@ type AtLeastOne<T, Keys extends keyof T> = {
 
 type SendableContentKeys = "content" | "embeds" | "components" | "files" | "stickers" | "poll" | "forward";
 
-export enum SendMethod {
-    Reply = "Reply",
-    EditReply = "EditReply",
-    FollowUp = "FollowUp",
-    Channel = "Channel",
-    MessageReply = "MessageReply",
-    MessageEdit = "MessageEdit",
-    UserDM = "UserDM"
-}
+/** Sends that can't be inferred from the target. Everything else is detected. */
+export type SendMethod = "followUp" | "edit";
+
+/** How a target is actually sent through. */
+type ResolvedSendMethod = "reply" | "editReply" | "followUp" | "channel" | "messageReply" | "messageEdit" | "userDM";
 
 export type SendHandler =
     | CommandInteraction
@@ -64,6 +60,10 @@ export type SendHandler =
     | GuildMember
     | User;
 export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
+/** Targets that always hand back the sent message. A fresh interaction reply only does with `withResponse`. */
+export type MessageSendHandler = Exclude<SendHandler, InteractionBasedSendHandler>;
+/** Options that guarantee an interaction send hands back its message. */
+export type MessageReturningSendOptions = { withResponse: true } | { sendMethod: SendMethod };
 
 export type EmbedResolvable = NonNullable<BaseMessageOptions["embeds"]>[number];
 export type InteractionResolveable = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
@@ -136,71 +136,59 @@ function filterFlags(
     return remaining || undefined;
 }
 
-// Determines the appropriate send method based on the handler type and state
-function detectSendMethod(handler: SendHandler): SendMethod {
-    if (handler instanceof BaseInteraction) {
-        return handler.replied || handler.deferred ? SendMethod.EditReply : SendMethod.Reply;
+// Picks the transport: an explicit method if it fits the target, otherwise whatever the target implies.
+function resolveSendMethod(handler: SendHandler, method: SendMethod | undefined): ResolvedSendMethod {
+    const isInteraction = handler instanceof BaseInteraction;
+    if (method === "followUp") {
+        if (!isInteraction) throw new TypeError("[DynaSend] sendMethod 'followUp' requires an interaction");
+        return "followUp";
     }
-    if (handler instanceof BaseChannel) return SendMethod.Channel;
-    if (handler instanceof Message) return SendMethod.MessageReply;
-    if (handler instanceof GuildMember || handler instanceof User) return SendMethod.UserDM;
+    if (method === "edit") {
+        if (isInteraction) return "editReply";
+        if (handler instanceof Message) return "messageEdit";
+        throw new TypeError("[DynaSend] sendMethod 'edit' requires an interaction or a message");
+    }
+
+    if (isInteraction) return handler.replied || handler.deferred ? "editReply" : "reply";
+    if (handler instanceof BaseChannel) return "channel";
+    if (handler instanceof Message) return "messageReply";
+    if (handler instanceof GuildMember || handler instanceof User) return "userDM";
 
     throw new Error("[DynaSend] Unable to determine send method for handler type");
-}
-
-// Validates that the handler is compatible with the requested send method
-function validateSendMethod(handler: SendHandler, method: SendMethod): void {
-    const interactionMethods = [SendMethod.Reply, SendMethod.EditReply, SendMethod.FollowUp];
-
-    if (interactionMethods.includes(method) && !(handler instanceof BaseInteraction)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires BaseInteraction handler`);
-    }
-
-    if (method === SendMethod.Channel && !(handler instanceof BaseChannel)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires BaseChannel handler`);
-    }
-
-    if ([SendMethod.MessageReply, SendMethod.MessageEdit].includes(method) && !(handler instanceof Message)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires Message handler`);
-    }
-
-    if (method === SendMethod.UserDM && !(handler instanceof GuildMember || handler instanceof User)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires User or GuildMember handler`);
-    }
 }
 
 // Executes the actual send using the handler's appropriate method
 function executeSend(
     handler: SendHandler,
-    method: SendMethod,
+    method: ResolvedSendMethod,
     data: Omit<DynaSendOptions, "sendMethod" | "deleteAfter">
 ): Promise<Message | null> {
     switch (method) {
         // Reply to an interaction (initial response)
-        case SendMethod.Reply: {
+        case "reply": {
             return (handler as RepliableInteraction)
                 .reply(data as InteractionReplyOptions)
                 .then(response => (isInteractionCallback(response) ? (response.resource?.message ?? null) : null));
         }
 
         // Edit an existing interaction reply
-        case SendMethod.EditReply:
+        case "editReply":
             return (handler as RepliableInteraction).editReply(data as InteractionEditReplyOptions);
 
         // Follow-up to an already-replied interaction
-        case SendMethod.FollowUp:
+        case "followUp":
             return (handler as RepliableInteraction).followUp(data as InteractionReplyOptions);
 
         // Send to a text-based channel
-        case SendMethod.Channel:
+        case "channel":
             return (handler as GuildTextBasedChannel).send(data as MessageCreateOptions);
 
         // Reply to an existing message
-        case SendMethod.MessageReply:
+        case "messageReply":
             return (handler as Message).reply(data as MessageReplyOptions);
 
         // Edit an existing message
-        case SendMethod.MessageEdit: {
+        case "messageEdit": {
             const message = handler as Message;
             if (!message.editable) {
                 throw new Error("[DynaSend] Message is not editable");
@@ -209,11 +197,8 @@ function executeSend(
         }
 
         // Send DM to a user or guild member
-        case SendMethod.UserDM:
+        case "userDM":
             return (handler as GuildMember | User).send(data as MessageCreateOptions);
-
-        default:
-            throw new Error(`[DynaSend] Unknown send method '${method}'`);
     }
 }
 
@@ -235,21 +220,27 @@ function scheduleDelete(message: Message, delay: number): void {
 
 /**
  * Intelligently detects and sends a message to a variety of Discord targets using a unified API.
+ * A fresh interaction reply resolves to `null` unless `withResponse` is set.
  * @param handler The Discord.js object to send the message through
  * @param options Message options (content, embeds, flags, etc.). At least one content-bearing field is required.
  */
+export function dynaSend(handler: MessageSendHandler, options: RequiredDynaSendOptions): Promise<Message>;
+export function dynaSend(
+    handler: SendHandler,
+    options: RequiredDynaSendOptions & MessageReturningSendOptions
+): Promise<Message>;
+export function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null>;
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
-    const sendMethod = options.sendMethod ?? detectSendMethod(handler);
+    const { sendMethod: requested, deleteAfter, ...data } = options;
+    const sendMethod = resolveSendMethod(handler, requested);
 
-    if (options.sendMethod) validateSendMethod(handler, sendMethod);
-
-    const { sendMethod: _sendMethod, deleteAfter, ...data } = options;
-    if (sendMethod === SendMethod.EditReply || sendMethod === SendMethod.MessageEdit) {
+    if (sendMethod === "editReply" || sendMethod === "messageEdit") {
         data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS);
-    } else if (sendMethod !== SendMethod.Reply && sendMethod !== SendMethod.FollowUp) {
+    } else if (sendMethod !== "reply" && sendMethod !== "followUp") {
         data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL);
     }
     const message = await executeSend(handler, sendMethod, data);
+    if (options.withResponse && !message) throw new Error("[DynaSend] Discord did not return the sent message");
     if (deleteAfter && message) scheduleDelete(message, deleteAfter);
 
     return message;

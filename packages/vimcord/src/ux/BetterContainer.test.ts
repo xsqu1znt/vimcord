@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import type { ChatInputCommandInteraction } from "discord.js";
+
+import { BaseInteraction, MessageFlags } from "discord.js";
+import { describe, expect, it, vi } from "vitest";
 import { BetterContainer } from "./BetterContainer.js";
 
 describe("BetterContainer.clone", () => {
@@ -36,5 +39,33 @@ describe("BetterContainer color", () => {
     it("clears the color when set to null", () => {
         const container = new BetterContainer({ color: 0x123456 }).setColor(null);
         expect(container.toJSON().accent_color).toBeUndefined();
+    });
+});
+
+describe("BetterContainer sending", () => {
+    function interaction() {
+        const send = vi.fn().mockResolvedValue({ id: "message" });
+        const target = Object.create(BaseInteraction.prototype) as ChatInputCommandInteraction;
+        Object.defineProperties(target, {
+            replied: { value: false },
+            deferred: { value: false },
+            reply: { value: send },
+            followUp: { value: send },
+            editReply: { value: send }
+        });
+        return { target, send };
+    }
+
+    it("doesn't ask for the response on a plain send", async () => {
+        const { target, send } = interaction();
+        send.mockResolvedValue(undefined);
+        expect(await new BetterContainer().addText("hi").send(target)).toBeNull();
+        expect(send.mock.calls[0]![0]).not.toHaveProperty("withResponse");
+    });
+
+    it.each(["followUp", "edit"] as const)("keeps the Components V2 flag through %s", async method => {
+        const { target, send } = interaction();
+        await new BetterContainer().addText("hi")[method](target);
+        expect(send.mock.calls[0]![0].flags).toBe(MessageFlags.IsComponentsV2);
     });
 });

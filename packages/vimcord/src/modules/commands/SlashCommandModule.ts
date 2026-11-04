@@ -16,7 +16,7 @@ import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
 import { ModuleError } from "@/errors/ModuleError.js";
-import { dynaSend, SendMethod } from "@/ux/index.js";
+import { dynaSend } from "@/ux/index.js";
 
 /** Discord's cap on the number of autocomplete choices returned in one response. */
 const MAX_AUTOCOMPLETE_CHOICES = 25;
@@ -188,7 +188,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         await dynaSend(ctx.interaction, {
             content: `Subcommand '${block.path}' was not found.`,
             flags: "Ephemeral",
-            sendMethod: ctx.interaction.replied || ctx.interaction.deferred ? SendMethod.FollowUp : SendMethod.Reply
+            sendMethod: ctx.interaction.replied || ctx.interaction.deferred ? "followUp" : undefined
         });
     }
 }

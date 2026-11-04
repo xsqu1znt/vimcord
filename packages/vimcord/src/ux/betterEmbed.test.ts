@@ -1,3 +1,6 @@
+import type { ChatInputCommandInteraction } from "discord.js";
+
+import { BaseInteraction, Message } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterEmbed } from "./betterEmbed.js";
 
@@ -82,5 +85,22 @@ describe("BetterEmbed API payload", () => {
         } finally {
             random.mockRestore();
         }
+    });
+});
+
+describe("BetterEmbed sending", () => {
+    it("edits a message through message.edit and follows up through the interaction", async () => {
+        const embed = new BetterEmbed({ title: "Title" });
+        const edit = vi.fn().mockResolvedValue({ id: "edited" });
+        const message = Object.create(Message.prototype) as Message;
+        Object.defineProperties(message, { edit: { value: edit }, editable: { value: true } });
+        await embed.edit(message, { content: "Text" });
+        expect(edit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: "Text", embeds: [embed] }));
+
+        const followUp = vi.fn().mockResolvedValue({ id: "followed" });
+        const interaction = Object.create(BaseInteraction.prototype) as ChatInputCommandInteraction;
+        Object.defineProperty(interaction, "followUp", { value: followUp });
+        await embed.followUp(interaction);
+        expect(followUp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ embeds: [embed] }));
     });
 });

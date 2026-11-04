@@ -7,7 +7,14 @@ import type {
     Message,
     MessageActionRowComponentBuilder
 } from "discord.js";
-import type { DynaSendOptions, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type {
+    DynaSendOptions,
+    InteractionBasedSendHandler,
+    MessageReturningSendOptions,
+    MessageSendHandler,
+    RequiredDynaSendOptions,
+    SendHandler
+} from "./dynaSend.js";
 
 import { ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, resolveColor, ThumbnailBuilder } from "discord.js";
 import { addMessageFlag, dynaSend } from "./dynaSend.js";
@@ -210,21 +217,43 @@ export class BetterContainer {
         return this;
     }
 
-    /**
-     * Sends this container through dynaSend.
-     * @param handler Discord object to send through
-     * @param options Additional dynaSend options
-     */
-    send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
+    private toSendOptions(options: DynaSendOptions): RequiredDynaSendOptions {
         this.build();
-
-        const sendOptions: RequiredDynaSendOptions = {
+        return {
             ...options,
-            withResponse: options.withResponse ?? true,
             components: [this.container, ...(options.components ?? [])],
             flags: addMessageFlag(options.flags, MessageFlags.IsComponentsV2)
         };
+    }
 
-        return dynaSend(handler, sendOptions);
+    /**
+     * Sends this container through dynaSend.
+     * A fresh interaction reply resolves to `null` unless `withResponse` is set.
+     * @param handler Discord object to send through
+     * @param options Additional dynaSend options
+     */
+    send(handler: MessageSendHandler, options?: DynaSendOptions): Promise<Message>;
+    send(handler: SendHandler, options: DynaSendOptions & MessageReturningSendOptions): Promise<Message>;
+    send(handler: SendHandler, options?: DynaSendOptions): Promise<Message | null>;
+    send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
+        return dynaSend(handler, this.toSendOptions(options));
+    }
+
+    /**
+     * Sends this container as a follow-up to an interaction.
+     * @param interaction Interaction to follow up on
+     * @param options Additional dynaSend options
+     */
+    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<Message> {
+        return dynaSend(interaction, { ...this.toSendOptions(options), sendMethod: "followUp" });
+    }
+
+    /**
+     * Edits a message, or an interaction's reply, to show this container.
+     * @param target Message or interaction to edit
+     * @param options Additional dynaSend options
+     */
+    edit(target: InteractionBasedSendHandler | Message, options: DynaSendOptions = {}): Promise<Message> {
+        return dynaSend(target, { ...this.toSendOptions(options), sendMethod: "edit" });
     }
 }

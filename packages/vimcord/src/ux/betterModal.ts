@@ -40,7 +40,7 @@ import {
     UserSelectMenuBuilder
 } from "discord.js";
 import { createRandomId } from "@/utils/str.js";
-import { dynaSend, SendMethod } from "./dynaSend.js";
+import { dynaSend } from "./dynaSend.js";
 import { awaitRoutedModal } from "./interactionRouter.js";
 
 interface LabelComponentOptions {
@@ -158,7 +158,7 @@ export interface BetterModalSubmitResult {
     /** Replies to the modal submission. */
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     /** Sends a follow-up to the modal submission. */
-    followUp: (options: RequiredDynaSendOptions) => Promise<Message | null>;
+    followUp: (options: RequiredDynaSendOptions) => Promise<Message>;
 }
 
 function isModalTimeout(error: unknown): boolean {
@@ -517,7 +517,7 @@ export class BetterModal {
             interaction: modalSubmit,
             getField,
             reply: async options => dynaSend(modalSubmit, options),
-            followUp: async options => dynaSend(modalSubmit, { ...options, sendMethod: SendMethod.FollowUp })
+            followUp: async options => dynaSend(modalSubmit, { ...options, sendMethod: "followUp" })
         };
     }
 }

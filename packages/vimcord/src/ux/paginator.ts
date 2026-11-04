@@ -34,7 +34,7 @@ import { BetterCollector } from "./betterCollector.js";
 import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
-import { addMessageFlag, dynaSend, SendMethod } from "./dynaSend.js";
+import { addMessageFlag, dynaSend } from "./dynaSend.js";
 import { handleResolveAction, ResolveAction, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
@@ -534,7 +534,7 @@ export class Paginator {
             ? await this.state.interaction.webhook.editMessage(message.id, editOptions)
             : await dynaSend(message, {
                   ...data,
-                  sendMethod: SendMethod.MessageEdit
+                  sendMethod: "edit"
               });
         return this.state.message;
     }
@@ -959,27 +959,28 @@ export class Paginator {
         return this.state.message;
     }
 
-    async send(handler: SendHandler, options?: DynaSendOptions): Promise<Message | null> {
+    async send(handler: SendHandler, options?: DynaSendOptions): Promise<Message> {
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;
         this.state.interaction = handler instanceof BaseInteraction ? handler : undefined;
         this.state.active = true;
+        let message: Message;
         try {
             const { page, index } = await this.loadPage(
                 await this.resolveDestination(this.state.index.chapter, this.state.index.nested)
             );
             this.state.index = index;
             this.state.currentPage = page;
-            this.state.message = await dynaSend(handler, this.buildSendOptions(page, options));
+            message = await dynaSend(handler, { ...this.buildSendOptions(page, options), withResponse: true });
+            this.state.message = message;
         } catch (error) {
             this.state.active = false;
             console.error("[Paginator] Initial load failed:", error);
             throw error;
         }
-        if (this.state.message) this.collectComponents();
-        else this.state.active = false;
-        return this.state.message;
+        this.collectComponents();
+        return message;
     }
 
     stop(reason = "manual"): void {

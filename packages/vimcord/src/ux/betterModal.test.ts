@@ -3,7 +3,7 @@ import type { BetterAPIModalComponent } from "./betterModal.js";
 import { ComponentType, DiscordjsError, DiscordjsErrorCodes } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
-import { dynaSend, SendMethod } from "./dynaSend.js";
+import { dynaSend } from "./dynaSend.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -114,7 +114,7 @@ describe("BetterModal submission results", () => {
 
         expect(dynaSend).toHaveBeenCalledWith(submit, {
             content: "Done",
-            sendMethod: SendMethod.FollowUp
+            sendMethod: "followUp"
         });
     });
 });

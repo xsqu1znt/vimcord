@@ -1,6 +1,6 @@
 import type { CommandInteraction, Message, MessageEditOptions } from "discord.js";
 import type { BetterModalSubmitResult } from "./betterModal.js";
-import type { DynaSendOptions, EmbedResolvable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type { DynaSendOptions, EmbedResolvable, SendHandler } from "./dynaSend.js";
 import type { OnResolve, Participant, ResolveResult, TimingOptions } from "./shared.js";
 
 import {
@@ -76,14 +76,12 @@ export interface PromptMessageResult {
     status: PromptStatus;
     /** Custom ID of the pressed additional button. Only set when `status` is `"custom"`. */
     customId?: string;
-    /** Prompt message returned by dynaSend when Discord provides one. */
-    message?: Message;
+    /** The prompt message, as Discord last returned it. */
+    message: Message;
 }
 
 /** Decision passed to the prompt's resolution callback. */
-export interface PromptResolveContext extends PromptMessageResult {
-    message: Message;
-}
+export type PromptResolveContext = PromptMessageResult;
 
 /** Options for prompting with a yes/no modal. */
 export interface PromptModalOptions {
@@ -212,9 +210,7 @@ export async function promptMessage(
         ],
         components: [buildPromptRow(confirmButton, rejectButton, additionalButtons)],
         withResponse: true
-    } satisfies RequiredDynaSendOptions);
-
-    if (!message) return { status: "timeout" };
+    });
 
     // --- Collector ---
     // The custom ID of the button that ended the prompt, or null if nothing was pressed.
