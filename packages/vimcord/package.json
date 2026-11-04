@@ -25,6 +25,7 @@
         "bench": "node benchmarks/run.mjs",
         "bench:compare": "node benchmarks/compare.mjs",
         "bench:logging": "node benchmarks/logging.mjs",
+        "bench:network": "node benchmarks/network.mjs",
         "check": "tsc --noEmit",
         "format": "prettier --write \"./**/*.{ts,mjs,json}\""
     },

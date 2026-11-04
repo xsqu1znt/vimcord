@@ -1,0 +1,1774 @@
+{
+    "node": "v22.23.1",
+    "baselineHash": "f04caf2048eca0fae031179d0f6e0283df2adda9c96c9915f61ff123a54a5eba",
+    "currentHash": "1625b5cb4fb9897e98bb51b9258c9a8653866038ce8998e51894d022165f9d10",
+    "options": {
+        "samples": 5,
+        "intervalMs": 2200,
+        "interactiveMs": 0,
+        "commandName": "vimcord-net",
+        "apps": ["utility", "economy", "moderation", "support", "bookmarks"],
+        "mentions": {
+            "parse": [],
+            "repliedUser": false
+        }
+    },
+    "groups": [
+        {
+            "flow": "prefix",
+            "app": "utility",
+            "variants": {
+                "baseline": {
+                    "samples": 5,
+                    "p50": 519.9947160000011,
+                    "p95": 1400.7995320000337,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 873.0441690000007,
+                        "p95": 1859.866587000026
+                    }
+                },
+                "current": {
+                    "samples": 5,
+                    "p50": 528.396596999999,
+                    "p95": 826.402414000011,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 950.0665910000025,
+                        "p95": 1729.1328910000157
+                    }
+                },
+                "control": {
+                    "samples": 5,
+                    "p50": 1133.8546720000159,
+                    "p95": 2383.0825310000073,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1472.1070070000133,
+                        "p95": 2655.4351339999994
+                    }
+                }
+            },
+            "speedup": 0.98409929010198,
+            "passes3x": false
+        },
+        {
+            "flow": "prefix",
+            "app": "economy",
+            "variants": {
+                "baseline": {
+                    "samples": 5,
+                    "p50": 596.6360799999966,
+                    "p95": 2846.944881000032,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1125.3883659999992,
+                        "p95": 3118.410253000038
+                    }
+                },
+                "current": {
+                    "samples": 5,
+                    "p50": 516.5014969999902,
+                    "p95": 1268.581348000007,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1097.4317259999807,
+                        "p95": 1574.0571829999972
+                    }
+                },
+                "control": {
+                    "samples": 5,
+                    "p50": 470.20228299999144,
+                    "p95": 585.7558319999953,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 825.2550820000033,
+                        "p95": 971.8806649999897
+                    }
+                }
+            },
+            "speedup": 1.1551487913693461,
+            "passes3x": false
+        },
+        {
+            "flow": "prefix",
+            "app": "moderation",
+            "variants": {
+                "baseline": {
+                    "samples": 5,
+                    "p50": 566.2909930000023,
+                    "p95": 1778.9402069999924,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1520.6785590000218,
+                        "p95": 2354.859482
+                    }
+                },
+                "current": {
+                    "samples": 5,
+                    "p50": 482.33408800000325,
+                    "p95": 803.431729999953,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 784.3702979999944,
+                        "p95": 1574.7793639999582
+                    }
+                },
+                "control": {
+                    "samples": 5,
+                    "p50": 543.0607489999966,
+                    "p95": 2564.7162719999906,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 931.0908469999849,
+                        "p95": 2816.9328779999632
+                    }
+                }
+            },
+            "speedup": 1.1740638016030054,
+            "passes3x": false
+        },
+        {
+            "flow": "prefix",
+            "app": "support",
+            "variants": {
+                "baseline": {
+                    "samples": 5,
+                    "p50": 524.5255459999898,
+                    "p95": 859.7286700000113,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 836.5786769999831,
+                        "p95": 1180.410469000024
+                    }
+                },
+                "current": {
+                    "samples": 5,
+                    "p50": 880.7399500000174,
+                    "p95": 1371.71096700005,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1178.5463410000375,
+                        "p95": 1711.9272900000215
+                    }
+                },
+                "control": {
+                    "samples": 5,
+                    "p50": 809.2438349999866,
+                    "p95": 1545.762453000003,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1457.7998960000114,
+                        "p95": 3469.3834659999848
+                    }
+                }
+            },
+            "speedup": 0.5955509864177042,
+            "passes3x": false
+        },
+        {
+            "flow": "prefix",
+            "app": "bookmarks",
+            "variants": {
+                "baseline": {
+                    "samples": 5,
+                    "p50": 497.3087849999429,
+                    "p95": 536.4830430000147,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 864.897772999946,
+                        "p95": 1055.490718999994
+                    }
+                },
+                "current": {
+                    "samples": 5,
+                    "p50": 806.8979760000075,
+                    "p95": 1189.4232619999966,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 1495.181958000001,
+                        "p95": 1750.1456069999986
+                    }
+                },
+                "control": {
+                    "samples": 5,
+                    "p50": 606.4398449999862,
+                    "p95": 1108.8854909999936,
+                    "rateLimited": 0,
+                    "requestCounts": [1],
+                    "endToEnd": {
+                        "samples": 5,
+                        "p50": 996.1124769999878,
+                        "p95": 1407.9635969999945
+                    }
+                }
+            },
+            "speedup": 0.6163217653181203,
+            "passes3x": false
+        }
+    ],
+    "rows": [
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 2908.7585040000004,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 674.961354,
+            "ms": 2937.6826979999996
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 412.6888220000001,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 969.767887,
+            "ms": 438.079522
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 541.817798,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 3117.4803420000007,
+            "ms": 630.0435460000008
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 791.3891140000014,
+                    "bytes": 194,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 331.9716840000001,
+            "ms": 885.8323990000026
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 426.811654000001,
+                    "bytes": 194,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 378.70147500000166,
+            "ms": 459.87908000000243
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 441.61489900000015,
+                    "bytes": 194,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 378.3896280000008,
+            "ms": 442.8667260000002
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 620.0890710000021,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 361.7664360000017,
+            "ms": 669.9351400000014
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 359.4652530000021,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 292.3471520000021,
+            "ms": 419.3946380000052
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 534.2336379999979,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 480.7728730000017,
+            "ms": 575.7936840000039
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 382.5173600000053,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 520.6974400000036,
+            "ms": 454.8716410000052
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 342.3591529999976,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 437.28487499999756,
+            "ms": 535.1242740000016
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 293.05804999999964,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 260.06459500000346,
+            "ms": 332.71433299999626
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 347.0265619999991,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 405.08626699999877,
+            "ms": 400.36082899999747
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 502.916618999996,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 440.90179600000556,
+            "ms": 503.7525719999976
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": true,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 362.33448599999974,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 1123.7994649999964,
+            "ms": 517.2982979999942
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 365.94645700000547,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 421.6699940000035,
+            "ms": 528.396596999999
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 388.0131679999977,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 277.93746900000406,
+            "ms": 399.4156789999979
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 445.4897659999988,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 353.04945299999963,
+            "ms": 519.9947160000011
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 358.5661599999876,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 277.1426320000028,
+            "ms": 393.35674099999596
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 517.1161960000027,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 386.1248329999944,
+            "ms": 585.7558319999953
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 492.1989479999902,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 334.67024500000116,
+            "ms": 596.6360799999966
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 622.3962150000007,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 313.00309600000037,
+            "ms": 724.8648810000013
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 752.3445849999989,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 262.9085199999972,
+            "ms": 819.7875279999862
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 1620.2195089999877,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 322.72530299999926,
+            "ms": 1778.9402069999924
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 406.30333899999096,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 755.0826900000102,
+            "ms": 929.2548820000084
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 769.0480870000029,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 2660.139630999998,
+            "ms": 809.2438349999866
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 396.3686310000048,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 316.35711199999787,
+            "ms": 507.2160240000085
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 913.6199720000004,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 564.4785879999981,
+            "ms": 1185.6670190000004
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 500.35199999999895,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 393.04724699999497,
+            "ms": 564.6899459999986
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 396.23171300000104,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 307.5483949999907,
+            "ms": 449.75194100000954
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 2285.993453999996,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 272.3526029999921,
+            "ms": 2383.0825310000073
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 366.7799370000139,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 420.4632910000073,
+            "ms": 429.21925799999735
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 542.7419290000107,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 1111.657401000004,
+            "ms": 617.4754900000116
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 325.308766999995,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 498.8731140000018,
+            "ms": 326.3819680000015
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 414.84627499998896,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 641.3319699999993,
+            "ms": 484.05639599999995
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 381.8962399999873,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 272.92571199999657,
+            "ms": 432.96721599999
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 498.1346440000052,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 294.9030639999837,
+            "ms": 543.0607489999966
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 388.51042500001495,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 297.9717729999975,
+            "ms": 442.91987599999993
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 362.9691509999975,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 420.7595089999959,
+            "ms": 363.6107889999985
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 473.46264700000756,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 396.9281750000082,
+            "ms": 509.9570959999983
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 517.1221469999873,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 425.72042999998666,
+            "ms": 581.9679699999979
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 442.7560179999855,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 297.8063910000201,
+            "ms": 880.7399500000174
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 1054.3283919999958,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 299.07810600000084,
+            "ms": 1108.8854909999936
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 452.3916610000015,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 249.05701799999224,
+            "ms": 505.13921400002437
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 438.25456100000883,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 305.7586960000044,
+            "ms": 1189.4232619999966
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 457.4114330000011,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 263.6472509999876,
+            "ms": 510.1001849999884
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 375.6916069999861,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 343.55223000000115,
+            "ms": 442.6473030000052
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 399.5767519999936,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 243.75459399999818,
+            "ms": 432.46446899999864
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 611.4524139999994,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 909.472099000006,
+            "ms": 758.5691910000169
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 403.971137000015,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 305.4758349999902,
+            "ms": 1268.581348000007
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 349.3141750000068,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 307.2581920000084,
+            "ms": 455.7804060000053
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 386.777019000001,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 324.3743320000067,
+            "ms": 516.8756609999982
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 440.21716000000015,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 258.8563790000044,
+            "ms": 482.33408800000325
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 402.0780510000186,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 246.15402999997605,
+            "ms": 458.13372699997853
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 378.0422210000106,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 312.0531309999933,
+            "ms": 524.5255459999898
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 628.5609100000001,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 425.0867690000159,
+            "ms": 676.5178040000028
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 786.2737899999775,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 300.9909800000023,
+            "ms": 851.1525409999886
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 379.68968400001177,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 623.6930839999986,
+            "ms": 380.7829419999907
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 455.63549300000886,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 533.5168169999961,
+            "ms": 456.4916749999975
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 608.4421449999791,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 350.207276000001,
+            "ms": 1040.8298519999953
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 664.0186090000207,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 321.71309100001235,
+            "ms": 826.402414000011
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 1156.0476320000016,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 298.36080799999763,
+            "ms": 1173.7461990000156
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 437.587257999985,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 340.68312200001674,
+            "ms": 836.9567989999778
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 481.779263000004,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 580.9302289999905,
+            "ms": 516.5014969999902
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 363.7868979999912,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 257.9489600000088,
+            "ms": 470.20228299999144
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 331.0930140000128,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 301.6074410000001,
+            "ms": 455.00871299998835
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 378.7587899999926,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 261.17837199999485,
+            "ms": 414.9390200000198
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 428.3069620000024,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 395.24644699998316,
+            "ms": 535.8444000000018
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 565.3497000000207,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 1788.5684889999975,
+            "ms": 566.2909930000023
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 465.5323690000223,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 274.0451199999952,
+            "ms": 507.4680159999989
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 712.8312650000153,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 743.503853000002,
+            "ms": 714.2960430000094
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 779.7643530000059,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 320.6817990000127,
+            "ms": 859.7286700000113
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 727.4207779999997,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 609.869692999986,
+            "ms": 806.8979760000075
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 422.5612829999882,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 293.1455970000243,
+            "ms": 511.6107769999944
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 383.79842000000644,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 519.0076759999793,
+            "ms": 536.4830430000147
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 1012.6218340000196,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 378.48269000000437,
+            "ms": 1133.8546720000159
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 420.00345700001344,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 459.06705499999225,
+            "ms": 1400.7995320000337
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 409.0776119999937,
+                    "bytes": 200,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 325.32894999999553,
+            "ms": 449.0362469999818
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 486.39744900004007,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 322.5843420000165,
+            "ms": 547.3716870000353
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 2729.99498899997,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 271.465372000006,
+            "ms": 2846.944881000032
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 527.6076000000467,
+                    "bytes": 195,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 419.4148869999917,
+            "ms": 924.3831669999636
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 2467.217416999978,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 252.21660599997267,
+            "ms": 2564.7162719999906
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 434.4520730000222,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 924.1041110000224,
+            "ms": 596.5744479999994
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 762.6171040000045,
+                    "bytes": 240,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 771.3476340000052,
+            "ms": 803.431729999953
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 421.811921000015,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 448.224057000014,
+            "ms": 1545.762453000003
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 370.2160239999648,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 313.38862600002903,
+            "ms": 399.4162200000137
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 385.65107900003204,
+                    "bytes": 294,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 340.21632299997145,
+            "ms": 1371.71096700005
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 567.1582049999852,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 389.6726320000016,
+            "ms": 606.4398449999862
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 379.59424400003627,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 367.58898800000316,
+            "ms": 497.3087849999429
+        },
+        {
+            "app": "bookmarks",
+            "variant": "current",
+            "flow": "prefix",
+            "warmup": false,
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 673.4918169999728,
+                    "bytes": 298,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "gatewayMs": 899.5246169999591,
+            "ms": 748.9385870000115
+        }
+    ],
+    "cleanupFailures": [],
+    "targetMet": false,
+    "baselineCommit": "d6a7601",
+    "recordedDate": "2026-11-04"
+}

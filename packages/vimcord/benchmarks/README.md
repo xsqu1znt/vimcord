@@ -6,6 +6,8 @@ Every scenario allocates at least **3.00× fewer promises**. This is a resource 
 
 For the logging-specific follow-up, including real formatter costs, see [logging.md](logging.md).
 
+For real Discord REST, gateway command flows, and human-triggered slash/component measurements, see [network.md](network.md). These live measurements have their own baseline and do not inherit the CPU speedups above.
+
 ## Applications and protocol
 
 [apps.mjs](apps.mjs) runs five bot applications through built Vimcord package exports and public command dispatchers:

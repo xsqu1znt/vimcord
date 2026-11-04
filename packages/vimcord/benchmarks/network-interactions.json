@@ -1,0 +1,1259 @@
+{
+    "node": "v22.23.1",
+    "baselineHash": "f04caf2048eca0fae031179d0f6e0283df2adda9c96c9915f61ff123a54a5eba",
+    "currentHash": "d85dda8923b993e4a658505a0c4d263684e469f8fe918c4da1c95e0ebaf43dfb",
+    "options": {
+        "samples": 0,
+        "intervalMs": 2200,
+        "interactiveMs": 900000,
+        "commandName": "vimcord-net",
+        "apps": ["utility", "economy", "moderation", "support", "bookmarks"],
+        "mentions": {
+            "parse": [],
+            "repliedUser": false
+        }
+    },
+    "groups": [
+        {
+            "flow": "slash",
+            "app": "utility",
+            "variants": {
+                "baseline": {
+                    "samples": 1,
+                    "p50": 599.2736039999872,
+                    "p95": 599.2736039999872,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 1,
+                    "p50": 398.73348100000294,
+                    "p95": 398.73348100000294,
+                    "rateLimited": 0
+                },
+                "control": {
+                    "samples": 1,
+                    "p50": 578.2338910000108,
+                    "p95": 578.2338910000108,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.502942773947751,
+            "passes3x": false
+        },
+        {
+            "flow": "slash",
+            "app": "economy",
+            "variants": {
+                "baseline": {
+                    "samples": 1,
+                    "p50": 850.2683750000142,
+                    "p95": 850.2683750000142,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 1,
+                    "p50": 650.966259000008,
+                    "p95": 650.966259000008,
+                    "rateLimited": 0
+                },
+                "control": {
+                    "samples": 1,
+                    "p50": 643.7442709999741,
+                    "p95": 643.7442709999741,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.3061635119248227,
+            "passes3x": false
+        },
+        {
+            "flow": "slash",
+            "app": "moderation",
+            "variants": {
+                "baseline": {
+                    "samples": 1,
+                    "p50": 618.6989380000159,
+                    "p95": 618.6989380000159,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 1,
+                    "p50": 455.7285039999988,
+                    "p95": 455.7285039999988,
+                    "rateLimited": 0
+                },
+                "control": {
+                    "samples": 1,
+                    "p50": 496.9581000000471,
+                    "p95": 496.9581000000471,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.3576042151623187,
+            "passes3x": false
+        },
+        {
+            "flow": "slash",
+            "app": "support",
+            "variants": {
+                "baseline": {
+                    "samples": 1,
+                    "p50": 591.9282039999962,
+                    "p95": 591.9282039999962,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 1,
+                    "p50": 488.7730280000251,
+                    "p95": 488.7730280000251,
+                    "rateLimited": 0
+                },
+                "control": {
+                    "samples": 1,
+                    "p50": 470.7320019999752,
+                    "p95": 470.7320019999752,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.2110492398119108,
+            "passes3x": false
+        },
+        {
+            "flow": "slash",
+            "app": "bookmarks",
+            "variants": {
+                "control": {
+                    "samples": 1,
+                    "p50": 465.2814800000051,
+                    "p95": 465.2814800000051,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": null,
+            "passes3x": false
+        },
+        {
+            "flow": "slash",
+            "app": "pagination",
+            "variants": {
+                "baseline": {
+                    "samples": 1,
+                    "p50": 583.0609819999954,
+                    "p95": 583.0609819999954,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 1,
+                    "p50": 532.3458430000028,
+                    "p95": 532.3458430000028,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.095267277216237,
+            "passes3x": false
+        },
+        {
+            "flow": "component",
+            "app": "pagination",
+            "variants": {
+                "baseline": {
+                    "samples": 23,
+                    "p50": 734.8576480000047,
+                    "p95": 1300.7358209999802,
+                    "rateLimited": 0
+                },
+                "current": {
+                    "samples": 23,
+                    "p50": 457.00053700001445,
+                    "p95": 777.0823589999927,
+                    "rateLimited": 0
+                }
+            },
+            "speedup": 1.608001716636892,
+            "passes3x": false
+        }
+    ],
+    "rows": [
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 526.6961489999958,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 532.3458430000028
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 346.3947599999956,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 348.60019700000703
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 459.1033529999986,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 469.35178499999165
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 362.1320030000061,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 363.3825849999994
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 374.47003500000574,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 375.63753000000725
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 778.9982519999903,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 780.243954000005
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 775.7945469999977,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 777.0823589999927
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 413.291406999997,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 416.1506629999931
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 356.7766229999979,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 357.8905769999983
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 417.3397290000139,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 418.7489990000031
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 588.4638509999932,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 589.3346569999994
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 497.7974549999926,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 498.63316700000723
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 503.4516219999932,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 504.1879970000009
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 579.8729530000128,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 583.0609819999954
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 981.9320519999892,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 575.1157729999977,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 1560.43676099999
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 278.51998800001456,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 953.9386640000157,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 1243.2547839999897
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 239.07952200001455,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 395.34913400001824,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 636.8447020000021
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 305.7196309999854,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 370.36083999997936,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 678.8321989999968
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 559.6098799999745,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 460.596292000002,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 1030.4309490000014
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 402.41136100000585,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 331.14928599999985,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 734.8576480000047
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 272.8978599999973,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 334.852361999976,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 611.203600000008
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 263.52392400000826,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 413.8157380000048,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 678.9832630000019
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 246.39566800001194,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 347.1345609999844,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 595.0838609999919
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 397.7293720000016,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 461.14023600000655,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 863.6551120000076
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 268.99025800000527,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 385.9528350000037,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 657.2550130000163
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 272.03209100000095,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 480.20197900000494,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 753.7128720000037
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 329.9141829999862,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 338.9547019999882
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 246.65932299999986,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 397.5931960000016,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 645.4914600000193
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 480.23425999999745,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 480.9621090000146
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 375.9047299999802,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 474.4991190000146,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 851.3135009999969
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 365.87176400001044,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 366.79868800000986
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 301.61684199998854,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 353.4952179999964,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 656.863165000017
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 362.5380019999866,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 363.49277800001437
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 295.1408379999921,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 655.813129999995,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 952.4837560000014
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 371.00678600001265,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 372.64741199999116
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 304.4132240000181,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 375.9507969999977,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 681.7592960000038
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 549.9079659999989,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 550.5663549999881
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 329.25248699999065,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 388.15233300000546,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 718.3728220000048
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 422.90649100000155,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 423.71651500000735
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 347.489859000023,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 509.31590500002494,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 858.1146270000027
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 646.4623370000045,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 647.2930699999852
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 314.1807409999892,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 985.6192490000103,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 1300.7358209999802
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 644.1941389999993,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 644.9754400000093
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 365.98914500002866,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 438.599406000023,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 805.5714809999918
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 456.2338249999739,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 457.00053700001445
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 279.80770000000484,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 497.04695100002573,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 777.9222100000188
+        },
+        {
+            "app": "pagination",
+            "variant": "current",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 538.618214999995,
+                    "bytes": 363,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 539.380680000002
+        },
+        {
+            "app": "pagination",
+            "variant": "baseline",
+            "flow": "component",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 293.6113309999928,
+                    "bytes": 10,
+                    "status": 204
+                },
+                {
+                    "method": "PATCH",
+                    "ms": 357.81370299999253,
+                    "bytes": 345,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 652.3485609999916
+        },
+        {
+            "app": "utility",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 598.1912789999915,
+                    "bytes": 135,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 599.2736039999872
+        },
+        {
+            "app": "utility",
+            "variant": "current",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 397.92597099998966,
+                    "bytes": 135,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 398.73348100000294
+        },
+        {
+            "app": "utility",
+            "variant": "control",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 577.5527379999985,
+                    "bytes": 135,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 578.2338910000108
+        },
+        {
+            "app": "economy",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 848.8665359999868,
+                    "bytes": 129,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 850.2683750000142
+        },
+        {
+            "app": "economy",
+            "variant": "current",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 650.0379599999869,
+                    "bytes": 129,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 650.966259000008
+        },
+        {
+            "app": "economy",
+            "variant": "control",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 634.9284129999578,
+                    "bytes": 129,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 643.7442709999741
+        },
+        {
+            "app": "moderation",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 617.7392409999738,
+                    "bytes": 175,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 618.6989380000159
+        },
+        {
+            "app": "moderation",
+            "variant": "current",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 454.6254370000097,
+                    "bytes": 175,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 455.7285039999988
+        },
+        {
+            "app": "moderation",
+            "variant": "control",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 495.7455370000098,
+                    "bytes": 175,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 496.9581000000471
+        },
+        {
+            "app": "support",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 590.3714439999894,
+                    "bytes": 229,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 591.9282039999962
+        },
+        {
+            "app": "support",
+            "variant": "current",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 487.45708099997137,
+                    "bytes": 229,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 488.7730280000251
+        },
+        {
+            "app": "support",
+            "variant": "control",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 470.0160340000293,
+                    "bytes": 229,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 470.7320019999752
+        },
+        {
+            "app": "bookmarks",
+            "variant": "baseline",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 3251.1899069999927,
+                    "bytes": 233,
+                    "status": 200
+                },
+                {
+                    "method": "POST",
+                    "ms": 1562.113593999995,
+                    "bytes": 162,
+                    "status": 204
+                }
+            ],
+            "rateLimited": false,
+            "overlapped": true,
+            "ms": 3252.138062000042
+        },
+        {
+            "app": "bookmarks",
+            "variant": "control",
+            "flow": "slash",
+            "requests": [
+                {
+                    "method": "POST",
+                    "ms": 451.0657459999784,
+                    "bytes": 233,
+                    "status": 200
+                }
+            ],
+            "rateLimited": false,
+            "ms": 465.2814800000051
+        }
+    ],
+    "cleanup": {
+        "messages": 17,
+        "commandRemoved": true,
+        "failures": 0
+    },
+    "targetMet": false
+}
