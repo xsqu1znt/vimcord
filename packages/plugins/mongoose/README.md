@@ -126,12 +126,13 @@ result. Await database operations sequentially on a transaction session, and awa
 ## Run-once migrations
 
 Register migrations on the `MongoosePlugin` instance with
-`defineMigration(id: string, run: (ctx: MongoosePlugin) => Promise<void>): void`. Then explicitly call
-`runMigrations(): Promise<void>` after plugins load, before accepting bot commands. Callbacks receive the connected
-plugin, including `mongoose` and its session/transaction helpers. Schema builders can be used once plugin loading
-has completed.
+`defineMigration(id: string, run: (ctx: MongoosePlugin) => Promise<void>): void`, and pass it in `plugins`. `login()` runs
+them after every plugin installs and before modules load or the gateway connects. Callbacks receive the connected
+plugin, including `mongoose` and its session/transaction helpers, and schema builders work inside them.
 
 ```ts
+import { GatewayIntentBits } from "discord.js";
+import { Vimcord } from "vimcord";
 import { MongoosePlugin } from "@vimcord/plugin-mongoose";
 
 const database = new MongoosePlugin();
@@ -141,9 +142,8 @@ database.defineMigration("2026-10-backfill-active", async ({ mongoose }) => {
         { $set: { active: true } }
     );
 });
-client.plugins.use(database);
-await client.plugins.load();
-await database.runMigrations();
+
+const client = new Vimcord({ intents: [GatewayIntentBits.Guilds], plugins: [database] });
 await client.login();
 ```
 
@@ -151,13 +151,13 @@ Migrations run sequentially in registration order. Keep ids stable and unique: d
 The `_migrations` collection stores string `_id` values; an atomic insert claims the id before the callback runs.
 Success sets `ranAt`, and completed ids never run again, including on another process or plugin instance.
 
-If another runner owns an unfinished claim, `runMigrations()` logs and throws instead of running the same migration
+If another runner owns an unfinished claim, login logs and fails instead of running the same migration
 or advancing to a later one. Retry startup after that runner completes. Callback or completion-write failures
-release the unfinished claim, log, and reject; later migrations do not run. Completed records are not deleted on
+release the unfinished claim, log, and abort login; later migrations do not run. Completed records are not deleted on
 an ambiguous write failure. A failed cleanup reports both errors and leaves the claim for manual recovery.
 
 Callbacks should tolerate retry after partial writes: the migration body and completion record are not one
 transaction. A killed process leaves an unfinished record (no `ranAt`); after confirming the owning process is
 stopped, remove that record to allow a retry. Claims have no automatic expiry, which prevents a slow migration
-from being run concurrently by another process. There is no automatic migration execution during install or
-reconnect; import/register all migrations before calling `runMigrations()`.
+from being run concurrently by another process. Migrations don't run during install or on reconnect. Import and
+register all of them before calling `login()`; registering one after they've run throws.

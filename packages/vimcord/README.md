@@ -25,7 +25,7 @@
 
 ## What's Vimcord?
 
-**Vimcord** wraps Discord.js with a focused module layer, typed command contexts, shared permission checks, global hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
+**Vimcord** wraps Discord.js with a focused module layer, typed command contexts, shared permission checks, hooks, and UX helpers for embeds, prompts, modals, components, and pagination.
 
 It does not hide Discord.js. You still use Discord.js builders, intents, events, permissions, and interactions directly where that is the right tool.
 
@@ -55,9 +55,7 @@ import { GatewayIntentBits } from "discord.js";
 import { Vimcord } from "vimcord";
 
 const client = new Vimcord({
-    client: {
-        intents: [GatewayIntentBits.Guilds]
-    }
+    intents: [GatewayIntentBits.Guilds]
 });
 
 await client.login();
@@ -78,15 +76,15 @@ setupCLI({
 });
 
 const client = new Vimcord({
-    client: {
-        intents: [GatewayIntentBits.Guilds]
-    }
+    intents: [GatewayIntentBits.Guilds]
 });
 ```
 
-The client participates by default once the process CLI is initialized. Set `globals.app.enableCLI` to `false` to disable CLI commands for it. Enter `/help` in the process console to view commands.
+The client participates by default once the process CLI is initialized. Set `enableCLI: false` to disable CLI commands for it. Enter `/help` in the process console to view commands.
 
 ### Modules And Command Dispatch
+
+Everything is set in the constructor, and `login()` does the rest. Discord.js client options sit at the top level.
 
 ```ts
 import { GatewayIntentBits } from "discord.js";
@@ -94,36 +92,33 @@ import { Vimcord } from "vimcord";
 import { DotEnvPlugin } from "@vimcord/plugin-dotenv";
 
 const client = new Vimcord({
-    client: {
-        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    name: "My Bot",
+    verbose: true,
+    staff: {
+        ownerId: "123456789012345678",
+        superUsers: ["234567890123456789"]
     },
-    globals: {
-        app: {
-            name: "My Bot"
-        },
-        staff: {
-            ownerId: "123456789012345678",
-            superUsers: ["234567890123456789"]
-        }
+    plugins: [new DotEnvPlugin()],
+    modules: {
+        slashCommands: { dir: "./commands/slash", suffix: ".slash" },
+        prefixCommands: { dir: "./commands/prefix", suffix: ".prefix" },
+        events: { dir: "./events", suffix: ".event" }
     },
-    verbose: true
+    prefix: "!"
 });
 
-client.use(new DotEnvPlugin());
-
-await client.modules.load({
-    slashCommands: { dir: "./src/commands/slash", suffix: ".slash" },
-    prefixCommands: { dir: "./src/commands/prefix", suffix: ".prefix" },
-    events: { dir: "./src/events", suffix: ".event" }
-});
-
-client.modules.commands.mount({ prefixes: ["!"] });
-
+// Plugins -> plugin lifecycle step -> modules -> listeners -> gateway -> command sync
 await client.login();
-await client.modules.commands.push();
 ```
 
-`mount()` connects application commands and optional message prefixes directly to their dispatchers. Use `mount()` with no options for a slash/context-only bot, or `{ allowMention: true }` for mention prefixes. Calling it again replaces its own listeners; `unmount()` and client destruction remove them. Use either `mount()` or your own dispatch listeners to avoid executing commands twice. The `dispatchInteraction()` and `dispatchMessage()` methods remain available for custom routing.
+`dir` is relative to the entry file. `suffix` is required: a suffix or list imports the files ending in it and skips the rest, so helper files can sit alongside modules; `null` imports every file in the folder.
+
+Boot fails with the file or folder named when a configured directory is missing or has no matches, a file fails to import, or a matched file's default export isn't that entry's module type. A failure while logging in unloads the plugins and modules it set up.
+
+`prefix` also takes a function, sync or async, that runs once per message. Return the prefixes to accept, or `null` to ignore the message. Set `allowMention: true` to accept a bot mention as a prefix.
+
+`login()` syncs global commands after ready. A sync failure is logged and leaves the bot running. Pass `syncCommands: false` to opt out and call `client.modules.commands.push()` yourself. Guild-registered commands aren't part of this sync. `client.destroy()` removes the command listeners.
 
 ---
 
@@ -142,46 +137,39 @@ export default new SlashCommandModule({
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
         .addSubcommand(subcommand => subcommand.setName("ban").setDescription("Ban a user")),
 
-    routes: [
-        {
-            path: "ban",
-            deferReply: { flags: "Ephemeral" },
+    subcommands: {
+        ban: {
+            deferReply: "ephemeral",
             async handler({ interaction }) {
                 await interaction.editReply("Ban flow started.");
             }
+        },
+        "mod:kick": {
+            async handler({ interaction }) {
+                await interaction.reply("Kick flow started.");
+            }
         }
-    ],
+    },
 
-    permissions: {
-        client: [PermissionFlagsBits.BanMembers]
-    }
+    botPermissions: [PermissionFlagsBits.BanMembers]
 });
 ```
 
-Routes are fixed when the module is constructed. Command conditions and permissions run first. A matched route then
-runs its own conditions and permissions before its handler. Both levels must pass, and failures use the existing
-command hooks with the same command context.
+`subcommands` keys are the subcommand name, or `group:name` inside a group, and are fixed when the module is constructed. The command's restrictions run first. A matched subcommand then runs its own restrictions before its handler. Both levels must pass, and failures reach `onBlocked` with the same command context.
 
-When `execute` and `routes` are both present, a matched subcommand uses its route. An invocation without a subcommand
-uses `execute`. If the interaction names a subcommand that has no route, Vimcord runs `onUnknownRoute` or its default
-ephemeral response. A command with no routes sends every invocation to `execute`, including builder subcommands.
-Route-only commands must cover every subcommand declared by the builder.
+When `execute` and `subcommands` are both present, a matched subcommand uses its handler. An invocation without a subcommand uses `execute`. If the interaction names a subcommand with no entry, Vimcord blocks with `unknownRoute`, which goes to `onBlocked` or a default ephemeral response. A command with no `subcommands` sends every invocation to `execute`, including builder subcommands. Commands without `execute` must cover every subcommand declared by the builder.
 
-`deferReply` on a route overrides the command setting. Omitting it inherits the command setting. Setting it to `false`
-disables deferral for that route.
+`deferReply` is `boolean | "ephemeral"`. On a subcommand it overrides the command setting. Omitting it inherits the command setting. Setting it to `false` disables deferral for that subcommand.
 
-Use `singleInvocation: true` to skip a second invocation from the same user while this module is still running. Slash
-routes share that module and user key. For a custom scope, return a key from `singleInvocation.key`. The guard acquires
-after `preExecute`, releases before `postExecute`, and releases when the handler throws. A skipped invocation does not
-count as executed and only runs `onAlreadyRunning`; the hook is silent unless you send a response. This in-memory guard
-coordinates one process only.
+Use `singleInvocation: true` to skip a second invocation from the same user while this module is still running. Slash subcommands share that module and user key. For a custom scope, return a key from `singleInvocation.key`. The guard acquires after `before` and releases when the handler finishes or throws. A skipped invocation does not count as executed and only reaches `onBlocked` with `kind: "running"`; it is silent unless you send a response. This in-memory guard coordinates one process only.
 
 ```ts
 export default new SlashCommandModule({
     builder,
     singleInvocation: true,
     hooks: {
-        async onAlreadyRunning({ interaction }) {
+        async onBlocked({ interaction }, block) {
+            if (block.kind !== "running") return;
             await interaction.reply({ content: "That command is already running.", flags: "Ephemeral" });
         }
     },
@@ -194,20 +182,24 @@ export default new SlashCommandModule({
 ### Command Permissions
 
 ```ts
-permissions: {
-    user: [PermissionFlagsBits.BanMembers],
+guildOnly: true,                  // must pass; also narrows ctx.message or ctx.interaction to the guild form
+botPermissions: ["BanMembers"],   // must pass
+allowBots: true,                  // lets other bots run this
+access: {                         // any one grants
+    permissions: ["ModerateMembers"],
     users: ["123456789012345678"],
     roles: ["234567890123456789"],
     guildOwner: true,
     botOwner: true,
-    botStaff: true,
-    userBlacklist: ["345678901234567890"]
+    staff: true
 }
 ```
 
-`user`, `users`, `roles`, `guildOwner`, `botOwner`, and `botStaff` are access grants. Any one of them can allow a command. `guildOnly`, `guildWhitelist`, `guildBlacklist`, `userBlacklist`, `roleBlacklist`, `client`, and `allowBots` are hard restrictions. They all must pass. With no access grants, anyone who passes the hard restrictions can use the command.
+These are flat options on a command, and subcommands take the same fields. With no `access`, anyone who passes the rest can use the command.
 
-Local permission checks return immediately; staff-role or uncached guild-owner checks may return a promise. Use `await testCommandPermissions(ctx, permissions)` when calling the exported helper directly rather than chaining `.then()`.
+`guildOnly: true` narrows the handler's context on that command or subcommand, so `ctx.message.guildId` is a `string`. Hook contexts aren't narrowed, since a client's hooks run for every command.
+
+Local permission checks return immediately; staff-role or uncached guild-owner checks may return a promise. Use `await testCommandPermissions(ctx, restrictions)` when calling the exported helper directly rather than chaining `.then()`.
 
 ### Autocomplete
 
@@ -243,15 +235,16 @@ import { PrefixCommandModule } from "vimcord";
 export default new PrefixCommandModule({
     name: "ping",
     aliases: ["p"],
-    async execute({ message, messageContent, splitContent }) {
-        const args = splitContent({ lowercase: true });
+    async execute({ message, args }) {
         await message.reply(`Pong. You sent ${args.length} arg${args.length === 1 ? "" : "s"}.`);
     }
 });
 ```
 
+The context has `args` (raw whitespace-separated tokens), `lowerArgs` and `content`, parsed only when read. For a custom separator, use `content.split("|")`.
+
 Prefix subcommands use a name-to-handler map. Each value has a `handler`, optional `aliases`, and optional
-`description`. Like slash routes, each handler receives the normal command context:
+`description`, and takes the same `guildOnly`, `botPermissions`, `allowBots` and `access` fields as a command. Each handler receives the normal command context:
 
 ```ts
 export default new PrefixCommandModule({
@@ -260,8 +253,8 @@ export default new PrefixCommandModule({
         frame: {
             aliases: ["f"],
             description: "Buy a frame",
-            async handler({ message, splitContent, subcommand }) {
-                const [frame] = splitContent();
+            async handler({ message, args, subcommand }) {
+                const [frame] = args;
                 await message.reply(`Buying ${frame} via ${subcommand}`);
             }
         }
@@ -273,16 +266,13 @@ export default new PrefixCommandModule({
 ```
 
 Names and aliases match the first whitespace-separated argument case-insensitively. For `!buy F Red`,
-`ctx.subcommand` is `"frame"`, `messageContent` is `"Red"`, and `splitContent()` returns `["Red"]`. The original
+`ctx.subcommand` is `"frame"`, `content` is `"Red"`, and `args` is `["Red"]`. The original
 Discord `message` is unchanged. The public `module.subcommands` map contains canonical lowercase names and their
 handler/alias/description configuration, so help commands can enumerate them without listing aliases twice.
 Ambiguous names or aliases are rejected during construction.
 
 No token or an unknown token invokes the parent's `execute` with the original arguments and `subcommand: null`.
-`execute` is optional when subcommands exist; without it, unmatched invocations do nothing. Conditions, permissions,
-and local/client/package global hooks run once for the parent, with the selected subcommand and remaining content
-already available. Hook `args` still contains the original `[message, prefix, trigger]` invocation tuple. Parent
-cooldown hooks and `singleInvocation` keep their existing scope.
+`execute` is optional when subcommands exist; without it, unmatched invocations block with `unknownRoute`, which goes to `onBlocked` and otherwise does nothing. `before` and hooks run once for the parent, with the selected subcommand and remaining content already available. `singleInvocation` keeps its existing scope.
 
 ### Event Modules
 
@@ -300,32 +290,48 @@ export default new EventModule({
 });
 ```
 
-### Global Command Hooks
+### Command Hooks
+
+Set a client's hooks in the constructor, per command type, and a module's in its own `hooks` option.
 
 ```ts
-import { defineGlobalCommandHooks } from "vimcord";
+const client = new Vimcord({
+    intents: [GatewayIntentBits.Guilds],
+    hooks: {
+        slash: {
+            // Must return a boolean. Anything but true stops the command, so respond here when you do.
+            async before({ user, interaction }) {
+                if (!(await isBanned(user.id))) return true;
+                await interaction.reply({ content: "You can't use this bot.", flags: "Ephemeral" });
+                return false;
+            },
+            async onBlocked({ interaction }, block) {
+                // block.kind: "permission" | "environment" | "running" | "unknownRoute"
+                if (block.kind !== "permission") return;
+                await interaction.reply({ content: `Missing access: ${block.reason}`, flags: "Ephemeral" });
+            },
+            async onError({ interaction, error }) {
+                const content = `Something went wrong: ${error?.message ?? "Unknown error"}`;
 
-defineGlobalCommandHooks({
-    slash: {
-        async onError({ interaction, error }) {
-            const content = `Something went wrong: ${error?.message ?? "Unknown error"}`;
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp({ content, flags: "Ephemeral" });
+                    return;
+                }
 
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content, flags: "Ephemeral" });
-                return;
+                await interaction.reply({ content, flags: "Ephemeral" });
             }
-
-            await interaction.reply({ content, flags: "Ephemeral" });
         }
     }
 });
 ```
 
-Command-local hooks override `client.globals.hooks`, and `client.globals.hooks` override `defineGlobalCommandHooks()`.
+`before` composes: the client's runs first, then the module's, so a module can never skip the client's gate. `onBlocked` and `onError` on a module override the client's. Without an `onBlocked`, a block with a `reason` goes to `onError`. `ctx.module` is the running command module, including its metadata, and every command context has `ctx.user`.
 
-Built-in modules pass one invocation context through checks, hooks, and execution. Changes a hook makes to that context are visible to the handler. Custom `createModuleCTX`/`createHookCTX` overrides are still supported. Protected `checkInjection()` and `performTests()` can now return a boolean or a promise; asynchronous overrides can use `await super.performTests(ctx)`. Protected `testConditions()` may also return a plain test result; use `await` in overrides. Omitted protected `permissions` is now `undefined`, so subclass code should use optional access.
+Set `environment: "production"` or `"development"` on a module to run it in only that mode.
 
-Protected `runHandler()` and `measureExecution()` were removed. Handler timing now belongs to the invocation; subclasses calling or overriding those methods must adapt. `prepareExecute()` runs handler setup before timing starts, and `shouldMeasureExecution()` controls timing collection.
+Built-in modules pass one invocation context through checks, hooks, and execution. Changes a hook makes to that context are visible to the handler. Custom `createModuleCTX`/`createHookCTX` overrides are still supported. Protected `checkInjection()` and `performTests()` can return a boolean or a promise; asynchronous overrides can use `await super.performTests(ctx)`. Omitted protected `restrictions` is `undefined`, so subclass code should use optional access.
+
+`prepareExecute()` runs handler setup before timing starts, and `shouldMeasureExecution()` controls timing collection.
 
 ### BetterEmbed
 
@@ -338,16 +344,19 @@ defineGlobalUxConfig({
 });
 
 const embed = new BetterEmbed({
-    context: { interaction },
-    title: "Welcome, $USER_NAME",
-    description: [showAvatar && "Your avatar: $USER_AVATAR", "", "Today is $MONTH/$DAY/$YEAR"],
+    title: `Welcome, ${interaction.user.username}`,
+    description: [showAvatar && `Your avatar: ${interaction.user.displayAvatarURL()}`, "", "Glad you're here."],
     timestamp: true
 });
 
 await embed.send(interaction);
 ```
 
-`BetterEmbed.toJSON()` produces Discord API data directly. Token formatting, color resolution, timestamps, and the 25-field limit run locally; Discord validates text lengths and URLs when sent. Invalid text or URLs therefore fail at the Discord request rather than during local builder serialization. Timestamp `0` represents the Unix epoch.
+`BetterEmbed.toJSON()` produces Discord API data directly. Color resolution, timestamps, and the 25-field limit run locally; Discord validates text lengths and URLs when sent. Invalid text or URLs therefore fail at the Discord request rather than during local builder serialization. Timestamp `0` represents the Unix epoch.
+
+`send` returns the message for channels, messages, members and users. A fresh interaction reply returns `null` unless you pass `{ withResponse: true }`, and the types follow, so forgetting the flag before attaching a `BetterCollector` is a compile error.
+
+`embed.followUp(interaction)` sends a follow-up, and `embed.edit(target)` edits a `Message` or an interaction's reply. `BetterContainer` has the same three methods.
 
 ### BetterContainer And Components V2
 
@@ -374,22 +383,20 @@ await container.send(interaction);
 
 ```ts
 import { ButtonBuilder, ButtonStyle } from "discord.js";
-import { Paginator, PaginationType, ResolveAction } from "vimcord";
+import { Paginator } from "vimcord";
 
-const paginator = new Paginator({
-    type: PaginationType.LongSkip,
-    jump: true,
-    skipSize: 5,
-    idle: 60_000,
-    onResolve: ResolveAction.DisableComponents
-});
+// Invoker-only, 60s idle, disables on end.
+const paginator = new Paginator();
 
 paginator
-    .addChapter(["Help overview", "Use `/help command` for command-specific help."], {
+    .addChapter({
         label: "General",
-        emoji: "📖"
+        emoji: "📖",
+        pages: ["Help overview", "Use `/help command` for command-specific help."]
     })
-    .addChapter(["Ban, kick, and timeout commands."], { label: "Moderation", emoji: "🛡️" });
+    .addChapter({ label: "Moderation", emoji: "🛡️", pages: ["Ban, kick, and timeout commands."] })
+    .addChapter({ label: "Users", load: () => loadUsers() })
+    .addChapter({ label: "Items", pageCount: 20, page: i => loadItemPage(i) });
 
 paginator.insertButtonAt(
     0,
@@ -408,6 +415,14 @@ paginator.onComponent("help:feedback", async buttonInteraction => {
 await paginator.send(interaction);
 ```
 
+Options change the defaults:
+
+```ts
+new Paginator({ participants: "anyone", nav: "long", jump: true, onResolve: "clear" });
+```
+
+`participants` defaults to the invoker from the send target: `message.author` or `interaction.user`. Channel and user targets default to anyone. `nav` is `"short"` (back and next) or `"long"` (adds first and last). Timing is `idle` or `timeout`, never both, and defaults to the UX config's `defaultIdle` of 60 seconds.
+
 Custom paginator handlers must call `showModal`, `update`, `deferUpdate`, `reply`, or otherwise acknowledge the
 interaction within Discord's response window. To acknowledge a custom interaction before its handler runs, pass
 `{ deferUpdate: true }` as the third argument to `paginator.onComponent()`.
@@ -424,11 +439,10 @@ is omitted when only one chapter remains. For Components V2 pages, this option a
 
 ```ts
 const paginator = new Paginator({
-    timeout: 60_000,
     chapterSelectPosition: "beforeComponents"
 })
-    .addChapter(["Overview"], { label: "Overview", value: "overview" })
-    .addChapter(["Draft page 1", "Draft page 2"], { label: "Draft", value: "draft" });
+    .addChapter({ label: "Overview", value: "overview", pages: ["Overview"] })
+    .addChapter({ label: "Draft", value: "draft", pages: ["Draft page 1", "Draft page 2"] });
 
 await paginator.send(message, {
     components: buttonRows,
@@ -441,15 +455,15 @@ await paginator.send(message, {
 Navigation layouts and Jump are explicit. `dynamic`, `paginator.longThreshold`, `paginator.jumpableThreshold`, and
 automatic Jump insertion are gone.
 
-Paginator timeout actions now use the shared `ResolveAction` enum. Replace `PaginationTimeout.DisableComponents` with
-`ResolveAction.DisableComponents`, and use the same mapping for the other timeout actions.
+Paginator timeout actions now use the shared `ResolveAction` strings. Replace `PaginationTimeout.DisableComponents` with
+`"disable"`, and use the same mapping for the others: `"clear"`, `"delete"` and `"keep"`.
 
 ```ts
 // Before
 new Paginator({ dynamic: true, type: PaginationType.LongSkip, timeout: 60_000 });
 
 // After
-new Paginator({ type: PaginationType.LongSkip, jump: true, timeout: 60_000 });
+new Paginator({ nav: "long", jump: true });
 ```
 
 All successful navigation edits now emit one `paginate` event. Initial sends, unchanged positions, refreshes, loading
@@ -485,8 +499,8 @@ Chapters accept an array of pages only. An inner array is one page with several 
 paginator.addChapter(embedA, { label: "Help" });
 
 // After
-paginator.addChapter([embedA, embedB], { label: "Two pages" });
-paginator.addChapter([[embedA, embedB]], { label: "One multi-embed page" });
+paginator.addChapter({ label: "Two pages", pages: [embedA, embedB] });
+paginator.addChapter({ label: "One multi-embed page", pages: [[embedA, embedB]] });
 ```
 
 Files now belong to the page payload they accompany.
@@ -496,13 +510,13 @@ Files now belong to the page payload they accompany.
 paginator.addChapter([embedA, embedB], { label: "Reports", files: [fileA, fileB] });
 
 // After
-paginator.addChapter(
-    [
+paginator.addChapter({
+    label: "Reports",
+    pages: [
         { embeds: [embedA], files: [fileA] },
         { embeds: [embedB], files: [fileB] }
-    ],
-    { label: "Reports" }
-);
+    ]
+});
 ```
 
 The public chapter record now describes its source instead of exposing parallel `pages` and `files` arrays.
@@ -533,11 +547,11 @@ paginator.on("beforeChapterChange", async chapter => {
 });
 
 // After: load and cache the complete chapter
-paginator.addLazyChapter(async () => loadUsers(), { label: "Users" });
+paginator.addChapter({ label: "Users", load: async () => loadUsers() });
 await paginator.reloadChapter();
 
 // After: load one requested page every time
-paginator.addPageLoader(20, async page => loadUserPage(page), { label: "Users" });
+paginator.addChapter({ label: "Users", pageCount: 20, page: async page => loadUserPage(page) });
 ```
 
 `onLoading` runs only for a lazy load. Return nothing to leave the current page visible. An ordinary paginator uses
@@ -547,9 +561,8 @@ ordinary content or embeds for its placeholder.
 import { Paginator } from "vimcord";
 
 const paginator = new Paginator({
-    timeout: 60_000,
     onLoading: () => ({ content: "Loading users..." })
-}).addPageLoader(20, page => loadUserPage(page), { label: "Users" });
+}).addChapter({ label: "Users", pageCount: 20, page: page => loadUserPage(page) });
 ```
 
 A Components V2 paginator uses containers for every page and placeholder. A paginator cannot mix ordinary pages and
@@ -559,11 +572,12 @@ Components V2 containers. Static mixtures fail before send. Invalid lazy results
 import { BetterContainer, Paginator } from "vimcord";
 
 const paginator = new Paginator({
-    timeout: 60_000,
     onLoading: () => ({ containers: [new BetterContainer().addText("Loading users...")] })
-}).addPageLoader(20, async page => ({
-    containers: [new BetterContainer().addText(await loadUserPageText(page))]
-}), { label: "Users" });
+}).addChapter({
+    label: "Users",
+    pageCount: 20,
+    page: async page => ({ containers: [new BetterContainer().addText(await loadUserPageText(page))] })
+});
 ```
 
 `insertButtonAt(index, button)` and `removeButtonAt(...indexes)` now use the same identity: the zero-based insertion
@@ -587,18 +601,15 @@ defineGlobalUxConfig({
 ### Prompt
 
 ```ts
-import { BetterEmbed, promptMessage, ResolveAction } from "vimcord";
+import { BetterEmbed, promptMessage } from "vimcord";
 
 const result = await promptMessage(interaction, {
     embed: new BetterEmbed({
-        context: { interaction },
         title: "Delete this message?",
         description: "This action cannot be undone."
     }),
-    participants: [interaction.user],
     timeout: 30_000,
-    onResolve: ({ status }) => status === "timeout" ? ResolveAction.DeleteMessage : ResolveAction.DisableComponents,
-    highlightSelectedButton: true
+    onResolve: ({ status }) => (status === "timeout" ? "delete" : "disable")
 });
 
 if (result.status === "confirmed") {
@@ -606,43 +617,35 @@ if (result.status === "confirmed") {
 }
 ```
 
-Extra buttons can end the prompt too. Pass them in `additionalButtons`, turn on `resolveOnAdditionalButton`, and the result comes back with `status: "custom"` and the custom ID of the button that was pressed. With `highlightSelectedButton` on, a selected extra button turns Primary by default. Wrap a button with `selectedStyle` to choose another style.
+Like a paginator, a prompt defaults to the invoker, 60 seconds idle, and disabling on end. Pass `participants: "anyone"` to open it up.
+
+Pressing a button in `extraButtons` always ends the prompt, with `status: "custom"` and the custom ID of the button that was pressed. With the `prompt.highlightSelectedButton` UX config on, a selected extra button turns Primary.
 
 ```ts
-const result = await promptMessage(interaction, {
+const { status, customId } = await promptMessage(interaction, {
     content: "Buy this item?",
-    additionalButtons: [
+    extraButtons: [
         new ButtonBuilder().setCustomId("use_voucher").setLabel("Use voucher").setStyle(ButtonStyle.Secondary),
-        {
-            button: new ButtonBuilder().setCustomId("use_credit").setLabel("Use credit").setStyle(ButtonStyle.Secondary),
-            selectedStyle: ButtonStyle.Success
-        }
-    ],
-    resolveOnAdditionalButton: true,
-    onResolve: ResolveAction.DisableComponents,
-    highlightSelectedButton: true,
-    timeout: 30_000
+        new ButtonBuilder().setCustomId("use_credit").setLabel("Use credit").setStyle(ButtonStyle.Secondary)
+    ]
 });
 
-if (result.status === "custom" && result.customId === "use_voucher") {
+if (status === "custom" && customId === "use_voucher") {
     await chargeVoucher();
 }
 ```
 
-`promptMessage`, `BetterCollector`, and `Paginator` accept `onResolve` as either a `ResolveAction` or an async callback.
+`promptMessage`, `BetterCollector`, and `Paginator` accept `onResolve` as an action (`"disable"`, `"clear"`, `"delete"` or `"keep"`) or an async callback.
 Return `{ action, ...messageEditOptions }` to deliver the final content, embeds, or files with component cleanup in **one edit**:
 
 ```ts
 await promptMessage(message, {
     embed: new BetterEmbed({ description: "Pull for 100 petals?" }),
-    participants: [message.author],
-    timeout: 30_000,
-    highlightSelectedButton: true,
     onResolve: async ({ status }) => {
-        if (status !== "confirmed") return ResolveAction.DisableComponents;
+        if (status !== "confirmed") return "disable";
         const result = await payOutOnce();
         return {
-            action: ResolveAction.DisableComponents,
+            action: "disable",
             embeds: [new BetterEmbed({ description: result.description }).toJSON()],
             files: result.files
         };
@@ -653,13 +656,13 @@ await promptMessage(message, {
 Prompt callbacks receive `{ message, status, customId }`, with status `confirmed`, `rejected`, `custom`, or `timeout`.
 Collector callbacks receive `{ message, reason, collected }`; paginator callbacks receive `{ message, reason }` after pending navigation finishes.
 Prompts and paginators sent through an interaction edit and delete via its webhook, including ephemeral replies and follow-ups. For a `BetterCollector` attached to an interaction response, pass `{ interaction }` in its options to enable the same cleanup.
-The defaults remain DeleteMessage for prompts, DoNothing for collectors, and ClearComponents for paginators.
+All three default to `"disable"`, and skip the edit when the message was deleted. `BetterCollector` keeps explicit `participants`, since it only receives the bot's own message, and `retainHistory` defaults to `false`, which leaves `collected` empty.
 
 Call `collector.resetTimer()` after a modal submission or result edit to restart a `BetterCollector`'s configured
 idle or timeout window. Reset it before waiting on slow work as well, so the collector stays active until the result
 is ready. An ended collector cannot be restarted.
-DisableComponents and ClearComponents apply to returned components when present, otherwise to the existing message.
-DoNothing still delivers a returned payload; DeleteMessage deletes and ignores edit fields. Callbacks run once and are never retried on edit failure.
+`"disable"` and `"clear"` apply to returned components when present, otherwise to the existing message.
+`"keep"` still delivers a returned payload; `"delete"` deletes and ignores edit fields. Callbacks run once and are never retried on edit failure.
 Prompt resolution awaits the callback and final edit, returns the updated message, and propagates failures. Collector/paginator failures are logged.
 
 Migrating from v3: replace prompt `onConfirm`, `onReject`, `onCustom`, and `onTimeout` with one `onResolve` callback switching on `status`.
@@ -668,10 +671,10 @@ Rename paginator `onTimeout` (including the global paginator default) to `onReso
 ### BetterModal
 
 ```ts
-import { ComponentType, TextInputStyle } from "discord.js";
+import { TextInputStyle } from "discord.js";
 import { BetterModal } from "vimcord";
 
-const modal = new BetterModal({ title: "Create Ticket" })
+const result = await new BetterModal({ title: "Create Ticket" })
     .addTextDisplay({
         content: "Please provide the details below so we can help."
     })
@@ -684,41 +687,27 @@ const modal = new BetterModal({ title: "Create Ticket" })
     .addTextInput({
         customId: "description",
         label: "Description",
-        style: TextInputStyle.Paragraph,
-        required: false
+        style: TextInputStyle.Paragraph
     })
     .addUserSelect({
         customId: "assignees",
         label: "Assignees",
         maxValues: 3,
         required: false
-    });
-
-const result = await modal.showAndAwait(interaction, { timeout: 60_000 });
+    })
+    .showAndAwait(interaction);
 if (!result) return;
 
-const subject = result.getField("subject", ComponentType.TextInput, true);
-const assignees = result.getField("assignees", ComponentType.UserSelect);
+result.fields.subject; // string
+result.fields.assignees; // collection of the selected users
 
 await result.reply({
-    content: `Ticket created: ${subject}`,
+    content: `Ticket created: ${result.fields.subject}`,
     flags: "Ephemeral"
 });
 ```
 
-Modal submissions now expose one component-type-based `getField`, the original interaction, and reply helpers. Use `interaction.fields` when you need a Discord.js getter that the simplified accessor does not cover.
-
-```ts
-// Before: asserted result type, forwarded getter name, positional values
-const subject = result.getField<string>("subject", true);
-const assignees = result.getField("assignees", "getSelectedUsers");
-const firstValue = result.values[0];
-
-// After: component type selects and checks the return type
-const subject = result.getField("subject", ComponentType.TextInput, true);
-const assignees = result.getField("assignees", ComponentType.UserSelect);
-const members = result.interaction.fields.getSelectedMembers("assignees");
-```
+`result.fields` is typed from the builder chain, so keep the `add*` calls chained, and every input needs a `customId`. Text inputs read as strings, string selects and checkbox groups as arrays, checkboxes as booleans, and radio groups as a string or `null`. User, role, channel and mentionable selects and file uploads read as collections, empty when nothing was chosen. Use `result.interaction.fields` when you need a Discord.js getter these don't cover. `showAndAwait` waits for the UX config's `modal.timeout`, 60 seconds by default, unless you pass `{ timeout }`.
 
 Deferral methods now live only on the original interaction. `followUp()` remains a helper and always creates a follow-up message, even after a reply or deferral.
 
@@ -735,27 +724,31 @@ await result.interaction.deferReply({ flags: "Ephemeral" });
 ### DynaSend
 
 ```ts
-import { dynaSend, SendMethod } from "vimcord";
+import { dynaSend } from "vimcord";
 
 await dynaSend(interaction, {
-    sendMethod: interaction.deferred || interaction.replied ? SendMethod.EditReply : SendMethod.Reply,
     content: "Hello from one send helper.",
     embeds: [embed]
 });
 ```
+
+The send is inferred from the target: an interaction replies or edits its reply, and a channel, message, member or user sends. The two that can't be inferred are `sendMethod: "followUp"` and `sendMethod: "edit"`, which edits a `Message` or an interaction's reply. Paginators and prompts take `sendMethod` in their send options too.
 
 ### MongoDB Plugin
 
 ```ts
 import { createMongoSchema, MongoosePlugin } from "@vimcord/plugin-mongoose";
 
-client.use(
-    new MongoosePlugin({
-        connectOptions: {
-            dbName: "vimcord"
-        }
-    })
-);
+const client = new Vimcord({
+    intents: [GatewayIntentBits.Guilds],
+    plugins: [
+        new MongoosePlugin({
+            connectOptions: {
+                dbName: "vimcord"
+            }
+        })
+    ]
+});
 
 const Users = createMongoSchema("Users", {
     userId: { type: String, required: true, unique: true },
@@ -801,17 +794,20 @@ import { BetterContainer, Paginator } from "vimcord";
 
 const first = await Users.paginate();
 const paginator = new Paginator({
-    idle: 60_000,
     onLoading: () => ({ containers: [new BetterContainer().addText("Loading users...")] })
 });
 
-paginator.addPageLoader(first.pages, async (page, { setPageCount }) => {
-    const { docs, pages } = page === 0 ? first : await Users.paginate(undefined, undefined, { page: page + 1 });
-    setPageCount(Math.max(pages, 1));
-    return {
-        containers: docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
-    };
-}, { label: "Users" });
+paginator.addChapter({
+    label: "Users",
+    pageCount: first.pages,
+    page: async (page, { setPageCount }) => {
+        const { docs, pages } = page === 0 ? first : await Users.paginate(undefined, undefined, { page: page + 1 });
+        setPageCount(Math.max(pages, 1));
+        return {
+            containers: docs.map(user => new BetterContainer().addText(user.userId ?? "Unknown user"))
+        };
+    }
+});
 ```
 
 #### Read cache
@@ -842,14 +838,11 @@ Command usage logs show execute time by default. Fixed labels, prefixes, and sec
 Select timings in the order you want them displayed:
 
 ```ts
-client.configure({
-    app: {
-        commandLogging: ["delivery", "preExecute", "execute", "total"]
-    }
+const client = new Vimcord({
+    intents: [GatewayIntentBits.Guilds],
+    commandLogging: ["delivery", "preExecute", "execute", "total"]
 });
 ```
-
-The same setting can be supplied through `globals.app` in the `Vimcord` constructor.
 
 ```text
 [14:32:10] ⚡ vimcord COMMAND /balance used by maya in Workshop | delivery 48.0ms | pre 12.0ms | exec 126.0ms | total 142.0ms
@@ -858,9 +851,9 @@ The same setting can be supplied through `globals.app` in the `Vimcord` construc
 | Setting | Log label | Measures |
 | --- | --- | --- |
 | `delivery` | `delivery` | Discord message/interaction creation to Vimcord matching the command |
-| `preExecute` | `pre` | Command match to your execute callback or slash route handler starting |
+| `preExecute` | `pre` | Command match to your execute callback or subcommand handler starting |
 | `execute` | `exec` | Your handler starting to returning or throwing, including awaited prompts |
-| `total` | `total` | Command match to the module pipeline finishing, including post-execute or error handling |
+| `total` | `total` | Command match to the module pipeline finishing, including error handling |
 
 Automatic reply deferral is included in `pre`, not `exec`. Matching is local recognition, not Discord confirming
 a reply or defer. `delivery` includes delays before your event handler calls the dispatcher and depends on the
@@ -893,19 +886,18 @@ loader.succeed("Commands synced");
 | Export | Description |
 | --- | --- |
 | `Vimcord` | Discord.js client subclass with modules, plugins, globals, status, and logging |
-| `SlashCommandModule` | Slash command module with optional subcommand routes |
+| `SlashCommandModule` | Slash command module with optional subcommands |
 | `PrefixCommandModule` | Prefix command module with aliases, subcommands and parsed message content |
 | `MessageContextCommandModule` | Message context menu command module |
 | `UserContextCommandModule` | User context menu command module |
 | `EventModule` | Typed Discord event module |
-| `BetterEmbed` | Embed helper with context formatting |
+| `BetterEmbed` | Embed helper with send, follow-up and edit methods |
 | `BetterContainer` | Components V2 container helper |
 | `Paginator` | Component-based paginator |
 | `BetterModal` | Modal helper with V2 component support |
-| `promptMessage`, `promptModal` | Confirmation prompt helpers |
+| `promptMessage` | Confirmation prompt helper |
 | `dynaSend` | Send helper for interactions, channels, messages, members, and users |
 | `defineGlobalUxConfig` | Global UX defaults for embeds, collectors, paginator, and prompts |
-| `defineGlobalCommandHooks` | Global command hooks used when modules do not define local hooks |
 | `setupCLI` | Initializes the process-wide stdin CLI for the client |
 | `CLILogger` | CLI-specific logger with target headers, groups, tables, styles, and loaders |
 
@@ -913,50 +905,30 @@ loader.succeed("Commands synced");
 
 ```ts
 const client = new Vimcord({
-    client: {
-        intents: [GatewayIntentBits.Guilds]
-    },
-    globals: {
-        app: {
-            name: "My Bot",
-            devMode: false,
-            enableCLI: true,
-            disableBanner: false
-        },
-        staff: {
-            ownerId: "123456789012345678",
-            superUsers: [],
-            superUserRoles: []
-        }
-    },
-    verbose: false
-});
-```
-
-### Module Loading
-
-```ts
-await client.modules.load({
-    slashCommands: { dir: "./src/commands/slash", suffix: ".slash" },
-    prefixCommands: { dir: "./src/commands/prefix", suffix: ".prefix" },
-    messageContextCommands: { dir: "./src/commands/message-context", suffix: ".mctx" },
-    userContextCommands: { dir: "./src/commands/user-context", suffix: ".uctx" },
-    events: { dir: "./src/events", suffix: ".event" }
-});
-```
-
-### Runtime Configuration
-
-```ts
-client.configure({
-    app: {
-        name: "My Bot",
-        devMode: true
-    },
+    intents: [GatewayIntentBits.Guilds],
+    name: "My Bot",
+    version: "1.0.0",
+    devMode: false,
+    verbose: false,
+    enableCLI: true,
+    disableBanner: false,
+    commandLogging: ["execute"],
     staff: {
         ownerId: "123456789012345678",
-        superUserRoles: ["987654321098765432"]
+        superUsers: [],
+        superUserRoles: []
     },
+    plugins: [],
+    modules: {
+        slashCommands: { dir: "./commands/slash", suffix: ".slash" },
+        prefixCommands: { dir: "./commands/prefix", suffix: ".prefix" },
+        messageContextCommands: { dir: "./commands/message-context", suffix: ".mctx" },
+        userContextCommands: { dir: "./commands/user-context", suffix: ".uctx" },
+        events: { dir: "./events", suffix: null }
+    },
+    prefix: "!",
+    allowMention: false,
+    syncCommands: true,
     hooks: {
         prefix: {
             async onError({ message, error }) {
@@ -966,6 +938,14 @@ client.configure({
     }
 });
 ```
+
+Other Discord.js client options sit alongside these. Bots read the settings back through `client.globals`, such as `client.globals.staff`, and `client.$devMode` can change dev mode at runtime.
+
+Plugins are registered only through `plugins`, before login. Read them with `client.plugins.get()`, `has()` and `isInstalled()`.
+
+### Plugin Lifecycle
+
+Override `onPluginsInstalled()` to run work after every plugin is installed and before modules load, such as migrations that need another plugin. A failure there aborts login and unloads the plugins.
 
 ### Plugin Health Registration
 
@@ -1025,13 +1005,23 @@ status blank; profiles do not fall back across environments.
 
 ### Command Routing
 
-Connect slash, autocomplete, context-menu, and prefix commands without wrapping dispatch in event modules:
+Slash, autocomplete, context-menu, and prefix commands connect during `login()` without wrapping dispatch in event modules:
 
 ```ts
-client.modules.commands.mount({ prefixes: ["!", "?"], allowMention: true });
+const client = new Vimcord({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    prefix: ["!", "?"],
+    allowMention: true
+});
 ```
 
-The manager listens directly to Discord.js events. Use `mount()` for application commands alone. Existing dispatch methods remain available when you need custom routing; do not wire both paths for the same events.
+A prefix can also depend on the message:
+
+```ts
+prefix: async message => (message.guildId ? await getGuildPrefix(message.guildId) : "!")
+```
+
+The manager listens directly to Discord.js events. The prefix function runs once per message; a plain string or array never awaits anything.
 
 ### Bot Staff Checks
 
@@ -1042,7 +1032,7 @@ if (!isStaff) {
 }
 ```
 
-`staff.bypassesStaff` grants named users and configured staff-guild roles access only to commands that use `botStaff: true`. `staff.bypassesGuildAdmin` can remove the `Administrator` requirement for configured staff. Other required user permissions still apply.
+`staff.bypassesStaff` grants named users and configured staff-guild roles access only to commands that use `access: { staff: true }`. `staff.bypassesGuildAdmin` can remove the `Administrator` requirement for configured staff. Other required user permissions still apply.
 
 ---
 

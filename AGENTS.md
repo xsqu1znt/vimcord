@@ -49,12 +49,14 @@ Type checks and a focused smoke test cover this repo. Write a test when the chan
 
 ## Module registration
 
-`ModuleManager.load()` imports each module directory through `AbstractModuleImporter.importFrom(dir, suffix)`. The `suffix` option is a filename filter, not a required tag:
+`login()` runs `ModuleManager.load()` once, from the constructor's `modules` option. Each entry's `suffix` is required and filters filenames:
 
-- No `suffix` configured: every `.ts`/`.js` file in `dir` is imported as that import's module type. Dropping an `.event.ts` file into a `slashCommands.dir` folder with no suffix set will try to import it as a slash command.
-- A `suffix` (or list) configured: only filenames ending in one of those suffixes before `.ts`/`.js` are imported; everything else in the directory is silently skipped, no warning.
+- `null`: every `.ts`/`.js` file in `dir`, except `.d.ts`, is imported as that entry's module type, so a helper file in that folder fails boot.
+- A suffix or list: only filenames ending in one before `.ts`/`.js` are imported. Everything else is skipped silently, which is how helper files live next to modules.
 
-Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.ts`, `.mctx.ts`, `.uctx.ts`, `.event.ts`. Pick whichever a project's `imports` config actually sets.
+A missing directory, zero matches, a failed import, or a default export that isn't that entry's module type aborts login with the file or folder named.
+
+Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.ts`, `.mctx.ts`, `.uctx.ts`, `.event.ts`.
 
 ## Working with us
 
