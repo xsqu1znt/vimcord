@@ -22,7 +22,7 @@ import {
     ChannelSelectMenuBuilder,
     CheckboxBuilder,
     CheckboxGroupBuilder,
-    ComponentType,
+    Collection,
     DiscordjsError,
     DiscordjsErrorCodes,
     FileUploadBuilder,
@@ -42,193 +42,135 @@ import {
 import { createRandomId } from "@/utils/str.js";
 import { dynaSend } from "./dynaSend.js";
 import { awaitRoutedModal } from "./interactionRouter.js";
+import { getGlobalUxConfig } from "./uxConfig.js";
 
 interface LabelComponentOptions {
     label: string;
     description?: string;
 }
 
-export type BetterAPITextInputComponent = { textInput: BetterTextInputComponent };
-export type BetterAPICheckboxComponent = { checkbox: BetterCheckboxComponent };
-export type BetterAPICheckboxGroupComponent = { checkboxGroup: BetterCheckboxGroupComponent };
-export type BetterAPIRadioGroupComponent = { radioGroup: BetterRadioGroupComponent };
-export type BetterAPIStringSelectComponent = { stringSelect: BetterStringSelectComponent };
-export type BetterAPIChannelSelectComponent = { channelSelect: BetterChannelSelectComponent };
-export type BetterAPIUserSelectComponent = { userSelect: BetterUserSelectComponent };
-export type BetterAPIRoleSelectComponent = { roleSelect: BetterRoleSelectComponent };
-export type BetterAPIMentionableSelectComponent = { mentionableSelect: BetterMentionableSelectComponent };
-export type BetterAPIFileUploadComponent = { fileUpload: BetterFileUploadComponent };
-export type BetterAPITextDisplayComponent = { textDisplay: BetterTextDisplayComponent };
+/** A modal input: its Discord data, its label, and the `customId` its value is read back under. */
+type ModalInput<Data, Id extends string> = Omit<Partial<Data>, "customId" | "custom_id" | "type"> &
+    LabelComponentOptions & { customId: Id };
 
-export type BetterAPIModalComponent =
-    | BetterAPITextInputComponent
-    | BetterAPICheckboxComponent
-    | BetterAPICheckboxGroupComponent
-    | BetterAPIRadioGroupComponent
-    | BetterAPIStringSelectComponent
-    | BetterAPIChannelSelectComponent
-    | BetterAPIUserSelectComponent
-    | BetterAPIRoleSelectComponent
-    | BetterAPIMentionableSelectComponent
-    | BetterAPIFileUploadComponent
-    | BetterAPITextDisplayComponent;
-
-export type BetterTextInputComponent = Partial<TextInputComponentData> & LabelComponentOptions;
-export type BetterCheckboxComponent = Partial<APICheckboxComponent> & LabelComponentOptions;
-export type BetterCheckboxGroupComponent = Partial<APICheckboxGroupComponent> & LabelComponentOptions;
-export type BetterRadioGroupComponent = Partial<APIRadioGroupComponent> & LabelComponentOptions;
-export type BetterStringSelectComponent = Partial<StringSelectMenuComponentData> & LabelComponentOptions;
-export type BetterChannelSelectComponent = Partial<ChannelSelectMenuComponentData> & LabelComponentOptions;
-export type BetterUserSelectComponent = Partial<UserSelectMenuComponentData> & LabelComponentOptions;
-export type BetterRoleSelectComponent = Partial<RoleSelectMenuComponentData> & LabelComponentOptions;
-export type BetterMentionableSelectComponent = Partial<MentionableSelectMenuComponentData> & LabelComponentOptions;
-export type BetterFileUploadComponent = Partial<APIFileUploadComponent> & LabelComponentOptions;
+export type BetterTextInputComponent<Id extends string = string> = ModalInput<TextInputComponentData, Id>;
+export type BetterCheckboxComponent<Id extends string = string> = ModalInput<APICheckboxComponent, Id>;
+export type BetterCheckboxGroupComponent<Id extends string = string> = ModalInput<APICheckboxGroupComponent, Id>;
+export type BetterRadioGroupComponent<Id extends string = string> = ModalInput<APIRadioGroupComponent, Id>;
+export type BetterStringSelectComponent<Id extends string = string> = ModalInput<StringSelectMenuComponentData, Id>;
+export type BetterChannelSelectComponent<Id extends string = string> = ModalInput<ChannelSelectMenuComponentData, Id>;
+export type BetterUserSelectComponent<Id extends string = string> = ModalInput<UserSelectMenuComponentData, Id>;
+export type BetterRoleSelectComponent<Id extends string = string> = ModalInput<RoleSelectMenuComponentData, Id>;
+export type BetterMentionableSelectComponent<Id extends string = string> = ModalInput<
+    MentionableSelectMenuComponentData,
+    Id
+>;
+export type BetterFileUploadComponent<Id extends string = string> = ModalInput<APIFileUploadComponent, Id>;
 export type BetterTextDisplayComponent = Pick<APITextDisplayComponent, "content">;
-
-export type BetterModalComponent =
-    | BetterTextInputComponent
-    | BetterCheckboxComponent
-    | BetterCheckboxGroupComponent
-    | BetterRadioGroupComponent
-    | BetterStringSelectComponent
-    | BetterChannelSelectComponent
-    | BetterUserSelectComponent
-    | BetterRoleSelectComponent
-    | BetterMentionableSelectComponent
-    | BetterFileUploadComponent
-    | BetterTextDisplayComponent;
 
 export type ModalShowableInteraction = CommandInteraction | MessageComponentInteraction;
 
 export interface BetterModalOptions {
     customId?: string;
     title?: string;
-    components?: BetterAPIModalComponent[];
 }
 
 export interface AwaitModalSubmitOptions {
-    timeout: number;
+    /** Time in milliseconds to wait for a submission. Defaults to the UX config's `modal.timeout`. */
+    timeout?: number;
     deferUpdate?: boolean;
 }
 
-/** Simplified values returned for each supported modal component type. */
-export interface BetterModalFieldValueMap {
-    /** Text input value. */
-    [ComponentType.TextInput]: ReturnType<ModalSubmitFields["getTextInputValue"]>;
-    /** Selected string values. */
-    [ComponentType.StringSelect]: ReturnType<ModalSubmitFields["getStringSelectValues"]>;
-    /** Selected users. */
-    [ComponentType.UserSelect]: ReturnType<ModalSubmitFields["getSelectedUsers"]>;
-    /** Selected roles. */
-    [ComponentType.RoleSelect]: ReturnType<ModalSubmitFields["getSelectedRoles"]>;
-    /** Selected channels. */
-    [ComponentType.ChannelSelect]: ReturnType<ModalSubmitFields["getSelectedChannels"]>;
-    /** Selected users, members, and roles. */
-    [ComponentType.MentionableSelect]: ReturnType<ModalSubmitFields["getSelectedMentionables"]>;
-    /** Uploaded files. */
-    [ComponentType.FileUpload]: ReturnType<ModalSubmitFields["getUploadedFiles"]>;
-    /** Selected radio value. */
-    [ComponentType.RadioGroup]: ReturnType<ModalSubmitFields["getRadioGroup"]>;
-    /** Selected checkbox-group values. */
-    [ComponentType.CheckboxGroup]: ReturnType<ModalSubmitFields["getCheckboxGroup"]>;
-    /** Checkbox state. */
-    [ComponentType.Checkbox]: ReturnType<ModalSubmitFields["getCheckbox"]>;
-}
+type SelectedUsers = NonNullable<ReturnType<ModalSubmitFields["getSelectedUsers"]>>;
+type SelectedRoles = NonNullable<ReturnType<ModalSubmitFields["getSelectedRoles"]>>;
+type SelectedChannels = NonNullable<ReturnType<ModalSubmitFields["getSelectedChannels"]>>;
+type SelectedMentionables = NonNullable<ReturnType<ModalSubmitFields["getSelectedMentionables"]>>;
+type UploadedFiles = NonNullable<ReturnType<ModalSubmitFields["getUploadedFiles"]>>;
 
-/** Modal component types supported by the simplified field helper. */
-export type BetterModalFieldType = keyof BetterModalFieldValueMap;
-
-/** Helpers and parsed values returned after a BetterModal submission. */
-export interface BetterModalSubmitResult {
+/** The parsed submission, with one key per input's `customId`, and helpers to respond to it. */
+export interface BetterModalSubmitResult<Fields extends object = Record<never, never>> {
     /** The original Discord.js modal submission interaction. */
     interaction: ModalSubmitInteraction;
-    /** Gets a simplified field value based on the submitted component. */
-    getField(customId: string, required?: boolean): unknown;
-    /** Gets a simplified value while validating the Discord component type. */
-    getField<Type extends BetterModalFieldType>(
-        customId: string,
-        type: Type,
-        required: true
-    ): NonNullable<BetterModalFieldValueMap[Type]>;
-    getField<Type extends BetterModalFieldType>(
-        customId: string,
-        type: Type,
-        required?: boolean
-    ): BetterModalFieldValueMap[Type];
+    /** Submitted values, keyed by `customId`. Selects with nothing selected read as empty, not null. */
+    fields: Fields;
     /** Replies to the modal submission. */
     reply: (options: RequiredDynaSendOptions) => Promise<Message | null>;
     /** Sends a follow-up to the modal submission. */
     followUp: (options: RequiredDynaSendOptions) => Promise<Message>;
 }
 
+type AddMethod =
+    | "addTextInput"
+    | "addTextDisplay"
+    | "addStringSelect"
+    | "addCheckbox"
+    | "addCheckboxGroup"
+    | "addRadioGroup"
+    | "addChannelSelect"
+    | "addUserSelect"
+    | "addRoleSelect"
+    | "addMentionableSelect"
+    | "addFileUpload";
+
 function isModalTimeout(error: unknown): boolean {
     return error instanceof DiscordjsError && error.code === DiscordjsErrorCodes.InteractionCollectorError;
 }
 
-function getSimplifiedFieldValue(
-    fields: ModalSubmitFields,
-    customId: string,
-    type?: BetterModalFieldType,
-    required: boolean = false
-): unknown {
-    const field = fields.getField(customId, type);
-
-    switch (field.type) {
-        case ComponentType.TextInput:
-            return fields.getTextInputValue(customId);
-        case ComponentType.StringSelect:
-            return fields.getStringSelectValues(customId);
-        case ComponentType.UserSelect:
-            return fields.getSelectedUsers(customId, required);
-        case ComponentType.RoleSelect:
-            return fields.getSelectedRoles(customId, required);
-        case ComponentType.ChannelSelect:
-            return fields.getSelectedChannels(customId, required);
-        case ComponentType.MentionableSelect:
-            return fields.getSelectedMentionables(customId, required);
-        case ComponentType.FileUpload:
-            return fields.getUploadedFiles(customId, required);
-        case ComponentType.RadioGroup:
-            return fields.getRadioGroup(customId, required);
-        case ComponentType.CheckboxGroup:
-            return fields.getCheckboxGroup(customId);
-        case ComponentType.Checkbox:
-            return fields.getCheckbox(customId);
-    }
+/** The part of an input's data that goes on the component rather than on its label. */
+function componentData<T extends LabelComponentOptions>(data: T): Omit<T, "label" | "description"> {
+    const { label: _label, description: _description, ...component } = data;
+    return component;
 }
 
-export class BetterModal {
+/** The same, for builders that take raw API data. */
+function rawComponentData<T extends LabelComponentOptions & { customId: string }>(data: T) {
+    const { customId, ...component } = componentData(data);
+    return { ...component, custom_id: customId };
+}
+
+/**
+ * A modal whose submitted values are typed by the inputs added to it.
+ * Chain the `add*` calls so `result.fields` picks up each input; every input needs a `customId`.
+ */
+export class BetterModal<Fields extends object = Record<never, never>> {
     readonly customId: string;
 
-    private components: Map<string | symbol, BetterAPIModalComponent> = new Map();
-    private modal: ModalBuilder;
+    private readonly added: { method: AddMethod; data: unknown }[] = [];
+    private readonly readers = new Map<string, (fields: ModalSubmitFields) => unknown>();
+    private readonly modal: ModalBuilder;
 
     constructor(options?: BetterModalOptions) {
         this.customId = options?.customId ?? createRandomId();
         this.modal = new ModalBuilder().setCustomId(this.customId);
 
         if (options?.title) this.setTitle(options.title);
-        if (options?.components?.length) this.addComponents(...options.components);
     }
 
     private validateComponentLength(): void {
-        if (this.components.size >= 5) {
+        if (this.added.length >= 5) {
             throw new Error("[BetterModal] Modal can only have 5 top-level components");
         }
     }
 
-    private createComponentId(): string {
-        return `${this.customId}:${createRandomId()}`;
-    }
+    private addField<Id extends string, Value>(
+        method: AddMethod,
+        data: LabelComponentOptions & { customId: Id },
+        read: (fields: ModalSubmitFields) => Value,
+        attach: (label: LabelBuilder) => unknown
+    ): BetterModal<Fields & Record<Id, Value>> {
+        this.validateComponentLength();
+        if (this.readers.has(data.customId)) {
+            throw new Error(`[BetterModal] Duplicate input customId '${data.customId}'`);
+        }
 
-    private createLabelComponent(data: LabelComponentOptions): LabelBuilder {
-        const component = new LabelBuilder().setLabel(data.label);
-        if (data.description) component.setDescription(data.description);
-        return component;
-    }
+        const label = new LabelBuilder().setLabel(data.label);
+        if (data.description) label.setDescription(data.description);
+        attach(label);
 
-    private addComponent(component: BetterAPIModalComponent, customId?: string): void {
-        this.components.set(customId ?? Symbol(), component);
+        this.modal.addLabelComponents(label);
+        this.readers.set(data.customId, read);
+        this.added.push({ method, data });
+        return this as unknown as BetterModal<Fields & Record<Id, Value>>;
     }
 
     private build(): ModalBuilder {
@@ -236,12 +178,10 @@ export class BetterModal {
         return this.modal;
     }
 
-    clone(): BetterModal {
-        return new BetterModal({
-            customId: this.customId,
-            title: this.modal.data.title,
-            components: Array.from(this.components.values())
-        });
+    clone(): BetterModal<Fields> {
+        const clone = new BetterModal({ customId: this.customId, title: this.modal.data.title });
+        for (const { method, data } of this.added) (clone[method] as (data: unknown) => unknown)(data);
+        return clone as unknown as BetterModal<Fields>;
     }
 
     toJSON(): APIModalInteractionResponseCallbackData {
@@ -257,197 +197,124 @@ export class BetterModal {
         return this;
     }
 
-    /** Sets components for the modal. */
-    setComponents(...components: BetterAPIModalComponent[]): this {
-        const title = this.modal.data.title;
-
-        this.components.clear();
-        this.modal = new ModalBuilder().setCustomId(this.customId);
-        if (title) this.modal.setTitle(title);
-        this.addComponents(...components);
-        return this;
-    }
-
-    /** Adds components to the modal. */
-    addComponents(...components: BetterAPIModalComponent[]): this {
-        for (const component of components) {
-            if ("textInput" in component) {
-                this.addTextInput(component.textInput);
-            } else if ("textDisplay" in component) {
-                this.addTextDisplay(component.textDisplay);
-            } else if ("checkbox" in component) {
-                this.addCheckbox(component.checkbox);
-            } else if ("checkboxGroup" in component) {
-                this.addCheckboxGroup(component.checkboxGroup);
-            } else if ("radioGroup" in component) {
-                this.addRadioGroup(component.radioGroup);
-            } else if ("stringSelect" in component) {
-                this.addStringSelect(component.stringSelect);
-            } else if ("channelSelect" in component) {
-                this.addChannelSelect(component.channelSelect);
-            } else if ("userSelect" in component) {
-                this.addUserSelect(component.userSelect);
-            } else if ("roleSelect" in component) {
-                this.addRoleSelect(component.roleSelect);
-            } else if ("mentionableSelect" in component) {
-                this.addMentionableSelect(component.mentionableSelect);
-            } else if ("fileUpload" in component) {
-                this.addFileUpload(component.fileUpload);
+    addTextInput<const Id extends string>(data: BetterTextInputComponent<Id>): BetterModal<Fields & Record<Id, string>> {
+        return this.addField(
+            "addTextInput",
+            data,
+            f => f.getTextInputValue(data.customId),
+            label => {
+                label.setTextInputComponent(
+                    new TextInputBuilder({ style: TextInputStyle.Short, required: false, ...componentData(data) })
+                );
             }
-        }
-        return this;
-    }
-
-    addTextInput(data: BetterTextInputComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const { label: _, ...textInputData } = data;
-        const textInput = new TextInputBuilder({ style: TextInputStyle.Short, required: false, ...textInputData, customId });
-        const label = this.createLabelComponent(data);
-        label.setTextInputComponent(textInput);
-
-        this.addComponent({ textInput: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+        );
     }
 
     addTextDisplay(data: BetterTextDisplayComponent): this {
         this.validateComponentLength();
-
-        const textDisplay = new TextDisplayBuilder(data);
-
-        this.addComponent({ textDisplay: data });
-        this.modal.addTextDisplayComponents(textDisplay);
-
+        this.modal.addTextDisplayComponents(new TextDisplayBuilder(data));
+        this.added.push({ method: "addTextDisplay", data });
         return this;
     }
 
-    addStringSelect(data: BetterStringSelectComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const select = new StringSelectMenuBuilder({ ...data, customId });
-        const label = this.createLabelComponent(data);
-        label.setStringSelectMenuComponent(select);
-
-        this.addComponent({ stringSelect: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addStringSelect<const Id extends string>(
+        data: BetterStringSelectComponent<Id>
+    ): BetterModal<Fields & Record<Id, readonly string[]>> {
+        return this.addField(
+            "addStringSelect",
+            data,
+            f => f.getStringSelectValues(data.customId),
+            label => {
+                label.setStringSelectMenuComponent(new StringSelectMenuBuilder(componentData(data)));
+            }
+        );
     }
 
-    addCheckbox(data: BetterCheckboxComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.custom_id ?? this.createComponentId();
-        const checkbox = new CheckboxBuilder({ ...data, custom_id: customId });
-        const label = this.createLabelComponent(data);
-        label.setCheckboxComponent(checkbox);
-
-        this.addComponent({ checkbox: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addCheckbox<const Id extends string>(data: BetterCheckboxComponent<Id>): BetterModal<Fields & Record<Id, boolean>> {
+        return this.addField(
+            "addCheckbox",
+            data,
+            f => f.getCheckbox(data.customId),
+            label => {
+                label.setCheckboxComponent(new CheckboxBuilder(rawComponentData(data)));
+            }
+        );
     }
 
-    addCheckboxGroup(data: BetterCheckboxGroupComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.custom_id ?? this.createComponentId();
-        const checkboxGroup = new CheckboxGroupBuilder({ ...data, custom_id: customId });
-        const label = this.createLabelComponent(data);
-        label.setCheckboxGroupComponent(checkboxGroup);
-
-        this.addComponent({ checkboxGroup: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addCheckboxGroup<const Id extends string>(
+        data: BetterCheckboxGroupComponent<Id>
+    ): BetterModal<Fields & Record<Id, readonly string[]>> {
+        return this.addField(
+            "addCheckboxGroup",
+            data,
+            f => f.getCheckboxGroup(data.customId),
+            label => {
+                label.setCheckboxGroupComponent(new CheckboxGroupBuilder(rawComponentData(data)));
+            }
+        );
     }
 
-    addRadioGroup(data: BetterRadioGroupComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.custom_id ?? this.createComponentId();
-        const radioGroup = new RadioGroupBuilder({ ...data, custom_id: customId });
-        const label = this.createLabelComponent(data);
-        label.setRadioGroupComponent(radioGroup);
-
-        this.addComponent({ radioGroup: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addRadioGroup<const Id extends string>(
+        data: BetterRadioGroupComponent<Id>
+    ): BetterModal<Fields & Record<Id, string | null>> {
+        return this.addField(
+            "addRadioGroup",
+            data,
+            f => f.getRadioGroup(data.customId),
+            label => {
+                label.setRadioGroupComponent(new RadioGroupBuilder(rawComponentData(data)));
+            }
+        );
     }
 
-    addChannelSelect(data: BetterChannelSelectComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const channelSelect = new ChannelSelectMenuBuilder({ ...data, customId });
-        const label = this.createLabelComponent(data);
-        label.setChannelSelectMenuComponent(channelSelect);
-
-        this.addComponent({ channelSelect: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addChannelSelect<const Id extends string>(
+        data: BetterChannelSelectComponent<Id>
+    ): BetterModal<Fields & Record<Id, SelectedChannels>> {
+        const read = (f: ModalSubmitFields): SelectedChannels => f.getSelectedChannels(data.customId) ?? new Collection();
+        return this.addField("addChannelSelect", data, read, label => {
+            label.setChannelSelectMenuComponent(new ChannelSelectMenuBuilder(componentData(data)));
+        });
     }
 
-    addUserSelect(data: BetterUserSelectComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const userSelect = new UserSelectMenuBuilder({ ...data, customId });
-        const label = this.createLabelComponent(data);
-        label.setUserSelectMenuComponent(userSelect);
-
-        this.addComponent({ userSelect: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addUserSelect<const Id extends string>(
+        data: BetterUserSelectComponent<Id>
+    ): BetterModal<Fields & Record<Id, SelectedUsers>> {
+        const read = (f: ModalSubmitFields): SelectedUsers => f.getSelectedUsers(data.customId) ?? new Collection();
+        return this.addField("addUserSelect", data, read, label => {
+            label.setUserSelectMenuComponent(new UserSelectMenuBuilder(componentData(data)));
+        });
     }
 
-    addRoleSelect(data: BetterRoleSelectComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const roleSelect = new RoleSelectMenuBuilder({ ...data, customId });
-        const label = this.createLabelComponent(data);
-        label.setRoleSelectMenuComponent(roleSelect);
-
-        this.addComponent({ roleSelect: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addRoleSelect<const Id extends string>(
+        data: BetterRoleSelectComponent<Id>
+    ): BetterModal<Fields & Record<Id, SelectedRoles>> {
+        const read = (f: ModalSubmitFields): SelectedRoles => f.getSelectedRoles(data.customId) ?? new Collection();
+        return this.addField("addRoleSelect", data, read, label => {
+            label.setRoleSelectMenuComponent(new RoleSelectMenuBuilder(componentData(data)));
+        });
     }
 
-    addMentionableSelect(data: BetterMentionableSelectComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.customId ?? this.createComponentId();
-        const mentionableSelect = new MentionableSelectMenuBuilder({ ...data, customId });
-        const label = this.createLabelComponent(data);
-        label.setMentionableSelectMenuComponent(mentionableSelect);
-
-        this.addComponent({ mentionableSelect: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addMentionableSelect<const Id extends string>(
+        data: BetterMentionableSelectComponent<Id>
+    ): BetterModal<Fields & Record<Id, SelectedMentionables>> {
+        const read = (f: ModalSubmitFields): SelectedMentionables =>
+            f.getSelectedMentionables(data.customId) ?? {
+                users: new Collection(),
+                members: new Collection(),
+                roles: new Collection()
+            };
+        return this.addField("addMentionableSelect", data, read, label => {
+            label.setMentionableSelectMenuComponent(new MentionableSelectMenuBuilder(componentData(data)));
+        });
     }
 
-    addFileUpload(data: BetterFileUploadComponent): this {
-        this.validateComponentLength();
-
-        const customId = data.custom_id ?? this.createComponentId();
-        const fileUpload = new FileUploadBuilder({ ...data, custom_id: customId });
-        const label = this.createLabelComponent(data);
-        label.setFileUploadComponent(fileUpload);
-
-        this.addComponent({ fileUpload: data }, customId);
-        this.modal.addLabelComponents(label);
-
-        return this;
+    addFileUpload<const Id extends string>(
+        data: BetterFileUploadComponent<Id>
+    ): BetterModal<Fields & Record<Id, UploadedFiles>> {
+        const read = (f: ModalSubmitFields): UploadedFiles => f.getUploadedFiles(data.customId) ?? new Collection();
+        return this.addField("addFileUpload", data, read, label => {
+            label.setFileUploadComponent(new FileUploadBuilder(rawComponentData(data)));
+        });
     }
 
     /**
@@ -471,27 +338,28 @@ export class BetterModal {
      */
     async showAndAwait(
         interaction: ModalShowableInteraction | null | undefined,
-        options: AwaitModalSubmitOptions
-    ): Promise<BetterModalSubmitResult | null> {
+        options?: AwaitModalSubmitOptions
+    ): Promise<BetterModalSubmitResult<Fields> | null> {
         await this.show(interaction);
         return this.awaitSubmit(interaction, options);
     }
 
     /**
-     * Waits for this modal to be submitted, returning a helper utility object.
-     * @param interaction The interaction to show the modal with.
+     * Waits for this modal to be submitted, resolving to `null` when it times out.
+     * @param interaction The interaction that showed the modal.
      * @param options Modal submission options.
      */
     async awaitSubmit(
         interaction: ModalShowableInteraction | null | undefined,
-        options: AwaitModalSubmitOptions
-    ): Promise<BetterModalSubmitResult | null> {
+        options: AwaitModalSubmitOptions = {}
+    ): Promise<BetterModalSubmitResult<Fields> | null> {
         if (!interaction) throw new Error("[BetterModal] Interaction is null or undefined");
 
         let modalSubmit: ModalSubmitInteraction;
 
         try {
-            modalSubmit = await awaitRoutedModal(interaction.client, this.customId, options.timeout);
+            const timeout = options.timeout ?? getGlobalUxConfig().modal.timeout;
+            modalSubmit = await awaitRoutedModal(interaction.client, this.customId, timeout);
         } catch (error) {
             if (isModalTimeout(error)) return null;
             throw error;
@@ -501,21 +369,11 @@ export class BetterModal {
             await modalSubmit.deferUpdate();
         }
 
-        function getField(customId: string, required?: boolean): unknown;
-        function getField<Type extends BetterModalFieldType>(
-            customId: string,
-            type: Type,
-            required?: boolean
-        ): BetterModalFieldValueMap[Type];
-        function getField(customId: string, selector?: boolean | BetterModalFieldType, required = false): unknown {
-            const type = typeof selector === "number" ? selector : undefined;
-            const isRequired = typeof selector === "boolean" ? selector : required;
-            return getSimplifiedFieldValue(modalSubmit.fields, customId, type, isRequired);
-        }
+        const fields = Object.fromEntries([...this.readers].map(([id, read]) => [id, read(modalSubmit.fields)]));
 
         return {
             interaction: modalSubmit,
-            getField,
+            fields: fields as Fields,
             reply: async options => dynaSend(modalSubmit, options),
             followUp: async options => dynaSend(modalSubmit, { ...options, sendMethod: "followUp" })
         };

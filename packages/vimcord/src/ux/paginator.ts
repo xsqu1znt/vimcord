@@ -20,7 +20,6 @@ import {
     BaseInteraction,
     ButtonBuilder,
     ButtonStyle,
-    ComponentType,
     ContainerBuilder,
     EmbedBuilder,
     Message,
@@ -776,7 +775,7 @@ export class Paginator {
             await this.respond(result.interaction, getGlobalUxConfig().paginator.messages.chapterChanged);
             return;
         }
-        const submitted = Number(result.getField(JUMP_PAGE_CUSTOM_ID, ComponentType.TextInput, true).trim());
+        const submitted = Number(result.fields[JUMP_PAGE_CUSTOM_ID].trim());
         const currentCount = this.getPageCount(this.getChapter());
         if (!Number.isInteger(submitted) || !currentCount || submitted < 1 || submitted > currentCount) {
             await result.reply({ content: formatText(config.invalidPageMessage), flags: "Ephemeral" });

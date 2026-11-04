@@ -417,10 +417,10 @@ describe("Paginator collection and navigation", () => {
 
         vi.spyOn(BetterModal.prototype, "showAndAwait").mockResolvedValue({
             interaction: createInteraction("modal") as never,
-            getField: () => "4",
+            fields: { "paginator:jump:page": "4" },
             reply: vi.fn(),
             followUp: vi.fn()
-        });
+        } as never);
         collector.emit("collect", createInteraction("paginator:jump"));
         await settle();
         collector.emit("collect", createInteraction("paginator:chapter", [paginator.chapters[1]!.id]));
@@ -596,10 +596,10 @@ describe("Paginator collection and navigation", () => {
         const stale = createInteraction("modal");
         firstModal.resolve({
             interaction: stale as never,
-            getField: () => "1",
+            fields: { "paginator:jump:page": "1" },
             reply: vi.fn(),
             followUp: vi.fn()
-        });
+        } as never);
         await settle();
         expect(stale.deferUpdate).toHaveBeenCalledOnce();
         expect(stale.reply).not.toHaveBeenCalled();
@@ -618,10 +618,10 @@ describe("Paginator collection and navigation", () => {
         const expired = createInteraction("modal");
         secondModal.resolve({
             interaction: expired as never,
-            getField: () => "1",
+            fields: { "paginator:jump:page": "1" },
             reply: vi.fn(),
             followUp: vi.fn()
-        });
+        } as never);
         await settle();
         expect(expired.reply).toHaveBeenCalledOnce();
         expect(expired.reply).toHaveBeenCalledWith({ content: "This paginator expired.", flags: "Ephemeral" });
@@ -781,7 +781,7 @@ describe("Paginator acknowledgement and snapshots", () => {
             if (navigation === "jump submission") {
                 vi.spyOn(BetterModal.prototype, "awaitSubmit").mockResolvedValue({
                     interaction: i as never,
-                    getField: () => "2",
+                    fields: { "paginator:jump:page": "2" },
                     reply: vi.fn(),
                     followUp: vi.fn()
                 });
