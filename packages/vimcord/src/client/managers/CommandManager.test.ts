@@ -1,5 +1,6 @@
 import type { ClientEvents, Interaction, Message } from "discord.js";
 import type { CommandLoggingTiming } from "../globals.js";
+import type { CommandPrefix } from "./CommandManager.js";
 
 import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +26,7 @@ function advance(ms: number) {
 }
 
 function createClient(commandLogging?: false | readonly CommandLoggingTiming[]) {
-    client = new Vimcord({ client: { intents: [] }, globals: { app: { commandLogging } } });
+    client = new Vimcord({ intents: [], commandLogging });
     vi.spyOn(client.logger, "commandUsed").mockImplementation(() => {});
     vi.spyOn(client.logger, "error").mockImplementation(() => {});
     return client;
@@ -519,7 +520,7 @@ describe("CommandManager logging selection", () => {
             })
         );
 
-        client.configure({ app: { commandLogging: ["total", "execute"] } });
+        client.globals.app.commandLogging = ["total", "execute"];
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -531,7 +532,7 @@ describe("CommandManager logging selection", () => {
         );
 
         vi.mocked(client.logger.commandUsed).mockClear();
-        client.configure({ app: { commandLogging: false } });
+        client.globals.app.commandLogging = false;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
@@ -610,45 +611,54 @@ describe("CommandManager registration preparation", () => {
 });
 
 describe("CommandManager routing lifecycle", () => {
-    it("mounts once, replaces prefix settings, and preserves other listeners on unmount", () => {
+    it("installs once, replaces prefix settings, and preserves other listeners on removal", () => {
         const client = createClient(false);
         const commands = client.modules.commands;
         const external = vi.fn();
         client.on("interactionCreate", external);
         const dispatchInteraction = vi.spyOn(commands, "dispatchInteraction").mockResolvedValue(true);
         const dispatchMessage = vi.spyOn(commands, "dispatchMessage").mockResolvedValue(true);
-        commands.mount({ prefixes: ["!"] });
-        commands.mount({ prefixes: ["?"], allowMention: true });
+        commands.installListeners({ prefix: "!" });
+        const routing = { prefix: ["?"], allowMention: true };
+        commands.installListeners(routing);
         const interaction = createInteraction() as unknown as Interaction;
         const message = createMessage();
         client.emit("interactionCreate", interaction);
         client.emit("messageCreate", message);
         expect(dispatchInteraction).toHaveBeenCalledExactlyOnceWith(interaction);
-        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], { prefixes: ["?"], allowMention: true });
-        commands.unmount();
-        commands.unmount();
+        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], routing);
+        commands.removeListeners();
+        commands.removeListeners();
         expect(client.listeners("interactionCreate")).toEqual([external]);
         expect(client.listeners("messageCreate")).toEqual([]);
     });
 
-    it("mounts only interactions by default, supports mention-only routing, and cleans up on unload", () => {
+    it("installs only interactions by default, supports mention-only routing, and cleans up on unload", () => {
         const client = createClient(false);
         const commands = client.modules.commands;
-        commands.mount();
+        commands.installListeners();
         expect(client.listenerCount("interactionCreate")).toBe(1);
         expect(client.listenerCount("messageCreate")).toBe(0);
-        commands.mount({ allowMention: true });
+        commands.installListeners({ allowMention: true });
         expect(client.listenerCount("messageCreate")).toBe(1);
         client.modules.unload();
         expect(client.listenerCount("interactionCreate")).toBe(0);
         expect(client.listenerCount("messageCreate")).toBe(0);
     });
 
-    it("dispatches mounted commands without invoking handlers for bot messages", async () => {
+    it("warns when prefix commands are loaded but nothing can route to them", () => {
+        const client = createClient(false);
+        const warn = vi.spyOn(client.logger, "warn").mockImplementation(() => {});
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", execute: vi.fn() }));
+        client.modules.commands.installListeners();
+        expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it("dispatches commands without invoking handlers for bot messages", async () => {
         const client = createClient(false);
         const execute = vi.fn();
         client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
-        client.modules.commands.mount({ prefixes: ["!"] });
+        client.modules.commands.installListeners({ prefix: "!" });
         const message = createMessage();
         client.emit("messageCreate", message);
         expect(execute).toHaveBeenCalledOnce();
@@ -656,6 +666,81 @@ describe("CommandManager routing lifecycle", () => {
         client.emit("messageCreate", bot);
         await Promise.resolve();
         expect(execute).toHaveBeenCalledOnce();
+    });
+});
+
+describe("prefix function", () => {
+    function setup(prefix: CommandPrefix, allowMention = false) {
+        const client = createClient(false);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
+        client.modules.commands.installListeners({ prefix, allowMention });
+        return { client, execute };
+    }
+
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+
+    it.each([
+        ["string", () => "!"],
+        ["array", () => ["?", "!"]],
+        ["async string", async () => "!"]
+    ])("dispatches a %s result once per message", async (_kind, resolve) => {
+        const resolver = vi.fn(resolve);
+        const { client, execute } = setup(resolver);
+        client.emit("messageCreate", createMessage());
+        await settle();
+        expect(resolver).toHaveBeenCalledOnce();
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it("ignores the message on null, even when mentions are allowed", async () => {
+        const { client, execute } = setup(() => null, true);
+        Object.assign(client, { user: { id: "1" } });
+        const message = createMessage();
+        message.content = "<@1> balance";
+        client.emit("messageCreate", message);
+        await settle();
+        expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("matches the mention prefix alongside the function's result", async () => {
+        const { client, execute } = setup(() => [], true);
+        Object.assign(client, { user: { id: "1" } });
+        const message = createMessage();
+        message.content = "<@1> balance";
+        client.emit("messageCreate", message);
+        await settle();
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            "sync",
+            () => {
+                throw new Error("lookup failed");
+            }
+        ],
+        [
+            "async",
+            async () => {
+                throw new Error("lookup failed");
+            }
+        ]
+    ])("logs a %s failure instead of raising it into the event emitter", async (_kind, resolve) => {
+        const { client, execute } = setup(resolve);
+        expect(() => client.emit("messageCreate", createMessage())).not.toThrow();
+        await settle();
+        expect(execute).not.toHaveBeenCalled();
+        expect(client.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it("skips the resolver for a message with no content", () => {
+        const resolver = vi.fn(() => "!");
+        const { client } = setup(resolver);
+        const message = createMessage();
+        message.content = "";
+        client.emit("messageCreate", message);
+        expect(resolver).not.toHaveBeenCalled();
     });
 });
 

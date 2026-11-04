@@ -98,7 +98,7 @@ export class VimcordCLI {
         return this.started && this.client === client;
     }
 
-    /** Attaches or detaches the client based on its current `enableCLI` value. */
+    /** Attaches the client unless it opted out with `enableCLI: false`. */
     syncClient(client: Vimcord): void {
         if (!this.started || VimcordClient.getInstance() !== client) return;
         this.client = client.globals.app.enableCLI ? client : null;

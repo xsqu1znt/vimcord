@@ -28,9 +28,16 @@ interface PreparedCommand {
     signature: string;
 }
 
+type CommandPrefixResult = string | string[] | null;
+
+/**
+ * Message prefixes to listen for. A function runs once per message, sync or async; returning `null` ignores the message.
+ */
+export type CommandPrefix = string | string[] | ((message: Message) => CommandPrefixResult | Promise<CommandPrefixResult>);
+
 export interface CommandRoutingOptions extends DispatchMessageOptions {
-    /** Message prefixes to listen for. Omit to listen only for application commands. */
-    prefixes?: string[];
+    /** Omit to listen only for application commands. */
+    prefix?: CommandPrefix;
 }
 
 export interface DispatchMessageOptions {
@@ -72,7 +79,7 @@ export class CommandManager {
     readonly context: { message: MessageContextCommandManager; user: UserContextCommandManager };
 
     private interactionListener: ((interaction: Interaction) => Promise<boolean>) | undefined;
-    private messageListener: ((message: Message) => Promise<boolean>) | undefined;
+    private messageListener: ((message: Message) => Promise<boolean> | boolean) | undefined;
     private cachedMentionUserId: string | undefined;
     private cachedMentionPrefixes: string[] = [];
 
@@ -83,20 +90,36 @@ export class CommandManager {
     }
 
     /**
-     * Connects Discord events directly to command dispatch. Calling again replaces this manager's listeners.
-     * @param options Prefixes and mention handling; application commands are always enabled.
+     * Connects Discord events directly to command dispatch.
+     * @internal `login()` installs these from the `prefix` and `allowMention` client options.
      */
-    mount(options: CommandRoutingOptions = {}): void {
-        this.unmount();
+    installListeners(options: CommandRoutingOptions = {}): void {
+        this.removeListeners();
         this.interactionListener = this.dispatchInteraction.bind(this);
         this.client.on("interactionCreate", this.interactionListener);
-        if (!options.prefixes?.length && !options.allowMention) return;
-        this.messageListener = message => this.dispatchMessage(message, options.prefixes ?? [], options);
+
+        const { prefix } = options;
+        if (typeof prefix === "function") {
+            this.messageListener = message => this.dispatchWithResolver(message, prefix, options);
+        } else if (prefix?.length || options.allowMention) {
+            const prefixes = typeof prefix === "string" ? [prefix] : (prefix ?? []);
+            this.messageListener = message => this.dispatchMessage(message, prefixes, options);
+        } else {
+            if (this.prefix.getAll().length) {
+                this.client.logger.warn(
+                    `[${COMMAND_MANAGER_LOGGER}] Prefix commands are loaded, but neither 'prefix' nor 'allowMention' is set, so they can never run.`
+                );
+            }
+            return;
+        }
         this.client.on("messageCreate", this.messageListener);
     }
 
-    /** Removes only the Discord event listeners installed by this manager. */
-    unmount(): void {
+    /**
+     * Removes only the Discord event listeners installed by this manager.
+     * @internal `destroy()` calls this.
+     */
+    removeListeners(): void {
         if (this.interactionListener) this.client.off("interactionCreate", this.interactionListener);
         if (this.messageListener) this.client.off("messageCreate", this.messageListener);
         this.interactionListener = undefined;
@@ -267,6 +290,7 @@ export class CommandManager {
 
     /**
      * Dispatches a Discord interaction to the matching slash or context command module.
+     * @internal
      */
     dispatchInteraction(interaction: Interaction): Promise<boolean> {
         if (interaction.isChatInputCommand()) {
@@ -288,8 +312,35 @@ export class CommandManager {
         return Promise.resolve(false);
     }
 
+    /** Resolves a function prefix once for this message. A failed resolver ignores the message. */
+    private dispatchWithResolver(
+        message: Message,
+        resolver: Extract<CommandPrefix, Function>,
+        options: DispatchMessageOptions
+    ): Promise<boolean> | boolean {
+        // Without content (or the MessageContent intent) no prefix can match, so skip the resolver's lookup.
+        if (!message.content) return false;
+
+        const dispatch = (result: CommandPrefixResult) => {
+            if (result === null) return false;
+            return this.dispatchMessage(message, typeof result === "string" ? [result] : result, options);
+        };
+        const failed = (error: unknown) => {
+            this.client.logger.error(`[${COMMAND_MANAGER_LOGGER}] The prefix function failed`, error as Error);
+            return false;
+        };
+
+        try {
+            const result = resolver(message);
+            return result instanceof Promise ? result.then(dispatch).catch(failed) : dispatch(result);
+        } catch (error) {
+            return failed(error);
+        }
+    }
+
     /**
      * Dispatches a Discord message to the matching prefix command module.
+     * @internal
      */
     dispatchMessage(message: Message, allowedPrefixes: string[], options: DispatchMessageOptions = {}): Promise<boolean> {
         const prefix = this.findLongestPrefix(

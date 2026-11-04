@@ -21,6 +21,11 @@ export abstract class VimcordPlugin {
 
     /** Installs the plugin and registers any client-scoped contributions. */
     abstract install(context: VimcordPluginContext): Promise<void> | void;
+    /**
+     * Runs during `login()` once every plugin is installed, before modules load and the gateway connects.
+     * Use it for work that needs other plugins. Throwing aborts login and uninstalls every plugin.
+     */
+    onPluginsInstalled?(context: VimcordPluginContext): Promise<void> | void;
     /** Releases plugin-owned resources. Registered health probes are removed automatically afterward. */
     uninstall?(): Promise<void> | void;
 }

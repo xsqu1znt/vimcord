@@ -1,17 +1,20 @@
 import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
+import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { PartialDeep } from "@/types/helpers.js";
-import type { VimcordGlobals } from "./globals.js";
+import type { AppGlobals, StaffGlobals, VimcordGlobals } from "./globals.js";
+import type { CommandPrefix, CommandRoutingOptions } from "./managers/CommandManager.js";
+import type { AppModuleImports } from "./managers/ModuleManager.js";
 import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
 
 import EventEmitter from "node:events";
 import { Client } from "discord.js";
-import { syncCLIClient } from "@/cli/clientState.js";
 import { ModuleManager } from "@/client/managers/ModuleManager.js";
 import { VimcordError } from "@/errors/VimcordError.js";
 import { PluginManager } from "@/plugins/index.js";
 import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
 import { mergeDeep } from "@/utils/obj.js";
+import { defineGlobalUxConfig } from "@/ux/uxConfig.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { StatusManager } from "./StatusManager.js";
 import { VimcordLogger } from "./VimcordLogger.js";
@@ -25,15 +28,22 @@ export type VimcordEvents = {
     ready: [Vimcord];
 };
 
-export interface VimcordClientOptions {
-    /** Discord.js client options. */
-    client: ClientOptions;
-    /** Global bot configs. */
-    globals?: PartialDeep<VimcordGlobals>;
-
-    // --- Debugging ---
-    /** Enables diagnostic `debug()` logging. */
-    verbose?: boolean;
+/** Discord.js client options plus Vimcord's own settings, all flat. */
+export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals> {
+    /** Bot staff, read back through `client.globals.staff`. */
+    staff?: PartialDeep<StaffGlobals>;
+    /** Plugins installed by `login()`, dependencies first. */
+    plugins?: VimcordPlugin[];
+    /** Module directories imported by `login()`. */
+    modules?: AppModuleImports;
+    /** Message prefixes. Omit to listen only for application commands. */
+    prefix?: CommandPrefix;
+    /** Treat a mention of the bot as a prefix. @default false */
+    allowMention?: boolean;
+    /** Push application commands once the client is ready. A failure is logged and the bot keeps running. @default true */
+    syncCommands?: boolean;
+    /** Command hooks shared by every module of a command type. */
+    hooks?: GlobalCommandHooks;
 }
 
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
@@ -60,31 +70,53 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private startupBannerHandle: VimcordStartupBannerHandle | undefined;
     private warnedMissingStaffGuild = false;
     private readonly pendingStaffRoleLookups = new Map<string, Promise<string[]>>();
+    private readonly moduleImports: AppModuleImports | undefined;
+    private readonly commandRouting: CommandRoutingOptions;
+    private loginStarted = false;
 
     constructor(options: VimcordClientOptions) {
         if (Vimcord.instance) throw new VimcordError("Only one Vimcord client can exist in a process", "CLIENT_ERROR");
 
         const {
-            client,
-            globals,
-
-            // --- Debugging ---
-            verbose
+            name,
+            version,
+            devMode,
+            verbose,
+            commandLogging,
+            enableCLI,
+            disableBanner,
+            staff,
+            plugins,
+            modules,
+            prefix,
+            allowMention,
+            syncCommands = true,
+            hooks,
+            ...clientOptions
         } = options;
 
-        super(client);
+        super(clientOptions);
 
         this.globals = {
-            app: mergeDeep(defaultAppGlobals(), globals?.app),
-            staff: mergeDeep(defaultStaffGlobals(), globals?.staff),
-            hooks: globals?.hooks ? mergeDeep({}, globals.hooks) : undefined
+            app: mergeDeep(defaultAppGlobals(), {
+                name,
+                version,
+                devMode,
+                verbose,
+                commandLogging,
+                enableCLI,
+                disableBanner
+            }),
+            staff: mergeDeep(defaultStaffGlobals(), staff),
+            hooks
         };
+        this.moduleImports = modules;
+        this.commandRouting = { prefix, allowMention };
+        defineGlobalUxConfig({ devMode: this.globals.app.devMode });
 
-        const verboseMode = verbose ?? globals?.app?.verbose ?? false;
-        this.logger = new VimcordLogger({ verbose: verboseMode });
-        this.$verboseMode = verboseMode;
+        this.logger = new VimcordLogger({ verbose: this.globals.app.verbose });
 
-        this.plugins = new PluginManager(this);
+        this.plugins = new PluginManager(this, plugins);
         this.modules = new ModuleManager(this);
         this.status = new StatusManager(this);
 
@@ -96,6 +128,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             this.startupBannerHandle?.complete();
             this.startupBannerHandle = undefined;
             this.logger.clientReady(this as Vimcord<true>);
+            if (syncCommands) void this.syncApplicationCommands();
         });
     }
 
@@ -121,6 +154,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
     set $devMode(mode: boolean) {
         this.globals.app.devMode = mode;
+        defineGlobalUxConfig({ devMode: mode });
     }
 
     /** Current verbose mode state. */
@@ -132,43 +166,51 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.logger.setVerbose(mode);
     }
 
-    /**
-     * Registers a plugin. Alias for `client.plugins.use`.
-     * @param plugin The plugin to register.
-     */
-    use(plugin: VimcordPlugin): this {
-        this.plugins.use(plugin);
-        return this;
-    }
-
-    /**
-     * Configures global client configs.
-     * @param globals The options to set.
-     */
-    configure(globals: PartialDeep<VimcordGlobals>): this {
-        this.globals.app = mergeDeep(this.globals.app, globals.app);
-        this.globals.staff = mergeDeep(this.globals.staff, globals.staff);
-        this.globals.hooks = mergeDeep(this.globals.hooks ?? {}, globals.hooks);
-        this.logger.setVerbose(this.globals.app.verbose);
-        syncCLIClient(this);
-        return this;
-    }
-
     // --- Main ---
+    /** Pushes application commands without letting a failure reach the running bot. */
+    private async syncApplicationCommands(): Promise<void> {
+        const { commands } = this.modules;
+        if (!commands.getAllAppCommands().some(command => command.registration.global !== false)) return;
+
+        try {
+            await commands.push();
+        } catch (error) {
+            this.logger.error("[Vimcord] Failed to sync application commands", error as Error);
+        }
+    }
+
+    /** Releases everything a failed login acquired so calling `login()` again starts clean. */
+    private async cleanupFailedLogin(): Promise<void> {
+        this.loginStarted = false;
+        this.modules.unload();
+        try {
+            await this.plugins.unload();
+        } catch (cleanupError) {
+            this.logger.error("[Vimcord] Failed to clean up plugins after a failed login", cleanupError as Error);
+        }
+
+        this.startupBannerHandle?.clear();
+        this.startupBannerHandle = undefined;
+    }
+
     /**
-     * Loads plugins and modules then logs in to Discord.
+     * Starts the bot: plugins, the plugin `onPluginsInstalled` step, modules, command listeners, then the gateway.
+     * Application commands sync once the client is ready unless `syncCommands` is `false`.
      * @param token The token to log in with.
      * @default process.env.TOKEN | process.env.TOKEN_DEV
      */
     override async login(token?: string): Promise<string> {
+        if (this.loginStarted) throw new VimcordError("login() was already called on this client", "CLIENT_ERROR");
+        this.loginStarted = true;
+
         try {
             if (!this.globals.app.disableBanner) this.startupBannerHandle = this.logger.startupBanner(this);
 
-            if (this.plugins.getAll().length) {
-                this.logger.log("Loading plugins...");
-                await this.plugins.load();
-            }
+            // --- Plugins ---
+            if (this.plugins.getAll().length) this.logger.log("Loading plugins...");
+            await this.plugins.load();
 
+            // Read after plugins so DotEnvPlugin can supply it, but before migrations and other startup work.
             token ??= this.$devMode ? process.env.TOKEN_DEV : process.env.TOKEN;
             if (!token) {
                 throw new Error(
@@ -176,20 +218,18 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 );
             }
 
+            await this.plugins.runInstalledStep();
+
+            // --- Modules ---
+            if (this.moduleImports) await this.modules.load(this.moduleImports);
+            this.modules.commands.installListeners(this.commandRouting);
+
+            // --- Gateway ---
             this.logger.log("Logging in to Discord...");
             return await super.login(token);
         } catch (err) {
-            // Plugin install failures already clean up after themselves; this catches plugins that
-            // installed successfully before a later step (or another plugin) failed.
-            try {
-                await this.plugins.unload();
-            } catch (cleanupError) {
-                this.logger.error("[Vimcord] Failed to clean up plugins after a failed login", cleanupError as Error);
-            }
-
-            this.startupBannerHandle?.clear();
-            this.startupBannerHandle = undefined;
-            throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR");
+            await this.cleanupFailedLogin();
+            throw new VimcordError(`Failed to login\n╰ ${(err as Error).message}`, "CLIENT_ERROR", { cause: err });
         }
     }
 
@@ -198,6 +238,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.startupBannerHandle?.clear();
         this.startupBannerHandle = undefined;
         this.resolveAwaitReady(false);
+        this.loginStarted = false;
 
         const errors: unknown[] = [];
         try {

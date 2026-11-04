@@ -53,13 +53,10 @@ class HealthPlugin extends VimcordPlugin {
 describe("PluginManager", () => {
     it("installs dependencies before dependents and unloads in reverse order", async () => {
         const attempts: string[] = [];
-        const manager = new PluginManager(createClient());
         const dependency = new TestPlugin("dependency", attempts);
         const dependent = new TestPlugin("dependent", attempts);
         dependent.dependencies = [dependency.name];
-
-        manager.use(dependency);
-        manager.use(dependent);
+        const manager = new PluginManager(createClient(), [dependency, dependent]);
 
         await manager.load();
         expect(manager.isInstalled("dependency")).toBe(true);
@@ -67,29 +64,26 @@ describe("PluginManager", () => {
 
         await manager.unload();
         expect(attempts).toEqual(["dependent", "dependency"]);
-        expect(manager.getAll()).toEqual([]);
+        expect(manager.getAll(true)).toEqual([]);
+        expect(manager.getAll()).toEqual([dependency, dependent]);
     });
 
     it("continues reverse-order cleanup after a plugin uninstall fails", async () => {
         const attempts: string[] = [];
-        const manager = new PluginManager(createClient());
         const dependency = new TestPlugin("dependency", attempts);
         const dependent = new TestPlugin("dependent", attempts, true);
         dependent.dependencies = [dependency.name];
-
-        manager.use(dependency);
-        manager.use(dependent);
+        const manager = new PluginManager(createClient(), [dependency, dependent]);
         await manager.load();
 
         await expect(manager.unload()).rejects.toThrow(AggregateError);
         expect(attempts).toEqual(["dependent", "dependency"]);
-        expect(manager.getAll()).toEqual([]);
+        expect(manager.getAll(true)).toEqual([]);
     });
 
     it("removes health registrations after a partial install failure and does not clean up twice", async () => {
-        const manager = new PluginManager(createClient());
         const plugin = new HealthPlugin();
-        manager.use(plugin);
+        const manager = new PluginManager(createClient(), [plugin]);
 
         await expect(manager.load()).rejects.toThrow("install failed after registering health");
         expect(plugin.uninstallCalls).toBe(1);
@@ -101,11 +95,9 @@ describe("PluginManager", () => {
     });
 
     it("drives installed lookups and filtering from manager-owned state", async () => {
-        const manager = new PluginManager(createClient());
         const a = new TestPlugin("a", []);
         const b = new TestPlugin("b", []);
-        manager.use(a);
-        manager.use(b);
+        const manager = new PluginManager(createClient(), [a, b]);
 
         expect(manager.isInstalled("a")).toBe(false);
         expect(manager.getAll(true)).toEqual([]);
@@ -118,5 +110,22 @@ describe("PluginManager", () => {
         expect(manager.getAll(true)).toEqual([a, b]);
         expect(manager.getAll(false)).toEqual([]);
         expect(manager.get("a", true)).toBe(a);
+    });
+
+    it("resolves dependencies registered in any order and rejects bad registrations at construction", async () => {
+        const order: string[] = [];
+        class Recording extends TestPlugin {
+            override install(): void {
+                order.push(this.name);
+            }
+        }
+        const dependency = new Recording("dependency", []);
+        const dependent = new Recording("dependent", []);
+        dependent.dependencies = ["dependency"];
+        await new PluginManager(createClient(), [dependent, dependency]).load();
+        expect(order).toEqual(["dependency", "dependent"]);
+
+        expect(() => new PluginManager(createClient(), [dependent])).toThrow(/depends on 'dependency'/);
+        expect(() => new PluginManager(createClient(), [dependency, dependency])).toThrow(/already registered/);
     });
 });

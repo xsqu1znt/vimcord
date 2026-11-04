@@ -1,5 +1,14 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 
+import { ModuleError } from "@/errors/ModuleError.js";
+import {
+    EventModule,
+    MessageContextCommandModule,
+    PrefixCommandModule,
+    SlashCommandModule,
+    UserContextCommandModule
+} from "@/modules/index.js";
+import { importModulesFromDir } from "@/utils/import.js";
 import { CommandManager } from "./CommandManager.js";
 import { EventManager } from "./EventManager.js";
 
@@ -12,19 +21,26 @@ export interface AppModuleImports {
 }
 
 export interface AppModuleImportOptions {
-    /** The directories the modules can be found in. */
+    /** The directories the modules can be found in, relative to the entry file. */
     dir: string | string[];
-    /** Filters for modules that only end with these suffixes.
+    /**
+     * Imports only files ending with these suffixes; other files are skipped silently.
+     * `null` imports every file, and each one must then default-export a module of this entry's type.
      *
      * @example
      * // Example module filenames using suffixes:
      * "ping.slash.ts" // .slash suffix
      * "help.prefix.ts" // .prefix suffix
-     * "userInfo.mctx.ts" // .ctx suffix
-     * "avatar.uctx.ts" // .ctx suffix
+     * "userInfo.mctx.ts" // .mctx suffix
+     * "avatar.uctx.ts" // .uctx suffix
      * "ready.event.ts" // .event suffix
      */
-    suffix?: string | string[];
+    suffix: string | string[] | null;
+}
+
+function describeExport(value: unknown): string {
+    if (value === undefined) return "no default export";
+    return `a default export of type '${(value as object | null)?.constructor?.name ?? typeof value}'`;
 }
 
 export class ModuleManager {
@@ -36,48 +52,60 @@ export class ModuleManager {
         this.events = new EventManager(client);
     }
 
-    /**
-     * Imports modules from the given module directories.
-     * @param imports The modules to import.
-     */
-    async load(imports: AppModuleImports): Promise<void> {
-        // TODO: Prevent loading duplicates?
+    /** Imports one configured entry, rejecting any matched file that isn't this entry's module type. */
+    private async loadEntry<T extends { id: string }>(
+        key: keyof AppModuleImports,
+        moduleClass: abstract new (...args: never[]) => T,
+        manager: { modules: Map<string, T>; register(...modules: T[]): void },
+        entry: AppModuleImportOptions | undefined
+    ): Promise<void> {
+        if (!entry) return;
 
-        // Import slash command modules
-        if (imports.slashCommands) {
-            const { dir, suffix } = imports.slashCommands;
-            await this.commands.slash.importFrom(dir, suffix);
-        }
-
-        // Import prefix command modules
-        if (imports.prefixCommands) {
-            const { dir, suffix } = imports.prefixCommands;
-            await this.commands.prefix.importFrom(dir, suffix);
-        }
-
-        // Import message context command modules
-        if (imports.messageContextCommands) {
-            const { dir, suffix } = imports.messageContextCommands;
-            await this.commands.context.message.importFrom(dir, suffix);
-        }
-
-        // Import user context command modules
-        if (imports.userContextCommands) {
-            const { dir, suffix } = imports.userContextCommands;
-            await this.commands.context.user.importFrom(dir, suffix);
-        }
-
-        // Import event modules
-        if (imports.events) {
-            const { dir, suffix } = imports.events;
-            await this.events.importFrom(dir, suffix);
-            this.events.mount();
+        for (const dir of typeof entry.dir === "string" ? [entry.dir] : entry.dir) {
+            const results = await importModulesFromDir<{ default?: unknown }>(dir, entry.suffix);
+            for (const { module, path } of results) {
+                const value = module.default;
+                if (!(value instanceof moduleClass)) {
+                    throw new ModuleError(
+                        `'${path}' has ${describeExport(value)}; modules.${key} expects a ${moduleClass.name}`
+                    );
+                }
+                if (manager.modules.has(value.id)) {
+                    throw new ModuleError(`'${path}' has a duplicate module id '${value.id}'`);
+                }
+                manager.register(value);
+            }
+            this.client.logger.debug(
+                `[ModuleManager] Imported ${results.length} ${results.length === 1 ? "module" : "modules"} from '${dir}'`
+            );
         }
     }
 
-    /** Unloads all modules. */
+    /**
+     * Imports the modules configured on the client.
+     * @internal `login()` calls this; configure modules through the `modules` client option.
+     */
+    async load(imports: AppModuleImports): Promise<void> {
+        await this.loadEntry("slashCommands", SlashCommandModule, this.commands.slash, imports.slashCommands);
+        await this.loadEntry("prefixCommands", PrefixCommandModule, this.commands.prefix, imports.prefixCommands);
+        await this.loadEntry(
+            "messageContextCommands",
+            MessageContextCommandModule,
+            this.commands.context.message,
+            imports.messageContextCommands
+        );
+        await this.loadEntry(
+            "userContextCommands",
+            UserContextCommandModule,
+            this.commands.context.user,
+            imports.userContextCommands
+        );
+        await this.loadEntry("events", EventModule, this.events, imports.events);
+    }
+
+    /** Removes the command listeners and unloads all modules. */
     unload(): void {
-        this.commands.unmount();
+        this.commands.removeListeners();
         this.events.clear();
         this.commands.slash.clear();
         this.commands.prefix.clear();

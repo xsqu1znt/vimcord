@@ -1,8 +1,6 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { IndexFn } from "@/types/helpers.js";
 
-import { importModulesFromDir } from "@/utils/import.js";
-
 export type ModuleIndex<T> =
     | {
           key: IndexFn<T>;
@@ -24,8 +22,6 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
     readonly indexes: Map<K, ModuleIndex<T>> = new Map();
 
     constructor(readonly client: Vimcord) {}
-
-    protected abstract createModuleKey(module: T): string;
 
     abstract clear(): void;
 
@@ -72,33 +68,5 @@ export abstract class AbstractModuleImporter<T extends ImportableModule, K exten
                 }
             }
         }
-    }
-
-    async importFrom(dir: string | string[], suffix: string | string[] | undefined, set = false): Promise<Map<string, T>> {
-        if (set) this.modules.clear();
-
-        const dirs = Array.isArray(dir) ? dir : [dir];
-
-        for (const _dir of dirs) {
-            const results = await importModulesFromDir<{ default: T }>(_dir, suffix);
-
-            for (const result of results) {
-                const module = result.module.default;
-                const key = this.createModuleKey(module);
-                if (this.modules.has(key)) {
-                    throw new Error(`Duplicate module key '${key}' imported from '${result.path}'`);
-                }
-
-                module.inject(this.client);
-                this.modules.set(key, module);
-            }
-
-            this.client.logger.debug(
-                `[ModuleImporter] Imported ${results.length} ${results.length === 1 ? "module" : "modules"} from '${_dir}'`
-            );
-        }
-
-        this.reindex();
-        return this.modules;
     }
 }

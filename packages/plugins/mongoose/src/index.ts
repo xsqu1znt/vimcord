@@ -68,6 +68,7 @@ export class MongoosePlugin extends VimcordPlugin {
     private readonly requireConnection: boolean;
     private connectingPromise: Promise<boolean> | null = null;
     private readonly migrations = new Map<string, (ctx: MongoosePlugin) => Promise<void>>();
+    private migrationsFinished = false;
     private readonly onDisconnected = (): void => {
         this.client?.logger.plugin.log(this.name, "MongoDB disconnected");
     };
@@ -104,6 +105,7 @@ export class MongoosePlugin extends VimcordPlugin {
     override async uninstall(): Promise<void> {
         this.mongoose.connection.off("disconnected", this.onDisconnected);
         this.mongoose.connection.off("reconnected", this.onReconnected);
+        this.migrationsFinished = false;
         await this.disconnect();
     }
 
@@ -178,10 +180,14 @@ export class MongoosePlugin extends VimcordPlugin {
 
     /**
      * Registers a migration on this plugin instance, preserving registration order.
+     * Migrations run during `login()` before the gateway connects, so register them before calling it.
      * @param id Stable unique migration identifier
      * @param run Migration callback receiving this connected plugin
      */
     defineMigration(id: string, run: (ctx: MongoosePlugin) => Promise<void>): void {
+        if (this.migrationsFinished) {
+            throw new MongoosePluginError(`Migration '${id}' was registered after migrations ran; register it before login`);
+        }
         if (!id.trim()) throw new MongoosePluginError("Migration id cannot be empty");
         if (this.migrations.has(id)) throw new MongoosePluginError(`Migration '${id}' is already registered`);
         this.migrations.set(id, run);
@@ -227,8 +233,13 @@ export class MongoosePlugin extends VimcordPlugin {
         }
     }
 
-    /** Runs registered migrations sequentially after plugin loading; completed ids are skipped. */
-    async runMigrations(): Promise<void> {
+    /** Runs registered migrations sequentially inside `login()`; completed ids are skipped. A failure aborts login. */
+    override async onPluginsInstalled(): Promise<void> {
+        if (!this.migrations.size) {
+            this.migrationsFinished = true;
+            return;
+        }
+
         const db = this.mongoose.connection.db;
         if (this.mongoose.connection.readyState !== 1 || !db) {
             throw new MongoosePluginError("Cannot run migrations: MongoDB is not connected");
@@ -243,6 +254,7 @@ export class MongoosePlugin extends VimcordPlugin {
                 throw error;
             }
         }
+        this.migrationsFinished = true;
     }
 
     async startSession(options?: ClientSessionOptions): Promise<mongoose.ClientSession> {

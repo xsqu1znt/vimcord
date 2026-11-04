@@ -1,9 +1,8 @@
-import type { Vimcord } from "vimcord";
-
 import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
+import { Vimcord } from "vimcord";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MongoosePlugin } from "./index.js";
+import { createMongoSchema, MongoosePlugin } from "./index.js";
 
 let firstPlugin: MongoosePlugin;
 let secondPlugin: MongoosePlugin;
@@ -51,12 +50,12 @@ describe("run-once migrations", () => {
             expect(await records().findOne({ _id: "first" })).toHaveProperty("ranAt");
             order.push("second");
         });
-        await firstPlugin.runMigrations();
-        await firstPlugin.runMigrations();
+        await firstPlugin.onPluginsInstalled();
+        await firstPlugin.onPluginsInstalled();
         const other = vi.fn(async () => {});
         secondPlugin.defineMigration("first", other);
         secondPlugin.defineMigration("second", other);
-        await secondPlugin.runMigrations();
+        await secondPlugin.onPluginsInstalled();
         expect(other).not.toHaveBeenCalled();
         expect(order).toEqual(["first", "second"]);
         expect(await records().findOne({ _id: "second" })).toMatchObject({ ranAt: expect.any(Date) });
@@ -80,10 +79,10 @@ describe("run-once migrations", () => {
         firstPlugin.defineMigration("contended", first);
         secondPlugin.defineMigration("contended", second);
         secondPlugin.defineMigration("later", later);
-        const owner = firstPlugin.runMigrations();
+        const owner = firstPlugin.onPluginsInstalled();
         await entered;
         try {
-            await expect(secondPlugin.runMigrations()).rejects.toThrow(/contended.*already running/);
+            await expect(secondPlugin.onPluginsInstalled()).rejects.toThrow(/contended.*already running/);
             expect(second).not.toHaveBeenCalled();
             expect(later).not.toHaveBeenCalled();
             expect(await records().findOne({ _id: "contended" })).toEqual({ _id: "contended" });
@@ -91,7 +90,7 @@ describe("run-once migrations", () => {
             finish();
             await owner;
         }
-        await secondPlugin.runMigrations();
+        await secondPlugin.onPluginsInstalled();
         expect(first).toHaveBeenCalledOnce();
         expect(second).not.toHaveBeenCalled();
         expect(later).toHaveBeenCalledOnce();
@@ -106,13 +105,13 @@ describe("run-once migrations", () => {
         const later = vi.fn(async () => {});
         firstPlugin.defineMigration("retry", run);
         firstPlugin.defineMigration("after-retry", later);
-        await expect(firstPlugin.runMigrations()).rejects.toBe(error);
+        await expect(firstPlugin.onPluginsInstalled()).rejects.toBe(error);
         expect(await records().findOne({ _id: "retry" })).toBeNull();
         expect(later).not.toHaveBeenCalled();
         expect(LOG_ERROR).toHaveBeenCalledWith("mongoose", "Migration 'retry' failed", error);
 
         shouldFail = false;
-        await firstPlugin.runMigrations();
+        await firstPlugin.onPluginsInstalled();
         expect(run).toHaveBeenCalledTimes(2);
         expect(later).toHaveBeenCalledOnce();
         expect(await records().findOne({ _id: "retry" })).toHaveProperty("ranAt");
@@ -122,7 +121,7 @@ describe("run-once migrations", () => {
         const plugin = new MongoosePlugin();
         plugin.defineMigration("stable-id", async () => {});
         expect(() => plugin.defineMigration("stable-id", async () => {})).toThrow(/already registered/);
-        await expect(plugin.runMigrations()).rejects.toThrow(/not connected/);
+        await expect(plugin.onPluginsInstalled()).rejects.toThrow(/not connected/);
     });
 
     it("releases the claim when recording completion fails so a future runner can retry", async () => {
@@ -131,9 +130,9 @@ describe("run-once migrations", () => {
         firstPlugin.defineMigration("completion", run);
         vi.spyOn(mongoose.mongo.Collection.prototype, "updateOne").mockRejectedValueOnce(error);
 
-        await expect(firstPlugin.runMigrations()).rejects.toBe(error);
+        await expect(firstPlugin.onPluginsInstalled()).rejects.toBe(error);
         expect(await records().findOne({ _id: "completion" })).toBeNull();
-        await firstPlugin.runMigrations();
+        await firstPlugin.onPluginsInstalled();
         expect(run).toHaveBeenCalledTimes(2);
         expect(await records().findOne({ _id: "completion" })).toHaveProperty("ranAt");
     });
@@ -146,7 +145,49 @@ describe("run-once migrations", () => {
         });
         vi.spyOn(mongoose.mongo.Collection.prototype, "deleteOne").mockRejectedValueOnce(cleanupError);
 
-        await expect(firstPlugin.runMigrations()).rejects.toMatchObject({ errors: [error, cleanupError] });
+        await expect(firstPlugin.onPluginsInstalled()).rejects.toMatchObject({ errors: [error, cleanupError] });
         expect(await records().findOne({ _id: "cleanup" })).toEqual({ _id: "cleanup" });
+    });
+
+    it("skips the connection check when no migrations are registered, for requireConnection: false", async () => {
+        await expect(new MongoosePlugin().onPluginsInstalled()).resolves.toBeUndefined();
+    });
+
+    it("rejects a migration registered after migrations ran, instead of silently never running it", async () => {
+        await firstPlugin.onPluginsInstalled();
+        expect(() => firstPlugin.defineMigration("late", async () => {})).toThrow(/before login/);
+    });
+
+    it("runs migrations inside login before the gateway, with schema builders usable, and aborts login on failure", async () => {
+        const Items = createMongoSchema("migration_items", { name: { type: String, required: true } });
+        const order: string[] = [];
+        const plugin = new MongoosePlugin({ uri: server.getUri(), connectOptions: { dbName: "login-migrations" } });
+        plugin.defineMigration(`builder-${Date.now()}`, async () => {
+            await Items.create([{ name: "from-migration" }]);
+            order.push(`migration:${await Items.count({ name: "from-migration" }).then(n => n > 0)}`);
+        });
+        const gateway = vi.spyOn(Object.getPrototypeOf(Vimcord.prototype), "login").mockImplementation(async () => {
+            order.push("gateway");
+            return "token";
+        });
+        const client = new Vimcord({ intents: [], disableBanner: true, plugins: [plugin] });
+        try {
+            await client.login("token");
+            expect(order).toEqual(["migration:true", "gateway"]);
+
+            await client.destroy();
+            const failing = new MongoosePlugin({ uri: server.getUri(), connectOptions: { dbName: "login-migrations" } });
+            failing.defineMigration(`fails-${Date.now()}`, async () => {
+                throw new Error("backfill failed");
+            });
+            const second = new Vimcord({ intents: [], disableBanner: true, plugins: [failing] });
+            gateway.mockClear();
+            await expect(second.login("token")).rejects.toThrow(/backfill failed/);
+            expect(gateway).not.toHaveBeenCalled();
+            expect(failing.mongoose.connection.readyState).toBe(0);
+            await second.destroy();
+        } finally {
+            await client.destroy().catch(() => {});
+        }
     });
 });
