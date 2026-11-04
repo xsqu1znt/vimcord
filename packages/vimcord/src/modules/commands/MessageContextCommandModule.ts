@@ -1,9 +1,9 @@
-import type { AppCommandModuleOptions } from "@/abstracts/index.js";
+import type { CommandModuleContext, ContextCommandModuleOptions } from "@/abstracts/index.js";
 
 import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 
-type MessageContextCommandModuleOptions = AppCommandModuleOptions<CommandModuleType.MessageContext>;
+type MessageContextCommandModuleOptions = ContextCommandModuleOptions<CommandModuleType.MessageContext>;
 
 export class MessageContextCommandModule extends AbstractCommandModule<CommandModuleType.MessageContext> {
     override type: CommandModuleType.MessageContext = CommandModuleType.MessageContext;
@@ -20,7 +20,8 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
 
         super({
             name: builder.name,
-            ...options
+            ...options,
+            execute: options.execute as (ctx: CommandModuleContext<CommandModuleType.MessageContext>) => unknown
         });
 
         this.directExecution = new.target === MessageContextCommandModule;

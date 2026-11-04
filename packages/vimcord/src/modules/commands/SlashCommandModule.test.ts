@@ -48,61 +48,55 @@ function createInteraction(subcommand: string) {
 }
 
 describe("SlashCommandModule configuration validation", () => {
-    it("rejects a command with neither an execute handler nor routes", () => {
+    it("rejects a command with neither an execute handler nor subcommands", () => {
         expect(
             () => new SlashCommandModule({ builder: new SlashCommandBuilder().setName("noop").setDescription("d") })
-        ).toThrow(/execute.*route/);
+        ).toThrow(/execute.*subcommand/);
     });
 
-    it("rejects duplicate route paths after normalization", () => {
+    it("rejects duplicate subcommands after normalization", () => {
         expect(
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    routes: [
-                        { path: "Ping", handler: () => undefined },
-                        { path: "ping", handler: () => undefined }
-                    ]
+                    subcommands: { Ping: { handler: () => undefined }, ping: { handler: () => undefined } }
                 })
-        ).toThrow(/duplicate route/i);
+        ).toThrow(/duplicate subcommand/i);
     });
 
-    it("rejects a routes-only command missing coverage for a builder subcommand", () => {
+    it("rejects a subcommands-only command missing coverage for a builder subcommand", () => {
         expect(
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    routes: [{ path: "ping", handler: () => undefined }]
+                    subcommands: { ping: { handler: () => undefined } }
                 })
         ).toThrow(/pong/);
     });
 
-    it("accepts a routes-only command that covers every builder subcommand", () => {
+    it("accepts a subcommands-only command that covers every builder subcommand", () => {
         expect(
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    routes: [
-                        { path: "ping", handler: () => undefined },
-                        { path: "pong", handler: () => undefined }
-                    ]
+                    subcommands: { ping: { handler: () => undefined }, pong: { handler: () => undefined } }
                 })
         ).not.toThrow();
     });
 
-    it("rejects routes-only configuration when the builder has no subcommands", () => {
+    it("rejects subcommands-only configuration when the builder has no subcommands", () => {
         expect(
             () =>
                 new SlashCommandModule({
                     builder: new SlashCommandBuilder().setName("flat").setDescription("d"),
-                    routes: [{ path: "unreachable", handler: () => undefined }]
+                    subcommands: { unreachable: { handler: () => undefined } }
                 })
-        ).toThrow(/does not declare any subcommands/);
+        ).toThrow(/does not declare any/);
     });
 });
 
-describe("SlashCommandModule route dispatch", () => {
-    it("runs the configured execute handler for a subcommand when no routes are configured", async () => {
+describe("SlashCommandModule subcommand dispatch", () => {
+    it("runs the configured execute handler for a subcommand when no subcommands are configured", async () => {
         const execute = vi.fn();
         const module = new SlashCommandModule({ builder: builderWithSubcommands(), execute });
         module.inject(createClient());
@@ -113,17 +107,28 @@ describe("SlashCommandModule route dispatch", () => {
         expect(execute).toHaveBeenCalledOnce();
     });
 
-    it("fails a route permission check without running the handler or counting the invocation as executed", async () => {
+    it("routes group:subcommand keys and exposes the match on the context", async () => {
+        const handler = vi.fn(ctx => ctx.subcommand);
+        const module = new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            execute: () => {},
+            subcommands: { "mod:kick": { handler } }
+        });
+        module.inject(createClient());
+        const interaction = createInteraction("kick");
+        interaction.options.getSubcommandGroup = () => "mod";
+
+        expect(await module.run(interaction)).toBe("mod:kick");
+    });
+
+    it("fails a subcommand permission check without running the handler or counting the invocation as executed", async () => {
         const handler = vi.fn();
-        const onPermissionTestFail = vi.fn();
+        const onBlocked = vi.fn();
 
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
-            routes: [
-                { path: "ping", handler, permissions: { users: ["someone-else"] } },
-                { path: "pong", handler }
-            ],
-            hooks: { onPermissionTestFail }
+            subcommands: { ping: { handler, access: { users: ["someone-else"] } }, pong: { handler } },
+            hooks: { onBlocked }
         });
         module.inject(createClient());
 
@@ -131,20 +136,20 @@ describe("SlashCommandModule route dispatch", () => {
 
         expect(result.executed).toBe(false);
         expect(handler).not.toHaveBeenCalled();
-        expect(onPermissionTestFail).toHaveBeenCalledTimes(1);
+        expect(onBlocked).toHaveBeenCalledExactlyOnceWith(
+            expect.anything(),
+            expect.objectContaining({ kind: "permission", reason: "UserNotAllowed" })
+        );
     });
 
-    it("runs onUnknownRoute for an unmatched subcommand without counting the invocation as executed", async () => {
+    it("blocks an unmatched subcommand as unknownRoute without counting the invocation as executed", async () => {
         const handler = vi.fn();
-        const onUnknownRoute = vi.fn();
+        const onBlocked = vi.fn();
 
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
-            routes: [
-                { path: "ping", handler },
-                { path: "pong", handler }
-            ],
-            hooks: { onUnknownRoute }
+            subcommands: { ping: { handler }, pong: { handler } },
+            hooks: { onBlocked }
         });
         module.inject(createClient());
 
@@ -152,20 +157,17 @@ describe("SlashCommandModule route dispatch", () => {
 
         expect(result.executed).toBe(false);
         expect(handler).not.toHaveBeenCalled();
-        expect(onUnknownRoute).toHaveBeenCalledTimes(1);
+        expect(onBlocked).toHaveBeenCalledExactlyOnceWith(expect.anything(), { kind: "unknownRoute", path: "typo" });
     });
 
-    it("defers per the route setting even when the route disables what the command enables", async () => {
+    it("defers per the subcommand setting even when it disables what the command enables", async () => {
         const deferReply = vi.fn();
         const handler = vi.fn();
 
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
             deferReply: true,
-            routes: [
-                { path: "ping", handler, deferReply: false },
-                { path: "pong", handler }
-            ]
+            subcommands: { ping: { handler, deferReply: false }, pong: { handler } }
         });
         module.inject(createClient());
 
@@ -177,9 +179,22 @@ describe("SlashCommandModule route dispatch", () => {
         expect(deferReply).not.toHaveBeenCalled();
         expect(handler).toHaveBeenCalledTimes(1);
     });
-});
 
-describe("SlashCommandModule invocation snapshots", () => {
+    it("defers an ephemeral subcommand with the flag", async () => {
+        const deferReply = vi.fn();
+        const module = new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            subcommands: { ping: { deferReply: "ephemeral", handler: () => {} }, pong: { handler: () => {} } }
+        });
+        module.inject(createClient());
+        const interaction = createInteraction("ping");
+        interaction.deferReply = deferReply;
+
+        await module.runWithResult(interaction);
+
+        expect(deferReply).toHaveBeenCalledExactlyOnceWith({ flags: "Ephemeral" });
+    });
+
     it("preserves dispatch for subclasses with custom context factories", async () => {
         class CustomContextModule extends SlashCommandModule {
             protected override createModuleCTX(args: Parameters<SlashCommandModule["run"]>) {
@@ -197,7 +212,7 @@ describe("SlashCommandModule invocation snapshots", () => {
         const module = new CustomContextModule({
             builder: builderWithSubcommands(),
             execute: () => {},
-            routes: [{ path: "ping", handler, deferReply: true }]
+            subcommands: { ping: { handler, deferReply: true } }
         });
         module.inject(createClient());
         const interaction = createInteraction("ping");
@@ -206,28 +221,49 @@ describe("SlashCommandModule invocation snapshots", () => {
         expect(handler).toHaveBeenCalledOnce();
         expect(deferReply).toHaveBeenCalledOnce();
     });
+});
 
-    it("resolves the path once and preserves live route changes from preExecute hooks", async () => {
-        const handler = vi.fn();
-        const replacement = vi.fn();
-        const route = { path: "ping", handler };
-        const client = createClient();
-        const module = new SlashCommandModule({ builder: builderWithSubcommands(), execute: () => {}, routes: [route] });
-        module.inject(client);
-        const interaction = createInteraction("ping");
-        const getSubcommand = vi.spyOn(interaction.options, "getSubcommand");
-        const pre = vi.fn(async (_ctx, next: () => void) => {
-            module.routes.set("ping", { path: "ping", handler: replacement });
-            next();
+describe("guildOnly narrowing", () => {
+    it("narrows handler contexts, on the command and on one subcommand", () => {
+        new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            guildOnly: true,
+            execute: ctx => {
+                const guildId: string = ctx.interaction.guildId;
+                return guildId;
+            },
+            subcommands: {
+                ping: {
+                    handler(ctx) {
+                        const guildId: string = ctx.interaction.guildId;
+                        return guildId;
+                    }
+                }
+            }
         });
-        client.globals.hooks = { slash: { preExecute: pre } };
-        await module.run(interaction);
-        expect(getSubcommand).toHaveBeenCalledOnce();
-        expect(handler).not.toHaveBeenCalled();
-        expect(replacement).toHaveBeenCalledOnce();
-        client.globals.hooks = undefined;
-        await module.run(interaction);
-        expect(getSubcommand).toHaveBeenCalledTimes(2);
-        expect(replacement).toHaveBeenCalledTimes(2);
+        new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            execute(ctx) {
+                // @ts-expect-error Without guildOnly the interaction may be in a DM.
+                const guildId: string = ctx.interaction.guildId;
+                return guildId;
+            },
+            subcommands: {
+                ping: {
+                    guildOnly: true,
+                    handler(ctx) {
+                        const guildId: string = ctx.interaction.guildId;
+                        return guildId;
+                    }
+                },
+                pong: {
+                    handler(ctx) {
+                        // @ts-expect-error This subcommand is not guildOnly.
+                        const guildId: string = ctx.interaction.guildId;
+                        return guildId;
+                    }
+                }
+            }
+        });
     });
 });

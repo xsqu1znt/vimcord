@@ -1,28 +1,22 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 import type {
-    AppCommandModuleOptions,
+    CommandBlock,
+    CommandModuleArgs,
     CommandModuleContext,
     CommandModuleHookContext,
+    ResolvedSlashSubcommand,
     SlashCommandAutocompleteHandler,
     SlashCommandBuilderResolvable,
-    SlashCommandModuleRoute
+    SlashCommandModuleOptions
 } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
+import type { CommandRestrictions } from "@/commands/commandPermissions.js";
 
 import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import { testConditions } from "@/abstracts/testConditions.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { dynaSend, SendMethod } from "@/ux/index.js";
-
-type SlashCommandModuleOptions = Omit<AppCommandModuleOptions<CommandModuleType.Slash>, "execute"> & {
-    execute?: AppCommandModuleOptions<CommandModuleType.Slash>["execute"];
-};
-
-type InvocationContext = CommandModuleContext<CommandModuleType.Slash> & { [ROUTE_PATH]?: string | null };
-
-const ROUTE_PATH = Symbol("routePath");
 
 /** Discord's cap on the number of autocomplete choices returned in one response. */
 const MAX_AUTOCOMPLETE_CHOICES = 25;
@@ -45,44 +39,42 @@ function getBuilderSubcommandPaths(builder: SlashCommandBuilderResolvable): stri
 }
 
 /**
- * Normalizes and validates route configuration once, at construction, so a misconfigured command
+ * Normalizes and validates subcommand configuration once, at construction, so a misconfigured command
  * fails before it can ever be registered instead of on its first invocation.
  */
-function buildRoutes(
+function buildSubcommands(
     commandName: string,
     builder: SlashCommandBuilderResolvable,
     options: SlashCommandModuleOptions
-): Map<string, SlashCommandModuleRoute> {
-    const routeList = options.routes ?? [];
-    if (!options.execute && !routeList.length) {
-        throw new ModuleError(`Slash command '${commandName}' needs an 'execute' handler or at least one route`);
+): Map<string, ResolvedSlashSubcommand> {
+    const entries = Object.entries((options.subcommands ?? {}) as Record<string, ResolvedSlashSubcommand>);
+    if (!options.execute && !entries.length) {
+        throw new ModuleError(`Slash command '${commandName}' needs an 'execute' handler or at least one subcommand`);
     }
 
-    const routes = new Map<string, SlashCommandModuleRoute>();
-    for (const route of routeList) {
-        const path = route.path.trim().toLowerCase();
-        if (routes.has(path)) {
-            throw new ModuleError(`Slash command '${commandName}' has a duplicate route path '${path}'`);
+    const subcommands = new Map<string, ResolvedSlashSubcommand>();
+    for (const [key, subcommand] of entries) {
+        const path = key.trim().toLowerCase();
+        if (subcommands.has(path)) {
+            throw new ModuleError(`Slash command '${commandName}' has a duplicate subcommand '${path}'`);
         }
-        routes.set(path, route);
+        subcommands.set(path, subcommand);
     }
 
     if (!options.execute) {
         const builderPaths = getBuilderSubcommandPaths(builder);
         if (!builderPaths.length) {
-            throw new ModuleError(
-                `Slash command '${commandName}' has routes but its builder does not declare any subcommands`
-            );
+            throw new ModuleError(`Slash command '${commandName}' has subcommands but its builder does not declare any`);
         }
-        const missing = builderPaths.filter(path => !routes.has(path));
+        const missing = builderPaths.filter(path => !subcommands.has(path));
         if (missing.length) {
             throw new ModuleError(
-                `Slash command '${commandName}' has no 'execute' handler and is missing routes for: ${missing.join(", ")}`
+                `Slash command '${commandName}' has no 'execute' handler and is missing subcommands for: ${missing.join(", ")}`
             );
         }
     }
 
-    return routes;
+    return subcommands;
 }
 
 function createRoutePath(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string | null {
@@ -100,14 +92,14 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     readonly builder: SlashCommandBuilderResolvable;
     override readonly deferReply: SlashCommandModuleOptions["deferReply"];
     readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
-    readonly routes: Map<string, SlashCommandModuleRoute>;
+    readonly subcommands: Map<string, ResolvedSlashSubcommand>;
     readonly autocomplete: SlashCommandAutocompleteHandler | undefined;
 
-    private readonly configuredExecute: SlashCommandModuleOptions["execute"];
+    private readonly configuredExecute: ((ctx: CommandModuleContext<CommandModuleType.Slash>) => unknown) | undefined;
 
     constructor(options: SlashCommandModuleOptions) {
         const builder = typeof options.builder === "function" ? options.builder(new SlashCommandBuilder()) : options.builder;
-        const routes = buildRoutes(builder.name, builder, options);
+        const subcommands = buildSubcommands(builder.name, builder, options);
 
         super({
             ...options,
@@ -119,21 +111,21 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         this.builder = builder;
         this.deferReply = options.deferReply;
         this.registration = { global: true, ...options.registration };
-        this.routes = routes;
+        this.subcommands = subcommands;
         this.autocomplete = options.autocomplete;
-        this.configuredExecute = options.execute;
+        this.configuredExecute = options.execute as typeof this.configuredExecute;
         this.directExecution = new.target === SlashCommandModule;
     }
 
     /**
-     * Answers an autocomplete interaction with the matching route handler, falling back to the module handler.
+     * Answers an autocomplete interaction with the matching subcommand handler, falling back to the module handler.
      * Skips the module pipeline because Discord allows 3 seconds and the interaction cannot report an error.
      * @param interaction The autocomplete interaction to answer
      * @returns Whether a handler was found
      */
     async handleAutocomplete(interaction: AutocompleteInteraction): Promise<boolean> {
-        const routePath = createRoutePath(interaction);
-        const handler = (routePath ? this.routes.get(routePath)?.autocomplete : undefined) ?? this.autocomplete;
+        const path = createRoutePath(interaction);
+        const handler = (path ? this.subcommands.get(path)?.autocomplete : undefined) ?? this.autocomplete;
         if (!handler) return false;
 
         try {
@@ -152,80 +144,49 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         return true;
     }
 
-    /** Tests routes only when configured, after the command's own restrictions pass. */
-    protected override performTests(ctx: CommandModuleHookContext<CommandModuleType.Slash>): boolean | Promise<boolean> {
-        const passed = super.performTests(ctx);
-        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testRoute(ctx));
-        return passed && this.testRoute(ctx);
+    protected override createModuleCTX(
+        args: CommandModuleArgs<CommandModuleType.Slash>
+    ): CommandModuleContext<CommandModuleType.Slash> {
+        const ctx = super.createModuleCTX(args);
+        ctx.subcommand = this.subcommands.size ? createRoutePath(args[0]) : null;
+        return ctx;
     }
 
-    private testRoute(ctx: CommandModuleHookContext<CommandModuleType.Slash>): boolean | Promise<boolean> {
-        if (!this.routes.size) return true;
-        const routePath = createRoutePath(ctx.interaction);
-        (ctx as InvocationContext)[ROUTE_PATH] = routePath;
-        if (!routePath) return true;
-
-        const route = this.routes.get(routePath);
-        if (!route) {
-            return this.handleUnknownRoute(ctx, routePath).then(() => false);
-        }
-
-        if (!route.conditions?.length && !route.permissions) return true;
-        return this.testRouteRestrictions(ctx, route);
+    protected override getSubcommand(
+        ctx: CommandModuleHookContext<CommandModuleType.Slash>
+    ): CommandRestrictions | undefined {
+        return ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
     }
 
-    private testRouteRestrictions(
-        ctx: CommandModuleHookContext<CommandModuleType.Slash>,
-        route: SlashCommandModuleRoute
-    ): boolean | Promise<boolean> {
-        const result = testConditions(route.conditions ?? [], ctx, "Route condition");
-        const finish = (result: Awaited<ReturnType<typeof testConditions>>) => {
-            const passed = this.handleConditionResult(ctx, result);
-            if (typeof passed !== "boolean") return passed;
-            return passed && (!route.permissions || this.testPermissions(ctx, route.permissions));
-        };
-        return result instanceof Promise ? result.then(finish) : finish(result);
+    protected override findUnknownRoute(ctx: CommandModuleHookContext<CommandModuleType.Slash>): string | undefined {
+        if (!ctx.subcommand || this.subcommands.has(ctx.subcommand)) return undefined;
+        return ctx.subcommand;
     }
 
     protected override canExecuteDirectly(): boolean {
-        return !this.routes.size && super.canExecuteDirectly();
+        return !this.subcommands.size && super.canExecuteDirectly();
     }
 
-    protected override prepareExecute(ctx: InvocationContext): void | Promise<void> {
-        if (ctx[ROUTE_PATH] === undefined && this.routes.size) ctx[ROUTE_PATH] = createRoutePath(ctx.interaction);
-        const path = ctx[ROUTE_PATH];
-        const route = path ? this.routes.get(path) : undefined;
-        return this.deferInteraction(ctx, resolveDeferReply(route?.deferReply, this.deferReply));
+    protected override prepareExecute(ctx: CommandModuleContext<CommandModuleType.Slash>): void | Promise<void> {
+        const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
+        return this.deferInteraction(ctx, resolveDeferReply(subcommand?.deferReply, this.deferReply));
     }
 
-    /** Reuses the resolved path while preserving live route-map changes made by hooks. */
-    private executeApp(ctx: InvocationContext): unknown {
-        const path = this.routes.size
-            ? ctx[ROUTE_PATH] !== undefined
-                ? ctx[ROUTE_PATH]
-                : createRoutePath(ctx.interaction)
-            : null;
-        const route = path ? this.routes.get(path) : undefined;
-        if (route) return route.handler(ctx);
+    private executeApp(ctx: CommandModuleContext<CommandModuleType.Slash>): unknown {
+        const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
+        if (subcommand) return subcommand.handler(ctx);
         return this.configuredExecute?.call(this, ctx);
     }
 
-    private async handleUnknownRoute(
+    /** Tells the user about an unmatched subcommand when no `onBlocked` hook takes the block. */
+    protected override async handleUnobservedBlock(
         ctx: CommandModuleHookContext<CommandModuleType.Slash>,
-        routePath: string
+        block: CommandBlock
     ): Promise<void> {
-        const handler = this.getHook("onUnknownRoute");
-        if (handler) {
-            try {
-                await handler(ctx, routePath);
-            } catch (err) {
-                this.client?.logger.error(`[Module] Hook 'onUnknownRoute' failed for '${this.buildName()}'`, err as Error);
-            }
-            return;
-        }
+        if (block.kind !== "unknownRoute") return super.handleUnobservedBlock(ctx, block);
 
         await dynaSend(ctx.interaction, {
-            content: `Subcommand '${routePath}' was not found.`,
+            content: `Subcommand '${block.path}' was not found.`,
             flags: "Ephemeral",
             sendMethod: ctx.interaction.replied || ctx.interaction.deferred ? SendMethod.FollowUp : SendMethod.Reply
         });

@@ -70,11 +70,10 @@ function createApplicationCommand(kind: ApplicationCommandKind, execute: () => u
         deferReply: true,
         execute,
         hooks: {
-            preExecute: async (_ctx: unknown, next: () => void) => {
+            before: async () => {
                 advance(5);
-                next();
-            },
-            postExecute: async () => advance(4)
+                return true;
+            }
         }
     };
 
@@ -154,7 +153,7 @@ describe("CommandManager usage timing", () => {
         );
     });
 
-    it("separates prefix preparation, user execution, and post-execute work", async () => {
+    it("separates prefix preparation and user execution", async () => {
         const client = createClient(ALL_TIMINGS);
         const command = new PrefixCommandModule({
             name: "balance",
@@ -164,11 +163,10 @@ describe("CommandManager usage timing", () => {
                 advance(126);
             },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(12);
-                    next();
-                },
-                postExecute: async () => advance(4)
+                    return true;
+                }
             }
         });
         client.modules.commands.prefix.register(command);
@@ -179,13 +177,13 @@ describe("CommandManager usage timing", () => {
             userName: "maya",
             guildName: "Workshop",
             guildId: "guild",
-            durationMs: 142,
+            durationMs: 138,
             failed: false,
             timings: [
                 { timing: "delivery", durationMs: 48 },
                 { timing: "preExecute", durationMs: 12 },
                 { timing: "execute", durationMs: 126 },
-                { timing: "total", durationMs: 142 }
+                { timing: "total", durationMs: 138 }
             ]
         });
     });
@@ -203,12 +201,12 @@ describe("CommandManager usage timing", () => {
         expect(interaction.deferReply).toHaveBeenCalledOnce();
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                durationMs: 142,
+                durationMs: 138,
                 timings: [
                     { timing: "delivery", durationMs: 48 },
                     { timing: "preExecute", durationMs: 12 },
                     { timing: "execute", durationMs: 126 },
-                    { timing: "total", durationMs: 142 }
+                    { timing: "total", durationMs: 138 }
                 ]
             })
         );
@@ -225,31 +223,14 @@ describe("CommandManager usage timing", () => {
             requiresReady: false,
             deferReply: false,
             execute,
-            conditions: [
-                () => {
-                    advance(3);
-                    return { passed: true };
-                }
-            ],
-            routes: [
-                {
-                    path: "view",
-                    deferReply: true,
-                    conditions: [
-                        () => {
-                            advance(5);
-                            return { passed: true };
-                        }
-                    ],
-                    handler: () => advance(20)
-                }
-            ],
+            subcommands: {
+                view: { deferReply: true, handler: () => advance(20) }
+            },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(4);
-                    next();
-                },
-                postExecute: async () => advance(6)
+                    return true;
+                }
             }
         });
         client.modules.commands.slash.register(command);
@@ -263,9 +244,9 @@ describe("CommandManager usage timing", () => {
             expect.objectContaining({
                 timings: [
                     { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 19 },
+                    { timing: "preExecute", durationMs: 11 },
                     { timing: "execute", durationMs: 20 },
-                    { timing: "total", durationMs: 45 }
+                    { timing: "total", durationMs: 31 }
                 ]
             })
         );
@@ -281,9 +262,9 @@ describe("CommandManager usage timing", () => {
                 throw new Error("failed");
             },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(12);
-                    next();
+                    return true;
                 },
                 onError: async () => advance(6)
             }
@@ -300,36 +281,6 @@ describe("CommandManager usage timing", () => {
                     { timing: "preExecute", durationMs: 12 },
                     { timing: "execute", durationMs: 30 },
                     { timing: "total", durationMs: 48 }
-                ]
-            })
-        );
-    });
-
-    it("retains handler duration when post-execute throws", async () => {
-        const client = createClient(["execute", "total"]);
-        client.modules.commands.prefix.register(
-            new PrefixCommandModule({
-                name: "balance",
-                requiresReady: false,
-                execute: () => advance(30),
-                hooks: {
-                    postExecute: async () => {
-                        advance(5);
-                        throw new Error("post failed");
-                    },
-                    onError: async () => advance(6)
-                }
-            })
-        );
-
-        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                failed: true,
-                timings: [
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 41 }
                 ]
             })
         );
@@ -537,28 +488,24 @@ describe("CommandManager logging selection", () => {
         expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
-    it.each(["disabled", "condition", "preExecute", "permission"] as const)(
-        "does not log a command blocked by %s",
-        async reason => {
-            const client = createClient(ALL_TIMINGS);
-            const execute = vi.fn();
-            client.modules.commands.prefix.register(
-                new PrefixCommandModule({
-                    name: "balance",
-                    requiresReady: false,
-                    enabled: reason !== "disabled",
-                    conditions: reason === "condition" ? [() => ({ passed: false, reason: "blocked" })] : [],
-                    permissions: reason === "permission" ? { botStaff: true } : {},
-                    hooks: reason === "preExecute" ? { preExecute: async () => {} } : {},
-                    execute
-                })
-            );
+    it.each(["disabled", "before", "permission"] as const)("does not log a command blocked by %s", async reason => {
+        const client = createClient(ALL_TIMINGS);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                enabled: reason !== "disabled",
+                access: reason === "permission" ? { staff: true } : {},
+                hooks: reason === "before" ? { before: async () => false } : {},
+                execute
+            })
+        );
 
-            await expect(client.modules.commands.dispatchMessage(createMessage(), ["!"])).resolves.toBe(true);
-            expect(execute).not.toHaveBeenCalled();
-            expect(client.logger.commandUsed).not.toHaveBeenCalled();
-        }
-    );
+        await expect(client.modules.commands.dispatchMessage(createMessage(), ["!"])).resolves.toBe(true);
+        expect(execute).not.toHaveBeenCalled();
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
+    });
 });
 
 describe("CommandManager registration preparation", () => {
@@ -805,26 +752,23 @@ describe("direct command execution", () => {
         );
     });
 
-    it("observes conditions and hooks added after the first direct invocation", async () => {
+    it("observes a before hook added after the first direct invocation", async () => {
         const client = createClient(false);
         const execute = vi.fn();
         const command = new PrefixCommandModule({ name: "balance", requiresReady: false, execute });
         client.modules.commands.prefix.register(command);
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        command.hooks.preExecute = async () => {};
-        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        delete command.hooks.preExecute;
-        command.conditions.push(() => ({ passed: false, reason: "Blocked" }));
+        command.hooks.before = async () => false;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(execute).toHaveBeenCalledOnce();
     });
 
     it.each(["!bank deposit 5", "!  BANK\tDEPOSIT\t5", "!wallet   put  5"])(
-        "preserves routing and hook args for %s",
+        "preserves routing and context args for %s",
         async content => {
             const client = createClient(false);
             const handler = vi.fn();
-            let args: unknown[] = [];
+            let args: string[] = [];
             client.modules.commands.prefix.register(
                 new PrefixCommandModule({
                     name: "bank",
@@ -832,9 +776,9 @@ describe("direct command execution", () => {
                     requiresReady: false,
                     subcommands: { deposit: { aliases: ["put"], handler } },
                     hooks: {
-                        preExecute: async (ctx, next) => {
+                        before: async ctx => {
                             args = ctx.args;
-                            next();
+                            return true;
                         }
                     }
                 })
@@ -842,10 +786,8 @@ describe("direct command execution", () => {
             const message = createMessage();
             message.content = content;
             await client.modules.commands.dispatchMessage(message, ["!"]);
-            expect(handler).toHaveBeenCalledWith(expect.objectContaining({ subcommand: "deposit", messageContent: "5" }));
-            expect(args).toHaveLength(3);
-            expect(args[0]).toBe(message);
-            expect(args[1]).toBe("!");
+            expect(handler).toHaveBeenCalledWith(expect.objectContaining({ subcommand: "deposit", content: "5" }));
+            expect(args).toEqual(["5"]);
         }
     );
 });

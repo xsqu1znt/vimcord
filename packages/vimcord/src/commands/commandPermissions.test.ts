@@ -76,19 +76,19 @@ describe("testCommandPermissions", () => {
         });
         const ctx = createInteractionContext(client);
 
-        expect(await testCommandPermissions(ctx, { users: ["other"] })).toMatchObject({
+        expect(await testCommandPermissions(ctx, { access: { users: ["other"] } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.UserNotAllowed
         });
-        expect(await testCommandPermissions(ctx, { roles: ["moderator"] })).toMatchObject({
+        expect(await testCommandPermissions(ctx, { access: { roles: ["moderator"] } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.Role
         });
-        expect(await testCommandPermissions(ctx, { botOwner: true })).toMatchObject({
+        expect(await testCommandPermissions(ctx, { access: { botOwner: true } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.NotBotOwner
         });
-        expect(await testCommandPermissions(ctx, { botStaff: true })).toEqual({ passed: true });
+        expect(await testCommandPermissions(ctx, { access: { staff: true } })).toEqual({ passed: true });
     });
 
     it("removes only Administrator for enabled staff bypasses", async () => {
@@ -102,10 +102,10 @@ describe("testCommandPermissions", () => {
         });
         const required = [PermissionFlagsBits.Administrator | PermissionFlagsBits.ManageMessages];
 
-        expect(await testCommandPermissions(ctx, { user: required })).toEqual({ passed: true });
+        expect(await testCommandPermissions(ctx, { access: { permissions: required } })).toEqual({ passed: true });
 
         const missingOtherPermission = createInteractionContext(client);
-        expect(await testCommandPermissions(missingOtherPermission, { user: required })).toMatchObject({
+        expect(await testCommandPermissions(missingOtherPermission, { access: { permissions: required } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.User,
             missingUserPermissions: [PermissionFlagsBits.ManageMessages]
@@ -121,7 +121,9 @@ describe("testCommandPermissions", () => {
             memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageMessages)
         });
 
-        expect(await testCommandPermissions(ctx, { user: [PermissionFlagsBits.Administrator] })).toMatchObject({
+        expect(
+            await testCommandPermissions(ctx, { access: { permissions: [PermissionFlagsBits.Administrator] } })
+        ).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.User
         });
@@ -140,20 +142,32 @@ describe("testCommandPermissions", () => {
         });
 
         expect(
-            await testCommandPermissions(createInteractionContext(client), { user: [PermissionFlagsBits.Administrator] })
+            await testCommandPermissions(createInteractionContext(client), {
+                access: { permissions: [PermissionFlagsBits.Administrator] }
+            })
         ).toEqual({ passed: true });
         expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
     });
 
-    it("applies hard restrictions before every grant and avoids staff lookups", async () => {
+    it("applies must-pass restrictions before every grant and avoids staff lookups", async () => {
         const client = createClient({ ...STAFF_DEFAULTS, ownerId: "user" });
-        const ctx = createInteractionContext(client);
+        const ctx = createInteractionContext(client, { guildId: null, guild: null, memberPermissions: null });
 
         expect(
-            await testCommandPermissions(ctx, { guildBlacklist: ["guild"], users: ["user"], botStaff: true })
-        ).toMatchObject({ passed: false, reason: MissingPermissionReason.GuildBlacklisted });
+            await testCommandPermissions(ctx, { guildOnly: true, access: { users: ["user"], staff: true } })
+        ).toMatchObject({
+            passed: false,
+            reason: MissingPermissionReason.NotInGuild
+        });
         expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
         expect(client.fetchGuild).not.toHaveBeenCalled();
+    });
+
+    it("grants access on any one entry", async () => {
+        const ctx = createInteractionContext(createClient());
+        expect(await testCommandPermissions(ctx, { access: { users: ["user"], roles: ["moderator"] } })).toEqual({
+            passed: true
+        });
     });
 
     it("does not resolve staff or channel permissions when local grants or no grants pass", async () => {
@@ -162,8 +176,8 @@ describe("testCommandPermissions", () => {
         const { ctx: prefix, permissionsFor } = createMessageContext(client, { guildId: null, guild: null });
 
         expect(await testCommandPermissions(interaction, {})).toEqual({ passed: true });
-        expect(await testCommandPermissions(interaction, { users: ["user"] })).toEqual({ passed: true });
-        expect(await testCommandPermissions(prefix, { users: ["user"] })).toEqual({ passed: true });
+        expect(await testCommandPermissions(interaction, { access: { users: ["user"] } })).toEqual({ passed: true });
+        expect(await testCommandPermissions(prefix, { access: { users: ["user"] } })).toEqual({ passed: true });
 
         expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
         expect(client.fetchGuild).not.toHaveBeenCalled();
@@ -174,7 +188,7 @@ describe("testCommandPermissions", () => {
         const client = createClient({ ...STAFF_DEFAULTS, ownerId: "user" });
         const ctx = createInteractionContext(client);
 
-        expect(await testCommandPermissions(ctx, { guildOwner: true, botStaff: true })).toEqual({ passed: true });
+        expect(await testCommandPermissions(ctx, { access: { guildOwner: true, staff: true } })).toEqual({ passed: true });
         expect(client.fetchGuild).not.toHaveBeenCalled();
         expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
     });
@@ -184,12 +198,14 @@ describe("testCommandPermissions", () => {
 
         expect(
             await testCommandPermissions(ctx, {
-                user: [PermissionFlagsBits.BanMembers],
-                users: ["other"],
-                roles: ["moderator"],
-                guildOwner: true,
-                botOwner: true,
-                botStaff: true
+                access: {
+                    permissions: [PermissionFlagsBits.BanMembers],
+                    users: ["other"],
+                    roles: ["moderator"],
+                    guildOwner: true,
+                    botOwner: true,
+                    staff: true
+                }
             })
         ).toMatchObject({ passed: false, reason: MissingPermissionReason.User });
     });
@@ -209,8 +225,8 @@ describe("testCommandPermissions", () => {
         );
 
         const permissions = {
-            user: [PermissionFlagsBits.BanMembers],
-            client: [PermissionFlagsBits.ManageMessages]
+            access: { permissions: [PermissionFlagsBits.BanMembers] },
+            botPermissions: [PermissionFlagsBits.ManageMessages]
         };
         expect(await testCommandPermissions(interaction, permissions)).toEqual({ passed: true });
         expect(await testCommandPermissions(prefix, permissions)).toEqual({ passed: true });
@@ -226,11 +242,13 @@ describe("testCommandPermissions", () => {
         });
         permissionsFor.mockReturnValue(new PermissionsBitField());
 
-        expect(await testCommandPermissions(ctx, { user: [PermissionFlagsBits.BanMembers] })).toMatchObject({
+        expect(
+            await testCommandPermissions(ctx, { access: { permissions: [PermissionFlagsBits.BanMembers] } })
+        ).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.User
         });
-        expect(await testCommandPermissions(ctx, { client: [PermissionFlagsBits.ManageMessages] })).toMatchObject({
+        expect(await testCommandPermissions(ctx, { botPermissions: [PermissionFlagsBits.ManageMessages] })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.Client
         });
@@ -244,7 +262,7 @@ describe("testCommandPermissions", () => {
         configuredStaff.getStaffGuildRoleIds.mockResolvedValue(["staff"]);
         const invokingMember = createInteractionContext(configuredStaff, { member: { roles: [] } });
 
-        expect(await testCommandPermissions(invokingMember, { botStaff: true })).toEqual({ passed: true });
+        expect(await testCommandPermissions(invokingMember, { access: { staff: true } })).toEqual({ passed: true });
 
         const sharedLookup = createClient({
             ...STAFF_DEFAULTS,
@@ -253,35 +271,23 @@ describe("testCommandPermissions", () => {
         });
         const denied = createInteractionContext(sharedLookup, { member: { roles: ["staff", "bypass"] } });
 
-        expect(await testCommandPermissions(denied, { botStaff: true })).toMatchObject({
+        expect(await testCommandPermissions(denied, { access: { staff: true } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.NotBotStaff
         });
         expect(sharedLookup.getStaffGuildRoleIds).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps user, role, and client restrictions ahead of staff bypasses", async () => {
+    it("keeps bot permissions required ahead of staff bypasses", async () => {
         const client = createClient({
             ...STAFF_DEFAULTS,
             bypassesStaff: [{ commandName: "manage", userIds: ["user"] }]
         });
 
         expect(
-            await testCommandPermissions(createInteractionContext(client), { userBlacklist: ["user"], botStaff: true })
-        ).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.UserBlacklisted
-        });
-        expect(
-            await testCommandPermissions(createInteractionContext(client, { member: { roles: ["blocked"] } }), {
-                roleBlacklist: ["blocked"],
-                botStaff: true
-            })
-        ).toMatchObject({ passed: false, reason: MissingPermissionReason.RoleBlacklisted });
-        expect(
             await testCommandPermissions(createInteractionContext(client), {
-                client: [PermissionFlagsBits.ManageMessages],
-                botStaff: true
+                botPermissions: [PermissionFlagsBits.ManageMessages],
+                access: { staff: true }
             })
         ).toMatchObject({ passed: false, reason: MissingPermissionReason.Client });
     });

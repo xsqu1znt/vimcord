@@ -1,21 +1,22 @@
+import type { ChatInputCommandInteraction } from "discord.js";
 import type { CommandLoggingTiming } from "@/client/globals.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
-import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
+import type { CommandRestrictions, PermissionTestResult } from "@/commands/commandPermissions.js";
 import type { ModuleRunResult } from "../AbstractModule.js";
 import type {
+    CommandBlock,
+    CommandDeferReply,
     CommandModuleArgs,
+    CommandModuleBaseOptions,
     CommandModuleContext,
     CommandModuleHookContext,
     CommandModuleHooks,
-    CommandModuleMetadata,
-    CommandModuleOptions
+    CommandModuleMetadata
 } from "./CommandModuleTypeKit.js";
 
 import { applyDeferReply } from "@/commands/commandDeferral.js";
-import { getGlobalCommandHooks } from "@/commands/commandHooks.js";
-import { resolveInvokingUser, testCommandPermissions } from "@/commands/commandPermissions.js";
-import { ModuleError } from "@/errors/ModuleError.js";
+import { pickRestrictions, testCommandPermissions } from "@/commands/commandPermissions.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
@@ -35,17 +36,25 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     CommandModuleArgs<T>,
     CommandModuleContext<T>,
     CommandModuleHookContext<T>,
-    CommandModuleHooks<T>
+    CommandModuleHooks<T>,
+    CommandBlock
 > {
     abstract readonly type: T;
     protected directExecution = false;
-    readonly deferReply?: Parameters<typeof applyDeferReply>[1];
-    protected readonly permissions: CommandModulePermissions | undefined;
+    readonly deferReply?: CommandDeferReply;
+    /** Guild, bot-permission, and access rules; `undefined` when there are none, so commands can skip the test. */
+    protected readonly restrictions: CommandRestrictions | undefined;
+    protected readonly allowBots: boolean | undefined;
     override readonly hooks: CommandModuleHooks<T>;
     readonly description?: string;
     override readonly metadata: CommandModuleMetadata;
 
-    constructor(options: CommandModuleOptions<T>) {
+    constructor(
+        options: CommandModuleBaseOptions<T> & {
+            guildOnly?: boolean;
+            execute(ctx: CommandModuleContext<T>): unknown;
+        }
+    ) {
         super({
             ...options,
             singleInvocation:
@@ -55,7 +64,8 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         });
 
         this.description = options.description;
-        this.permissions = options.permissions;
+        this.restrictions = pickRestrictions(options);
+        this.allowBots = options.allowBots;
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
     }
@@ -85,13 +95,11 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             !this.client ||
             (this.requiresReady && !this.client.isReady()) ||
             this.client.logger.options.verbose ||
-            this.permissions ||
-            this.conditions.length ||
+            this.restrictions ||
             this.singleInvocation ||
-            this.deployment.environment !== "both" ||
+            this.environment !== "both" ||
             ("author" in args[0] ? args[0].author : args[0].user).bot ||
-            this.getHook("preExecute") ||
-            this.getHook("postExecute")
+            this.getHook("before")
         ) {
             const complete = selected
                 ? (result: ModuleRunResult): boolean => {
@@ -218,47 +226,75 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     }
 
     protected override createModuleCTX(args: CommandModuleArgs<T>): CommandModuleContext<T> {
-        return { client: this.client as Vimcord<true>, interaction: args[0] } as CommandModuleContext<T>;
+        const interaction = args[0] as ChatInputCommandInteraction;
+        return {
+            client: this.client as Vimcord<true>,
+            interaction,
+            user: interaction.user
+        } as unknown as CommandModuleContext<T>;
     }
 
     /** Default `singleInvocation` key when the caller passes `singleInvocation: true`: the module plus the invoking user. */
     protected defaultInvocationKey(ctx: CommandModuleHookContext<T>): string {
-        return `${this.id}:${resolveInvokingUser(ctx).id}`;
+        return `${this.id}:${ctx.user.id}`;
     }
 
-    /** Returns command-local hooks before falling back to client and package-level global hooks. */
+    /** Returns command-local hooks before falling back to the client's hooks. */
     protected override getHook<K extends keyof CommandModuleHooks<T>>(hook: K): CommandModuleHooks<T>[K] | undefined {
-        const localHook = this.hooks[hook];
-        if (localHook) return localHook;
-
-        const clientHook = getCommandHooks(this.type, this.client?.globals.hooks)?.[hook];
-        if (clientHook) return clientHook;
-
-        return getCommandHooks(this.type, getGlobalCommandHooks())?.[hook];
+        return this.hooks[hook] ?? getCommandHooks(this.type, this.client?.globals.hooks)?.[hook];
     }
 
+    /** Runs the client's gate first, so a module's own `before` can never skip it. */
+    protected override async runBefore(ctx: CommandModuleHookContext<T>): Promise<boolean> {
+        const clientBefore = getCommandHooks(this.type, this.client?.globals.hooks)?.before;
+        if (!(await this.callBefore(clientBefore, ctx))) return false;
+        return this.callBefore(this.hooks.before, ctx);
+    }
+
+    /** The matched subcommand, for commands that have them. */
+    protected getSubcommand(_ctx: CommandModuleHookContext<T>): CommandRestrictions | undefined {
+        return undefined;
+    }
+
+    /** The subcommand path that matched nothing, when the invocation has nowhere to go. */
+    protected findUnknownRoute(_ctx: CommandModuleHookContext<T>): string | undefined {
+        return undefined;
+    }
+
+    /** Tests the command's restrictions, then the route, then the matched subcommand's restrictions. */
     protected override performTests(ctx: CommandModuleHookContext<T>): boolean | Promise<boolean> {
         const passed = super.performTests(ctx);
-        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testPermissions(ctx));
-        return passed && this.testPermissions(ctx);
+        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testRoutedRestrictions(ctx));
+        return passed && this.testRoutedRestrictions(ctx);
     }
 
-    protected testPermissions(ctx: CommandModuleHookContext<T>, permissions = this.permissions): boolean | Promise<boolean> {
-        if (!permissions && !resolveInvokingUser(ctx).bot) return true;
-        const result = testCommandPermissions(ctx, permissions ?? {});
-        if (result instanceof Promise) return result.then(result => this.handlePermissionResult(ctx, result));
-        return this.handlePermissionResult(ctx, result);
+    private testRoutedRestrictions(ctx: CommandModuleHookContext<T>): boolean | Promise<boolean> {
+        const subcommand = this.getSubcommand(ctx);
+        // A subcommand's allowBots wins, since the command's own bot check would otherwise make it unreachable.
+        const allowBots = subcommand?.allowBots ?? this.allowBots;
+        const testRoute = (passed: boolean): boolean | Promise<boolean> => {
+            if (!passed) return false;
+            const path = this.findUnknownRoute(ctx);
+            if (path !== undefined) return this.block(ctx, { kind: "unknownRoute", path }).then(() => false);
+            return !subcommand || this.testRestrictions(ctx, pickRestrictions(subcommand), allowBots);
+        };
+
+        const passed = this.testRestrictions(ctx, this.restrictions, allowBots);
+        return typeof passed === "boolean" ? testRoute(passed) : passed.then(testRoute);
     }
 
-    private handlePermissionResult(
+    private testRestrictions(
         ctx: CommandModuleHookContext<T>,
-        result: Awaited<ReturnType<typeof testCommandPermissions>>
+        restrictions: CommandRestrictions | undefined,
+        allowBots: boolean | undefined
     ): boolean | Promise<boolean> {
-        if (result.passed) return true;
-        ctx.permissionTestResult = result;
-        return this.runHook("onPermissionTestFail", ctx, async ctx => {
-            ctx.error ??= new ModuleError(result.reason);
-            await this.runHook("onError", ctx);
-        }).then(() => false);
+        if (!restrictions && (allowBots || !ctx.user.bot)) return true;
+        const finish = (result: PermissionTestResult): boolean | Promise<boolean> => {
+            if (result.passed) return true;
+            const { passed: _passed, ...failure } = result;
+            return this.block(ctx, { kind: "permission", ...failure }).then(() => false);
+        };
+        const result = testCommandPermissions(ctx, restrictions ?? {}, allowBots);
+        return result instanceof Promise ? result.then(finish) : finish(result);
     }
 }

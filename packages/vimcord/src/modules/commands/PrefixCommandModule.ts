@@ -1,26 +1,27 @@
 import type {
     CommandModuleArgs,
     CommandModuleContext,
-    CommandModuleOptions,
-    PrefixCommandModuleSubcommand
+    CommandModuleHookContext,
+    PrefixCommandModuleOptions,
+    ResolvedPrefixSubcommand
 } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
+import type { CommandRestrictions } from "@/commands/commandPermissions.js";
 
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import { pickRestrictions } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
-
-type PrefixCommandModuleOptions = Omit<CommandModuleOptions<CommandModuleType.Prefix>, "execute"> & {
-    execute?: CommandModuleOptions<CommandModuleType.Prefix>["execute"];
-};
 
 const WHITESPACE = /\s+/;
 
 /** Indexes names and aliases once so dispatch remains a pair of map lookups. */
 function buildSubcommands(options: PrefixCommandModuleOptions) {
-    const subcommands = new Map<string, PrefixCommandModuleSubcommand>();
+    const subcommands = new Map<string, ResolvedPrefixSubcommand>();
     const names = new Map<string, string>();
 
-    for (const [key, subcommand] of Object.entries(options.subcommands ?? {})) {
+    for (const [key, subcommand] of Object.entries<ResolvedPrefixSubcommand>(
+        (options.subcommands ?? {}) as Record<string, ResolvedPrefixSubcommand>
+    )) {
         const name = key.trim().toLowerCase();
         for (const token of [name, ...(subcommand.aliases ?? [])]) {
             const trigger = token.trim().toLowerCase();
@@ -44,27 +45,46 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
     override type: CommandModuleType.Prefix = CommandModuleType.Prefix;
     override moduleType: string = "Command:Prefix";
     readonly aliases: string[];
-    readonly subcommands: Map<string, PrefixCommandModuleSubcommand>;
+    readonly subcommands: Map<string, ResolvedPrefixSubcommand>;
 
     private readonly subcommandNames: Map<string, string>;
+    private readonly hasParentHandler: boolean;
 
     constructor(options: PrefixCommandModuleOptions) {
         const { subcommands, names } = buildSubcommands(options);
+        const execute = options.execute as ((ctx: CommandModuleContext<CommandModuleType.Prefix>) => unknown) | undefined;
         super({
             ...options,
             execute: ctx => {
                 const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
-                return subcommand ? subcommand.handler(ctx) : options.execute?.call(this, ctx);
+                return subcommand ? subcommand.handler(ctx) : execute?.call(this, ctx);
             }
         });
         this.aliases = options.aliases?.map(alias => alias.toLowerCase()) ?? [];
         this.subcommands = subcommands;
         this.subcommandNames = names;
-        this.directExecution = new.target === PrefixCommandModule && Boolean(this.name);
+        this.hasParentHandler = Boolean(execute);
+        // The direct path can't test a subcommand's restrictions or report an unmatched token.
+        this.directExecution =
+            new.target === PrefixCommandModule &&
+            Boolean(this.name) &&
+            this.hasParentHandler &&
+            !Array.from(subcommands.values()).some(pickRestrictions);
     }
 
     protected override validate(): boolean {
         return Boolean(this.name);
+    }
+
+    protected override getSubcommand(
+        ctx: CommandModuleHookContext<CommandModuleType.Prefix>
+    ): CommandRestrictions | undefined {
+        return ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
+    }
+
+    protected override findUnknownRoute(ctx: CommandModuleHookContext<CommandModuleType.Prefix>): string | undefined {
+        if (ctx.subcommand || this.hasParentHandler) return undefined;
+        return ctx.args[0]?.toLowerCase() ?? "";
     }
 
     protected override createModuleCTX(
@@ -76,24 +96,26 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
         const tokenEnd = this.subcommands.size ? strippedContent.search(WHITESPACE) : -1;
         const token = tokenEnd < 0 ? strippedContent : strippedContent.slice(0, tokenEnd);
         const subcommand = this.subcommands.size ? (this.subcommandNames.get(token.toLowerCase()) ?? null) : null;
-        const messageContent = subcommand ? strippedContent.slice(token.length).trimStart() : strippedContent;
+        const content = subcommand ? strippedContent.slice(token.length).trimStart() : strippedContent;
+
+        let parsedArgs: string[] | undefined;
+        let parsedLowerArgs: string[] | undefined;
+        const getArgs = () => (parsedArgs ??= content ? content.split(WHITESPACE) : []);
 
         return {
             client,
+            user: message.author,
             message,
-            messageContent,
+            content,
             subcommand,
             prefix: args[1],
             trigger: args[2],
-            splitContent: options => {
-                if (!messageContent) return [];
-                if (!options) return messageContent.split(WHITESPACE);
-                const normalizedContent = options.uppercase
-                    ? messageContent.toUpperCase()
-                    : options.lowercase
-                      ? messageContent.toLowerCase()
-                      : messageContent;
-                return normalizedContent.split(options.separator ?? WHITESPACE).filter(Boolean);
+            // Most commands read neither, so don't split on every message.
+            get args() {
+                return getArgs();
+            },
+            get lowerArgs() {
+                return (parsedLowerArgs ??= getArgs().map(arg => arg.toLowerCase()));
             }
         };
     }
