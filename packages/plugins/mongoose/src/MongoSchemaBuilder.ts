@@ -572,21 +572,25 @@ export class MongoSchemaBuilder<
 
     /**
      * Updates one document and returns write counts, using updateOne query middleware.
+     *
+     * Pass an aggregation pipeline as `update` to compute the new values from the stored document. Pipeline stages are
+     * not cast to the schema.
+     *
      * @param filter Document filter
-     * @param update Update to apply
+     * @param update Update object or aggregation pipeline to apply
      * @param options Update options, including opt-in runValidators
      */
     async updateOne(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
-        update: UpdateQuery<LeanDoc<Def, Opts>>,
+        update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.UpdateResult> {
+        const queryOptions = this.resolveOptions(options);
         try {
-            const result = await this.compileModel().updateOne(
-                filter,
-                update,
-                this.resolveOptions(options) as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>
-            );
+            const result = await this.compileModel().updateOne(filter, update, {
+                ...queryOptions,
+                updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
+            } as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>);
             return result;
         } finally {
             this.invalidateUpdateCache(filter, update, options);
@@ -958,6 +962,9 @@ export class MongoSchemaBuilder<
     /**
      * Updates every document that matches a filter.
      *
+     * Pass an aggregation pipeline as `update` to compute the new values from each stored document. Pipeline stages
+     * are not cast to the schema.
+     *
      * @param filter The filter used to match documents
      * @param update The update object or aggregation pipeline to apply
      * @param options The options to pass to MongoDB and Mongoose
@@ -968,12 +975,12 @@ export class MongoSchemaBuilder<
         options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.UpdateResult> {
         const model = this.compileModel();
+        const queryOptions = this.resolveOptions(options);
         try {
-            const result = await model.updateMany(
-                filter,
-                update,
-                this.resolveOptions(options) as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>
-            );
+            const result = await model.updateMany(filter, update, {
+                ...queryOptions,
+                updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
+            } as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>);
             return result;
         } finally {
             this.invalidateUpdateCache(filter, update, options);
