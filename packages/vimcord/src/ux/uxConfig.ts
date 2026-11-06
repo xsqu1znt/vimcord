@@ -55,8 +55,8 @@ export interface UxConfig {
     defaultIdle: number;
     /** Collector behavior and access messages. */
     collector: {
-        /** Ephemeral message shown while a user's prior action is running. */
-        userLockMessage: string;
+        /** Ephemeral message shown to a user who clicks during `clickLock` while their prior click is running. */
+        clickLockMessage: string;
         /** Message shown to users who are not collector participants. */
         notAParticipantMessage: string | null;
     };
@@ -126,7 +126,7 @@ function createDefaultUxConfig(): UxConfig {
         embedColorDev: null,
         defaultIdle: 60_000,
         collector: {
-            userLockMessage: "Please wait, your previous action is still processing.",
+            clickLockMessage: "Please wait, your previous action is still processing.",
             notAParticipantMessage: "You are not allowed to use this."
         },
         paginator: {

@@ -153,44 +153,23 @@ export async function promptMessage(
     let pressedCustomId: string | null = null;
     const collector = new BetterCollector(message, {
         ...options,
-        type: ComponentType.Button,
         participants: resolveParticipants(options.participants, handler),
         onResolve: "keep"
     });
 
-    collector.on(
-        PROMPT_CUSTOM_IDS.confirm,
-        async () => {
+    const resolveOn = (customId: string, reason: string) =>
+        collector.on(customId, async i => {
+            await i.deferUpdate().catch(() => {});
             if (pressedCustomId !== null) return;
-            pressedCustomId = PROMPT_CUSTOM_IDS.confirm;
-            collector.stop("confirmed");
-        },
-        { defer: { update: true } }
-    );
+            pressedCustomId = customId;
+            collector.stop(reason);
+        });
 
-    collector.on(
-        PROMPT_CUSTOM_IDS.reject,
-        async () => {
-            if (pressedCustomId !== null) return;
-            pressedCustomId = PROMPT_CUSTOM_IDS.reject;
-            collector.stop("rejected");
-        },
-        { defer: { update: true } }
-    );
+    resolveOn(PROMPT_CUSTOM_IDS.confirm, "confirmed");
+    resolveOn(PROMPT_CUSTOM_IDS.reject, "rejected");
+    for (const customId of extraCustomIds) resolveOn(customId, "custom");
 
-    for (const customId of extraCustomIds) {
-        collector.on(
-            customId,
-            async () => {
-                if (pressedCustomId !== null) return;
-                pressedCustomId = customId;
-                collector.stop("custom");
-            },
-            { defer: { update: true } }
-        );
-    }
-
-    const reason = await new Promise<string>(resolve => collector.onEnd((_collected, reason) => resolve(reason)));
+    const reason = await new Promise<string>(resolve => collector.onEnd(resolve));
 
     // Any ending without a resolving click is reported as "timeout"; only a click is a decision.
     const status: PromptStatus =

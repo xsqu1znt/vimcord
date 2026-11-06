@@ -180,7 +180,10 @@ it("resolves an ephemeral prompt through its sending interaction", async () => {
     const { message, collector } = createFakeMessage();
     Object.assign(message, { id: "ephemeral", editable: false, deletable: false });
     const deleteMessage = vi.fn().mockResolvedValue(undefined);
-    const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { deleteMessage } });
+    const handler = Object.assign(Object.create(BaseInteraction.prototype), {
+        user: { id: "invoker" },
+        webhook: { deleteMessage }
+    });
     vi.mocked(dynaSend).mockResolvedValue(message);
     const pending = promptMessage(handler, { timeout: 1000, onResolve: "delete" });
     await new Promise(resolve => setImmediate(resolve));

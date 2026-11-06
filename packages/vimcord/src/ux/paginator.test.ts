@@ -1065,7 +1065,10 @@ describe("Paginator chapter replacement", () => {
         ]);
         Object.assign(message, { id: "ephemeral", editable: false });
         const editMessage = vi.fn().mockResolvedValue(message);
-        const handler = Object.assign(Object.create(BaseInteraction.prototype), { webhook: { editMessage } });
+        const handler = Object.assign(Object.create(BaseInteraction.prototype), {
+            user: { id: "user" },
+            webhook: { editMessage }
+        });
         vi.mocked(dynaSend).mockResolvedValue(message as never);
         const p = new Paginator({ timeout: 1000, onResolve: "disable" }).addChapter({ pages: ["A"], label: "A" });
         await p.send(handler);

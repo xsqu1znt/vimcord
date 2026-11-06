@@ -6,13 +6,18 @@ import { getGlobalUxConfig } from "./uxConfig.js";
 
 // --- Participants ---
 export type Participant = GuildMember | User | string;
-export function resolveParticipantId(participant: Participant): string {
-    if (typeof participant === "string") return participant;
-    return participant.id;
-}
 
-/** Who may use a paginator or prompt. `"anyone"` opts out of the default of only the invoker. */
+/** Who may click. `"anyone"` opts out of the default of only the invoker. */
 export type ParticipantsOption = Participant[] | "anyone";
+
+/**
+ * Resolves who may click into a set of user IDs, so each click is a cheap lookup. `null` means anyone can.
+ * @param participants The explicit option, if any
+ */
+export function resolveParticipantIds(participants: ParticipantsOption | undefined): ReadonlySet<string> | null {
+    if (!participants || participants === "anyone") return null;
+    return new Set(participants.map(p => (typeof p === "string" ? p : p.id)));
+}
 
 /**
  * Resolves who may use a paginator or prompt, defaulting to whoever invoked the send target.

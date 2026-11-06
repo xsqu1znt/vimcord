@@ -288,6 +288,32 @@ export class Paginator {
         next: createNavButton("next"),
         last: createNavButton("last")
     };
+    private readonly navHandlers: Record<string, (i: MessageComponentInteraction) => Promise<void>> = {
+        [NAV_CUSTOM_IDS.chapterSelect]: async i => {
+            if (!i.isStringSelectMenu()) return;
+            const chapter = this.chapters.findIndex(c => c.id === i.values[0]);
+            if (chapter >= 0) await this.navigate("chapter", chapter, 0, i);
+        },
+        [NAV_CUSTOM_IDS.first]: i => this.navigate("first", this.state.index.chapter, 0, i),
+        [NAV_CUSTOM_IDS.back]: i => this.navigate("back", this.state.index.chapter, this.state.index.nested - 1, i),
+        [NAV_CUSTOM_IDS.jump]: i => this.showJumpModal(i),
+        [NAV_CUSTOM_IDS.next]: i => this.navigate("next", this.state.index.chapter, this.state.index.nested + 1, i),
+        [NAV_CUSTOM_IDS.last]: i => {
+            const chapter = this.state.index.chapter;
+            const requested = { chapter, nested: (this.getPageCount(this.getChapter()) ?? 1) - 1 };
+            return this.runNavigationRequest(
+                "last",
+                async () => {
+                    const count =
+                        this.getPageCount(this.getChapter(chapter)) ??
+                        (await this.loadChapter(this.getChapter(chapter))).length;
+                    return { chapter, nested: count - 1 };
+                },
+                requested,
+                i
+            );
+        }
+    };
     private collector: BetterCollector | null = null;
     private participants: Participant[] = [];
     private format: PageFormat | null = null;
@@ -674,8 +700,25 @@ export class Paginator {
         }
     }
 
-    private registerComponentListener(collector: BetterCollector, listener: PaginatorComponentListener): void {
-        collector.on(listener.customId, listener.fn, { defer: listener.deferUpdate ? { update: true } : false });
+    /** Runs on every click: `collect` observers, then `onComponent` listeners for the ID, then built-in navigation. */
+    private async handleClick(i: MessageComponentInteraction): Promise<void> {
+        const listeners = this.componentListeners.filter(l => l.customId === i.customId);
+        const navigation = this.navHandlers[i.customId];
+
+        // Other code runs before navigation can update the message, so a navigation click is acknowledged first.
+        const observed = this.listeners.collect.length > 0 || listeners.length > 0;
+        const acknowledge = listeners.some(l => l.deferUpdate) || (isNavigationInteraction(i.customId) && observed);
+        if (acknowledge && !hasResponded(i)) await i.deferUpdate().catch(() => {});
+
+        await this.emit("collect", i, this.getCurrentPage(), { ...this.state.index });
+        for (const listener of listeners) {
+            try {
+                await listener.fn(i);
+            } catch (error) {
+                console.error("[Paginator] Component listener error:", error);
+            }
+        }
+        await navigation?.(i);
     }
 
     private collectComponents(): void {
@@ -683,54 +726,14 @@ export class Paginator {
         if (!message) return;
         this.collector?.stop("refresh");
         const collector = new BetterCollector(message, {
-            type: null,
-            retainHistory: false,
             participants: this.participants,
             ...createCollectorTiming(this.options),
             onResolve: "keep",
             notAParticipantMessage: getGlobalUxConfig().paginator.notAParticipantMessage
         });
         this.collector = collector;
-        collector.on(async i => {
-            if (
-                isNavigationInteraction(i.customId) &&
-                !hasResponded(i) &&
-                (this.listeners.collect.length || this.componentListeners.some(l => l.customId === i.customId))
-            ) {
-                await i.deferUpdate().catch(() => {});
-            }
-            await this.emit("collect", i, this.getCurrentPage(), { ...this.state.index });
-        });
-        for (const listener of this.componentListeners) this.registerComponentListener(collector, listener);
-        collector.on(NAV_CUSTOM_IDS.chapterSelect, async i => {
-            if (!i.isStringSelectMenu()) return;
-            const chapter = this.chapters.findIndex(c => c.id === i.values[0]);
-            if (chapter >= 0) await this.navigate("chapter", chapter, 0, i);
-        });
-        collector.on(NAV_CUSTOM_IDS.first, i => this.navigate("first", this.state.index.chapter, 0, i));
-        collector.on(NAV_CUSTOM_IDS.back, i =>
-            this.navigate("back", this.state.index.chapter, this.state.index.nested - 1, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.jump, i => this.showJumpModal(i));
-        collector.on(NAV_CUSTOM_IDS.next, i =>
-            this.navigate("next", this.state.index.chapter, this.state.index.nested + 1, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.last, async i => {
-            const chapter = this.state.index.chapter;
-            const requested = { chapter, nested: (this.getPageCount(this.getChapter()) ?? 1) - 1 };
-            await this.runNavigationRequest(
-                "last",
-                async () => {
-                    const count =
-                        this.getPageCount(this.getChapter(chapter)) ??
-                        (await this.loadChapter(this.getChapter(chapter))).length;
-                    return { chapter, nested: count - 1 };
-                },
-                requested,
-                i
-            );
-        });
-        collector.onEnd(async (_collected, reason) => {
+        collector.on(i => this.handleClick(i));
+        collector.onEnd(async reason => {
             if (reason === "refresh") return;
             this.collector = null;
             await this.handleTimeout(reason);
@@ -812,9 +815,7 @@ export class Paginator {
         listener: (interaction: MessageComponentInteraction) => unknown,
         options?: PaginatorComponentHandlerOptions
     ): this {
-        const component = { customId, fn: listener, deferUpdate: options?.deferUpdate ?? false };
-        this.componentListeners.push(component);
-        if (this.collector) this.registerComponentListener(this.collector, component);
+        this.componentListeners.push({ customId, fn: listener, deferUpdate: options?.deferUpdate ?? false });
         return this;
     }
 
