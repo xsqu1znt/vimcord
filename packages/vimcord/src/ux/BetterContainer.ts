@@ -1,5 +1,4 @@
 import type {
-    ActionRowBuilder,
     APIContainerComponent,
     APIThumbnailComponent,
     ButtonComponentData,
@@ -7,6 +6,7 @@ import type {
     Message,
     MessageActionRowComponentBuilder
 } from "discord.js";
+import type { BetterEmbedDescriptionLine } from "./betterEmbed.js";
 import type {
     DynaSendOptions,
     InteractionBasedSendHandler,
@@ -16,9 +16,18 @@ import type {
     SendHandler
 } from "./dynaSend.js";
 
-import { ButtonBuilder, ButtonStyle, ContainerBuilder, MessageFlags, resolveColor, ThumbnailBuilder } from "discord.js";
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ComponentType,
+    ContainerBuilder,
+    MessageFlags,
+    resolveColor,
+    ThumbnailBuilder
+} from "discord.js";
 import { addMessageFlag, dynaSend } from "./dynaSend.js";
-import { resolveGlobalEmbedColor } from "./uxConfig.js";
+import { resolveGlobalEmbedColor, resolveUxColor } from "./uxConfig.js";
 
 export interface BetterContainerOptions {
     /** Accent color, random color choices, or null to clear it. */
@@ -36,11 +45,11 @@ export interface BetterContainerMediaItem {
 
 export interface BetterContainerSectionOptions {
     /** Text content or lines for the section body. */
-    text?: string | (string | null | undefined)[];
-    /** Button accessory data. */
-    button?: Partial<ButtonComponentData>;
-    /** Thumbnail accessory data. */
-    thumbnail?: Partial<APIThumbnailComponent>;
+    text?: BetterEmbedDescriptionLine | BetterEmbedDescriptionLine[];
+    /** Button accessory. Data objects default to the Secondary style. */
+    button?: ButtonBuilder | Partial<ButtonComponentData>;
+    /** Thumbnail accessory, as a URL or thumbnail data. */
+    thumbnail?: string | Partial<APIThumbnailComponent>;
 }
 
 export interface BetterContainerSeparatorOptions {
@@ -50,83 +59,34 @@ export interface BetterContainerSeparatorOptions {
     spacing?: number;
 }
 
-interface BetterContainerState {
-    color: ColorResolvable | ColorResolvable[] | null;
-}
+const MAX_BUTTONS_PER_ROW = 5;
 
-function normalizeText(text: string | (string | null | undefined)[]): string {
-    if (!Array.isArray(text)) return text;
-    return text.filter(line => line != null).join("\n");
+/** Joins lines, dropping conditional falsey values. An empty string inside a list stays as a blank line. */
+function normalizeText(text: BetterEmbedDescriptionLine | BetterEmbedDescriptionLine[]): string {
+    const lines = Array.isArray(text) ? text : [text];
+    return lines.filter(line => typeof line === "string").join("\n");
 }
 
 export class BetterContainer {
-    private container = new ContainerBuilder();
-    private data: BetterContainerState;
+    private readonly container = new ContainerBuilder();
 
     constructor(options: BetterContainerOptions = {}) {
-        this.data = {
-            color: options.color === undefined ? resolveGlobalEmbedColor() : options.color
-        };
-
-        this.build();
+        this.setColor(options.color === undefined ? resolveGlobalEmbedColor() : options.color);
     }
 
-    private resolveColor(): number | null {
-        if (this.data.color === null) return null;
-
-        const color = Array.isArray(this.data.color)
-            ? (this.data.color[Math.floor(Math.random() * this.data.color.length)] ?? null)
-            : this.data.color;
-
-        if (color === null) return null;
-        return resolveColor(color);
-    }
-
-    private build(): void {
-        const color = this.resolveColor();
-        if (color === null) {
-            this.container.clearAccentColor();
-            return;
-        }
-
-        this.container.setAccentColor(color);
-    }
-
-    /**
-     * Creates a new BetterContainer with an independent copy of this container's components (text, media,
-     * sections, action rows) and color, with optional color override. Mutating the clone never mutates this container.
-     * @param overrides Data to override on the cloned container
-     */
-    clone(overrides: Partial<BetterContainerOptions> = {}): BetterContainer {
-        const cloned = new BetterContainer({ color: overrides.color === undefined ? this.data.color : overrides.color });
-        cloned.container = new ContainerBuilder(this.toJSON());
-        cloned.build();
-        return cloned;
-    }
-
-    /**
-     * Converts the container into Discord API container JSON.
-     */
+    /** Converts the container into Discord API container JSON, which also lets Discord.js accept it as a component. */
     toJSON(): APIContainerComponent {
-        this.build();
         return this.container.toJSON();
     }
 
     /**
-     * Returns the underlying Discord.js container builder.
-     */
-    toBuilder(): ContainerBuilder {
-        this.build();
-        return this.container;
-    }
-
-    /**
-     * Sets the container accent color.
+     * Sets the container accent color. A pool is rolled here, once, so serializing or sending never re-rolls it.
      * @param color Color, random color choices, or null to clear it
      */
     setColor(color: ColorResolvable | ColorResolvable[] | null): this {
-        this.data.color = color;
-        this.build();
+        const resolved = resolveUxColor(color);
+        if (resolved === null) this.container.clearAccentColor();
+        else this.container.setAccentColor(resolveColor(resolved));
         return this;
     }
 
@@ -136,7 +96,7 @@ export class BetterContainer {
     }
 
     /**
-     * Adds a separator component.
+     * Adds a separator component, with Discord's visible divider by default.
      * @param options Separator options
      */
     addSeparator(options: BetterContainerSeparatorOptions = {}): this {
@@ -150,11 +110,12 @@ export class BetterContainer {
     }
 
     /**
-     * Adds a text display component.
+     * Adds a text display component. Text that comes out empty adds nothing, so `show && "line"` is safe.
      * @param text Text content or lines to add
      */
-    addText(text: string | (string | null | undefined)[]): this {
-        this.container.addTextDisplayComponents(display => display.setContent(normalizeText(text)));
+    addText(text: BetterEmbedDescriptionLine | BetterEmbedDescriptionLine[]): this {
+        const content = normalizeText(text);
+        if (content) this.container.addTextDisplayComponents(display => display.setContent(content));
         return this;
     }
 
@@ -190,15 +151,21 @@ export class BetterContainer {
     addSection(options: BetterContainerSectionOptions): this {
         this.container.addSectionComponents(section => {
             // --- Text ---
-            if (options.text) {
-                section.addTextDisplayComponents(display => display.setContent(normalizeText(options.text ?? "")));
-            }
+            const text = normalizeText(options.text);
+            if (text) section.addTextDisplayComponents(display => display.setContent(text));
 
             // --- Accessory ---
-            if (options.thumbnail) section.setThumbnailAccessory(new ThumbnailBuilder(options.thumbnail));
-            if (options.button) {
+            const { thumbnail, button } = options;
+            if (thumbnail) {
+                section.setThumbnailAccessory(
+                    new ThumbnailBuilder(typeof thumbnail === "string" ? { media: { url: thumbnail } } : thumbnail)
+                );
+            }
+            if (button) {
                 section.setButtonAccessory(
-                    new ButtonBuilder({ style: ButtonStyle.Secondary, ...options.button } as ButtonComponentData)
+                    button instanceof ButtonBuilder
+                        ? button
+                        : new ButtonBuilder({ style: ButtonStyle.Secondary, ...button } as ButtonComponentData)
                 );
             }
 
@@ -209,19 +176,31 @@ export class BetterContainer {
     }
 
     /**
-     * Adds action rows to the container.
-     * @param rows Action rows to add
+     * Adds components in an action row, splitting buttons into rows of 5.
+     * Discord doesn't allow buttons and a select in one row, or more than one select, so both throw.
+     * @param components Buttons, or a single select menu
      */
-    addActionRow(...rows: ActionRowBuilder<MessageActionRowComponentBuilder>[]): this {
-        this.container.addActionRowComponents(...rows);
+    addRow(...components: MessageActionRowComponentBuilder[]): this {
+        const buttons = components.filter(c => c.data.type === ComponentType.Button).length;
+        if (buttons && buttons < components.length) {
+            throw new Error("[BetterContainer] A row cannot mix buttons and select menus");
+        }
+        if (!buttons && components.length > 1) throw new Error("[BetterContainer] A row can only hold one select menu");
+
+        for (let i = 0; i < components.length; i += MAX_BUTTONS_PER_ROW) {
+            this.container.addActionRowComponents(
+                new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(
+                    components.slice(i, i + MAX_BUTTONS_PER_ROW)
+                )
+            );
+        }
         return this;
     }
 
     private toSendOptions(options: DynaSendOptions): RequiredDynaSendOptions {
-        this.build();
         return {
             ...options,
-            components: [this.container, ...(options.components ?? [])],
+            components: [this, ...(options.components ?? [])],
             flags: addMessageFlag(options.flags, MessageFlags.IsComponentsV2)
         };
     }

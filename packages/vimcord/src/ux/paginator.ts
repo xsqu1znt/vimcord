@@ -471,7 +471,7 @@ export class Paginator {
             if (options.content || options.embeds?.length)
                 throw new Error("[Paginator] Components V2 pages cannot be combined with ordinary message content");
             data.flags = addMessageFlag(options.flags, MessageFlags.IsComponentsV2);
-        } else if (options.components?.some(c => c instanceof ContainerBuilder)) {
+        } else if (options.components?.some(c => c instanceof BetterContainer || c instanceof ContainerBuilder)) {
             throw new Error("[Paginator] Ordinary pages cannot be combined with Components V2 containers");
         }
         const components = [...(options.components ?? [])];
@@ -480,13 +480,11 @@ export class Paginator {
         if (Array.isArray(page)) embeds.push(...page);
         else if (typeof page === "string") data.content = page;
         else if (page instanceof AttachmentBuilder) files.push(page);
-        else if (page instanceof BetterContainer || page instanceof ContainerBuilder)
-            components.push(page instanceof BetterContainer ? page.toBuilder() : page);
+        else if (page instanceof BetterContainer || page instanceof ContainerBuilder) components.push(page);
         else if (isPageObject(page)) {
             if ("content" in page && page.content !== undefined) data.content = page.content;
             if ("embeds" in page && page.embeds) embeds.push(...page.embeds);
-            if ("containers" in page && page.containers)
-                components.push(...page.containers.map(c => (c instanceof BetterContainer ? c.toBuilder() : c)));
+            if ("containers" in page && page.containers) components.push(...page.containers);
             if (page.files) files.push(...page.files);
         } else embeds.push(page);
         const rows = this.buildRows(false, index);

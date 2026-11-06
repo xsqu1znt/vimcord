@@ -23,6 +23,7 @@ import type {
     TextChannel,
     ThreadChannel
 } from "discord.js";
+import type { BetterContainer } from "./BetterContainer.js";
 
 import {
     BaseChannel,
@@ -71,7 +72,7 @@ export type UserResolvable = GuildMember | User | string;
 
 export type SendableTextChannel = DMChannel | TextChannel | NewsChannel | ThreadChannel;
 
-export type SendableComponent = ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
+export type SendableComponent = BetterContainer | ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
 export type RequiredDynaSendOptions = AtLeastOne<DynaSendOptions, SendableContentKeys>;
 
 export interface DynaSendOptions {
