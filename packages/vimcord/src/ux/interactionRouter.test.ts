@@ -20,6 +20,7 @@ import { dynaSend } from "./dynaSend.js";
 import * as routing from "./interactionRouter.js";
 import { Paginator } from "./paginator.js";
 import { promptMessage } from "./prompt.js";
+import { resolveParticipantIds } from "./shared.js";
 
 vi.mock("./dynaSend.js", async original => ({ ...(await original<typeof import("./dynaSend.js")>()), dynaSend: vi.fn() }));
 
@@ -356,7 +357,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
     it("drives paginator navigation, asynchronous collect listeners, and timeout cleanup", async () => {
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
-        const p = new Paginator({ participants: "anyone", pages: ["a", "b"], idle: 30, onResolve: "clear" });
+        const p = new Paginator({ pages: ["a", "b"], idle: 30, onResolve: "clear" });
         const order: string[] = [];
         p.on("collect", async () => {
             await Promise.resolve();
@@ -365,7 +366,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         p.on("paginate", () => {
             order.push("paginate");
         });
-        await p.send(message);
+        await p.send(message, { participants: "anyone" });
         message.client.emit(Events.InteractionCreate, click(message, "paginator:next") as never);
         await settle();
         expect(order).toEqual(["collect", "paginate"]);
@@ -439,4 +440,39 @@ it("reduces unrelated fan-out from 1000 checks to zero and releases all router l
         Events.GuildDelete
     ])
         expect(client.listenerCount(event)).toBe(0);
+});
+
+describe("participant inference on a real Message", () => {
+    const user = (id: string) => ({ id, username: id, discriminator: "0", avatar: null });
+
+    function parsed(data: object) {
+        const TestMessage = Message as unknown as new (client: Client, data: object) => Message<true>;
+        return new TestMessage(makeClient(), {
+            id: String(nextId++),
+            channel_id: "channel",
+            content: "",
+            type: 19,
+            author: user("bot"),
+            timestamp: new Date().toISOString(),
+            mentions: [],
+            ...data
+        });
+    }
+
+    it.each([
+        ["a reply that pinged", [user("invoker")]],
+        ["a reply that didn't ping", []]
+    ])("reads the replied user from %s", (_name, mentions) => {
+        const message = parsed({ mentions, referenced_message: { id: "1", author: user("invoker") } });
+        expect(resolveParticipantIds(undefined, message)).toEqual(new Set(["invoker"]));
+    });
+
+    it("reads the interaction metadata's user", () => {
+        const message = parsed({ interaction_metadata: { id: "1", type: 2, user: user("invoker") } });
+        expect(resolveParticipantIds(undefined, message)).toEqual(new Set(["invoker"]));
+    });
+
+    it("throws for a plain message", () => {
+        expect(() => resolveParticipantIds(undefined, parsed({}))).toThrow(/participants/);
+    });
 });

@@ -1,37 +1,51 @@
-import type { GuildMember, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
-import type { InteractionBasedSendHandler, SendHandler } from "./dynaSend.js";
+import type { GuildMember, Message, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
+import type { InteractionBasedSendHandler, TriggeredSendHandler } from "./dynaSend.js";
 
-import { BaseInteraction, ComponentType, Message } from "discord.js";
+import { ChannelType, ComponentType } from "discord.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 // --- Participants ---
 export type Participant = GuildMember | User | string;
 
-/** Who may click. `"anyone"` opts out of the default of only the invoker. */
+/** Who may click. `"anyone"` opts out of the default of only whoever triggered the message. */
 export type ParticipantsOption = Participant[] | "anyone";
 
 /**
- * Resolves who may click into a set of user IDs, so each click is a cheap lookup. `null` means anyone can.
- * @param participants The explicit option, if any
+ * The trailing arguments of a send that starts a collector. `participants` is required when the target
+ * can be a guild channel, because nothing there says who triggered the message. The `[T]` wrapper stops
+ * a union from distributing, so a union containing a guild channel requires it too.
  */
-export function resolveParticipantIds(participants: ParticipantsOption | undefined): ReadonlySet<string> | null {
-    if (!participants || participants === "anyone") return null;
-    return new Set(participants.map(p => (typeof p === "string" ? p : p.id)));
-}
+export type ParticipantSendArgs<T, Options = object, Rest extends unknown[] = []> = [T] extends [TriggeredSendHandler]
+    ? [options?: Options & { participants?: ParticipantsOption }, ...rest: Rest]
+    : [options: Options & { participants: ParticipantsOption }, ...rest: Rest];
 
 /**
- * Resolves who may use a paginator or prompt, defaulting to whoever invoked the send target.
- * Channel and user targets have no invoker, so they default to anyone.
+ * The one rule for who may click a collector, paginator, or prompt: the explicit option, otherwise whoever
+ * triggered the bot's message. Throws when nothing says who that is, rather than silently opening the buttons.
+ * Resolves to user IDs so each click is a cheap lookup. `null` means anyone can click, as does an empty list.
  * @param participants The explicit option, if any
- * @param handler The send target
+ * @param message The bot's message
+ * @param interaction The interaction that sent the message, if known
  */
-export function resolveParticipants(participants: ParticipantsOption | undefined, handler: SendHandler): Participant[] {
-    if (participants === "anyone") return [];
-    if (participants) return participants;
-    if (handler instanceof BaseInteraction) return [handler.user];
-    // Editing the bot's own message leaves no invoker to infer; locking to the bot would lock everyone out.
-    if (handler instanceof Message && handler.author.id !== handler.client.user?.id) return [handler.author];
-    return [];
+export function resolveParticipantIds(
+    participants: ParticipantsOption | undefined,
+    message: Message,
+    interaction?: InteractionBasedSendHandler
+): ReadonlySet<string> | null {
+    if (participants === "anyone") return null;
+    if (participants) return participants.length ? new Set(participants.map(p => (typeof p === "string" ? p : p.id))) : null;
+
+    // A reply to the bot's own message names no one who could click, so it doesn't count as a trigger.
+    const replied = message.mentions.repliedUser;
+    const trigger =
+        interaction?.user ?? message.interactionMetadata?.user ?? (replied?.id === message.author.id ? null : replied);
+    if (trigger) return new Set([trigger.id]);
+
+    // Only the recipient can click in a DM. An uncached channel isn't assumed to be one.
+    if (message.channel?.type === ChannelType.DM) return null;
+    throw new Error(
+        '[Participants] This message has no trigger to read. Pass `participants`, or `"anyone"` to leave it open'
+    );
 }
 
 // --- Timing ---

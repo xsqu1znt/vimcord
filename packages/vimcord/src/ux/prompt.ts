@@ -1,11 +1,11 @@
 import type { Message, MessageEditOptions } from "discord.js";
-import type { DynaSendOptions, EmbedResolvable, SendHandler } from "./dynaSend.js";
-import type { OnResolve, ParticipantsOption, ResolveResult, TimingOptions } from "./shared.js";
+import type { DynaSendOptions, EmbedResolvable, SendHandler, TriggeredMessage } from "./dynaSend.js";
+import type { OnResolve, ParticipantSendArgs, ParticipantsOption, ResolveResult, TimingOptions } from "./shared.js";
 
 import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
 import { dynaSend } from "./dynaSend.js";
-import { handleResolveAction, isMessageGone, resolveParticipants, resolveTiming } from "./shared.js";
+import { handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
@@ -24,7 +24,10 @@ export interface PromptMessageButtonOptions {
 
 /** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageBaseOptions {
-    /** Users allowed to interact with the prompt. Defaults to the invoker of the send target; `"anyone"` opts out. */
+    /**
+     * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required
+     * for guild channels, where nothing says who that is. `"anyone"` opts out.
+     */
     participants?: ParticipantsOption;
     /** Message content sent with the prompt. */
     content?: string;
@@ -111,9 +114,13 @@ function highlightPromptComponents(
  * @param options Prompt options
  * @param sendOptions Additional options passed to dynaSend
  */
+export function promptMessage<T extends SendHandler>(
+    handler: T,
+    ...args: ParticipantSendArgs<T, PromptMessageOptions, [sendOptions?: DynaSendOptions]>
+): Promise<PromptMessageResult>;
 export async function promptMessage(
     handler: SendHandler,
-    options: PromptMessageOptions,
+    options: PromptMessageOptions = {},
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
     resolveTiming(options);
@@ -151,11 +158,9 @@ export async function promptMessage(
     // --- Collector ---
     // The custom ID of the button that ended the prompt, or null if nothing was pressed.
     let pressedCustomId: string | null = null;
-    const collector = new BetterCollector(message, {
-        ...options,
-        participants: resolveParticipants(options.participants, handler),
-        onResolve: "keep"
-    });
+    // The signature already required `participants` for targets with no trigger.
+    const interaction = handler instanceof BaseInteraction ? handler : undefined;
+    const collector = new BetterCollector(message as TriggeredMessage, { ...options, interaction, onResolve: "keep" });
 
     const resolveOn = (customId: string, reason: string) =>
         collector.on(customId, async i => {
@@ -199,11 +204,6 @@ export async function promptMessage(
             components: highlightPromptComponents(payload.components ?? message.components, pressedCustomId) as never
         };
     }
-    const resolvedMessage = await handleResolveAction(
-        message,
-        resolution,
-        sendOptions?.allowedMentions,
-        handler instanceof BaseInteraction ? handler : undefined
-    );
+    const resolvedMessage = await handleResolveAction(message, resolution, sendOptions?.allowedMentions, interaction);
     return { ...context, message: resolvedMessage ?? message };
 }

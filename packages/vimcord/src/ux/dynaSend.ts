@@ -66,6 +66,16 @@ export type MessageSendHandler = Exclude<SendHandler, InteractionBasedSendHandle
 /** Options that guarantee an interaction send hands back its message. */
 export type MessageReturningSendOptions = { withResponse: true } | { sendMethod: SendMethod };
 
+/** Targets whose sent message says who may click it. A guild channel's doesn't. */
+export type TriggeredSendHandler = Exclude<SendHandler, GuildTextBasedChannel>;
+
+declare const triggered: unique symbol;
+/** A message known to have a trigger, so `BetterCollector` can infer `participants`. A type-only marker. */
+export type TriggeredMessage = Message & { readonly [triggered]: true };
+
+/** The message a send to `T` hands back. */
+export type SentMessage<T> = [T] extends [TriggeredSendHandler] ? TriggeredMessage : Message;
+
 export type EmbedResolvable = NonNullable<BaseMessageOptions["embeds"]>[number];
 export type InteractionResolveable = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
 export type UserResolvable = GuildMember | User | string;
@@ -222,15 +232,23 @@ function scheduleDelete(message: Message, delay: number): void {
 /**
  * Intelligently detects and sends a message to a variety of Discord targets using a unified API.
  * A fresh interaction reply resolves to `null` unless `withResponse` is set.
+ * Resolves to a `TriggeredMessage` unless the target is a guild channel or the edit of a message that may be the bot's own.
  * @param handler The Discord.js object to send the message through
  * @param options Message options (content, embeds, flags, etc.). At least one content-bearing field is required.
  */
-export function dynaSend(handler: MessageSendHandler, options: RequiredDynaSendOptions): Promise<Message>;
-export function dynaSend(
-    handler: SendHandler,
+export function dynaSend(handler: Message, options: RequiredDynaSendOptions & { sendMethod: "edit" }): Promise<Message>;
+export function dynaSend<T extends MessageSendHandler>(
+    handler: T,
+    options: RequiredDynaSendOptions
+): Promise<SentMessage<T>>;
+export function dynaSend<T extends SendHandler>(
+    handler: T,
     options: RequiredDynaSendOptions & MessageReturningSendOptions
-): Promise<Message>;
-export function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null>;
+): Promise<SentMessage<T>>;
+export function dynaSend<T extends SendHandler>(
+    handler: T,
+    options: RequiredDynaSendOptions
+): Promise<SentMessage<T> | null>;
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
     const { sendMethod: requested, deleteAfter, ...data } = options;
     const sendMethod = resolveSendMethod(handler, requested);

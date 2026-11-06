@@ -1,5 +1,5 @@
 import type { CollectedMessageInteraction, InteractionCollector, Message, MessageComponentInteraction } from "discord.js";
-import type { InteractionBasedSendHandler } from "./dynaSend.js";
+import type { InteractionBasedSendHandler, TriggeredMessage } from "./dynaSend.js";
 import type { OnResolve, ParticipantsOption, TimingOptions } from "./shared.js";
 
 import { createRoutedMessageCollector } from "./interactionRouter.js";
@@ -18,13 +18,13 @@ export type CollectorTimingOptions = TimingOptions;
 
 /** Options for configuring the BetterCollector behavior. */
 interface BetterCollectorBaseOptions {
-    /** Users allowed to click. `"anyone"` leaves it open. */
+    /** Users allowed to click. Defaults to whoever triggered the message; `"anyone"` leaves it open. */
     participants?: ParticipantsOption;
     /** Rejects a user's clicks while their previous click is still being handled. */
     clickLock?: boolean;
     /** Ends the collector after this many accepted clicks. */
     max?: number;
-    /** Interaction used to send the message, required for ephemeral cleanup. */
+    /** Interaction used to send the message, required for ephemeral cleanup. Its user is who triggered the message. */
     interaction?: InteractionBasedSendHandler;
     /** Cleanup action or awaited final payload, applied once after the collector ends. @default "disable" */
     onResolve?: OnResolve<CollectorResolveContext>;
@@ -50,10 +50,21 @@ export class BetterCollector {
     private readonly endListeners: ((reason: string) => unknown)[] = [];
     private readonly activeUsers = new Set<string>();
 
+    /**
+     * A message from Vimcord's own sends knows its trigger, so `participants` can be inferred. A raw
+     * `channel.send()` or `message.reply()` result has the same type as any other message, so it has to say.
+     * @throws When `participants` is omitted and the message has no trigger, outside of a DM
+     */
+    constructor(message: TriggeredMessage, options?: BetterCollectorOptions);
+    constructor(
+        message: Message,
+        options: BetterCollectorOptions &
+            ({ participants: ParticipantsOption } | { interaction: InteractionBasedSendHandler })
+    );
     constructor(message: Message, options: BetterCollectorOptions = {}) {
         this.message = message;
         this.options = options;
-        this.participantIds = resolveParticipantIds(options.participants);
+        this.participantIds = resolveParticipantIds(options.participants, message, options.interaction);
         this.notAParticipantMessage = options.notAParticipantMessage ?? getGlobalUxConfig().collector.notAParticipantMessage;
         const timing = resolveTiming(options);
 
@@ -80,7 +91,7 @@ export class BetterCollector {
      */
     private filterClick(interaction: CollectedMessageInteraction): boolean | Promise<boolean> {
         const userId = interaction.user.id;
-        if (this.participantIds?.size && !this.participantIds.has(userId)) {
+        if (this.participantIds && !this.participantIds.has(userId)) {
             return this.rejectClick(interaction, this.notAParticipantMessage);
         }
         if (!this.options.clickLock) return true;

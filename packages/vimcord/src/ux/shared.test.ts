@@ -1,8 +1,8 @@
 import type { InteractionBasedSendHandler } from "./dynaSend.js";
 
-import { ComponentType } from "discord.js";
+import { ChannelType, ComponentType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
-import { handleResolveAction, resolveTiming } from "./shared.js";
+import { handleResolveAction, resolveParticipantIds, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 function createMessage(componentsJSON: unknown[]) {
@@ -233,5 +233,57 @@ describe("resolveTiming", () => {
 
     it("throws rather than dropping one when both are forced through", () => {
         expect(() => resolveTiming({ idle: 1, timeout: 1 } as never)).toThrow(/Only one of/);
+    });
+});
+
+describe("resolveParticipantIds", () => {
+    const invoker = { id: "invoker" };
+    const metadataUser = { id: "metadata" };
+    const repliedUser = { id: "replied" };
+
+    function message(data: { metadata?: object; replied?: object | null; channelType?: ChannelType } = {}) {
+        return {
+            author: { id: "bot" },
+            interactionMetadata: data.metadata ? { user: data.metadata } : null,
+            mentions: { repliedUser: data.replied ?? null },
+            channel: data.channelType === undefined ? null : { type: data.channelType }
+        } as never;
+    }
+
+    it("infers in order: the interaction option, the message's interaction metadata, then the replied user", () => {
+        const all = message({ metadata: metadataUser, replied: repliedUser });
+        expect(resolveParticipantIds(undefined, all, { user: invoker } as never)).toEqual(new Set(["invoker"]));
+        expect(resolveParticipantIds(undefined, all)).toEqual(new Set(["metadata"]));
+        expect(resolveParticipantIds(undefined, message({ replied: repliedUser }))).toEqual(new Set(["replied"]));
+    });
+
+    it("prefers a trigger to the open DM rule", () => {
+        const dm = message({ replied: repliedUser, channelType: ChannelType.DM });
+        expect(resolveParticipantIds(undefined, dm)).toEqual(new Set(["replied"]));
+    });
+
+    it("stays open in a DM with no trigger", () => {
+        expect(resolveParticipantIds(undefined, message({ channelType: ChannelType.DM }))).toBeNull();
+    });
+
+    it.each([
+        ["a guild channel", { channelType: ChannelType.GuildText }],
+        ["a group DM", { channelType: ChannelType.GroupDM }],
+        ["an uncached channel", {}]
+    ])("throws in %s with no trigger, naming both ways out", (_name, data) => {
+        expect(() => resolveParticipantIds(undefined, message(data))).toThrow(/`participants`.*"anyone"/);
+    });
+
+    it("doesn't lock a reply to the bot's own message to the bot", () => {
+        const reply = (channelType: ChannelType) => message({ replied: { id: "bot" }, channelType });
+        expect(() => resolveParticipantIds(undefined, reply(ChannelType.GuildText))).toThrow(/participants/);
+        expect(resolveParticipantIds(undefined, reply(ChannelType.DM))).toBeNull();
+    });
+
+    it("uses an explicit option without reading the message at all", () => {
+        const unread = {} as never;
+        expect(resolveParticipantIds("anyone", unread)).toBeNull();
+        expect(resolveParticipantIds([], unread)).toBeNull();
+        expect(resolveParticipantIds(["a", { id: "b" } as never], unread)).toEqual(new Set(["a", "b"]));
     });
 });

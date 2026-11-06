@@ -5,7 +5,9 @@ import type {
     MessageReturningSendOptions,
     MessageSendHandler,
     RequiredDynaSendOptions,
-    SendHandler
+    SendHandler,
+    SentMessage,
+    TriggeredMessage
 } from "./dynaSend.js";
 
 import { resolveColor } from "discord.js";
@@ -276,13 +278,26 @@ export class BetterEmbed {
      * @param options Additional dynaSend options
      * @param overrides Data to apply to a cloned embed before sending
      */
-    send(handler: MessageSendHandler, options?: DynaSendOptions, overrides?: Partial<BetterEmbedData>): Promise<Message>;
     send(
-        handler: SendHandler,
-        options: DynaSendOptions & MessageReturningSendOptions,
+        handler: Message,
+        options: DynaSendOptions & { sendMethod: "edit" },
         overrides?: Partial<BetterEmbedData>
     ): Promise<Message>;
-    send(handler: SendHandler, options?: DynaSendOptions, overrides?: Partial<BetterEmbedData>): Promise<Message | null>;
+    send<T extends MessageSendHandler>(
+        handler: T,
+        options?: DynaSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T>>;
+    send<T extends SendHandler>(
+        handler: T,
+        options: DynaSendOptions & MessageReturningSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T>>;
+    send<T extends SendHandler>(
+        handler: T,
+        options?: DynaSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T> | null>;
     send(
         handler: SendHandler,
         options: DynaSendOptions = {},
@@ -299,7 +314,7 @@ export class BetterEmbed {
      * @param interaction Interaction to follow up on
      * @param options Additional dynaSend options
      */
-    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<Message> {
+    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<TriggeredMessage> {
         return dynaSend(interaction, { ...options, embeds: [this, ...(options.embeds ?? [])], sendMethod: "followUp" });
     }
 

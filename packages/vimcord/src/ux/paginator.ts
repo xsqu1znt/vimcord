@@ -10,9 +10,10 @@ import type {
     EmbedResolvable,
     InteractionBasedSendHandler,
     RequiredDynaSendOptions,
-    SendHandler
+    SendHandler,
+    TriggeredMessage
 } from "./dynaSend.js";
-import type { OnResolve, Participant, ParticipantsOption, TimingOptions } from "./shared.js";
+import type { OnResolve, ParticipantSendArgs, ParticipantsOption, TimingOptions } from "./shared.js";
 
 import {
     ActionRowBuilder,
@@ -34,7 +35,7 @@ import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
 import { addMessageFlag, dynaSend } from "./dynaSend.js";
-import { handleResolveAction, isMessageGone, resolveParticipants, resolveTiming } from "./shared.js";
+import { handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 type NavButtonId = "first" | "back" | "jump" | "next" | "last";
@@ -131,8 +132,6 @@ export interface PaginatorResolveContext {
 export interface PaginatorBaseOptions {
     /** Navigation layout. `"long"` adds first and last buttons. @default "short" */
     nav?: PaginatorNav;
-    /** Users allowed to navigate. Defaults to the invoker of the send target; `"anyone"` opts out. */
-    participants?: ParticipantsOption;
     pages?: PageResolvable[];
     /** Cleanup action or awaited final payload, applied once after the paginator ends. @default "disable" */
     onResolve?: OnResolve<PaginatorResolveContext>;
@@ -177,8 +176,7 @@ interface PaginatorState {
     active: boolean;
 }
 
-interface ResolvedPaginatorOptions extends Required<Omit<PaginatorBaseOptions, "participants" | "onLoading">> {
-    participants?: ParticipantsOption;
+interface ResolvedPaginatorOptions extends Required<Omit<PaginatorBaseOptions, "onLoading">> {
     timeout: number | null;
     idle: number | null;
     onLoading?: PaginatorLoadingHook;
@@ -315,7 +313,7 @@ export class Paginator {
         }
     };
     private collector: BetterCollector | null = null;
-    private participants: Participant[] = [];
+    private participants: ParticipantsOption | undefined;
     private format: PageFormat | null = null;
     private navigationBusy = false;
     private navigationPromise: Promise<void> | null = null;
@@ -334,7 +332,6 @@ export class Paginator {
         const timing = resolveTiming(options);
         this.options = {
             nav: options.nav ?? "short",
-            participants: options.participants,
             pages: options.pages ?? [],
             timeout: timing.timeout,
             idle: timing.idle,
@@ -725,8 +722,10 @@ export class Paginator {
         const message = this.state.message;
         if (!message) return;
         this.collector?.stop("refresh");
-        const collector = new BetterCollector(message, {
+        // `send`'s signature already required `participants` for targets with no trigger.
+        const collector = new BetterCollector(message as TriggeredMessage, {
             participants: this.participants,
+            interaction: this.state.interaction,
             ...createCollectorTiming(this.options),
             onResolve: "keep",
             notAParticipantMessage: getGlobalUxConfig().paginator.notAParticipantMessage
@@ -953,29 +952,38 @@ export class Paginator {
         return this.state.message;
     }
 
-    async send(handler: SendHandler, options?: DynaSendOptions): Promise<Message> {
+    /**
+     * Sends the paginator and starts collecting navigation clicks.
+     * @param handler Discord target to send through
+     * @param options dynaSend options, plus `participants`: who may navigate. Defaults to whoever triggered the
+     * paginator, and required for guild channels, where nothing says who that is. `"anyone"` opts out.
+     */
+    send<T extends SendHandler>(handler: T, ...args: ParticipantSendArgs<T, DynaSendOptions>): Promise<Message>;
+    async send(
+        handler: SendHandler,
+        { participants, ...options }: DynaSendOptions & { participants?: ParticipantsOption } = {}
+    ): Promise<Message> {
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;
         this.state.interaction = handler instanceof BaseInteraction ? handler : undefined;
-        this.participants = resolveParticipants(this.options.participants, handler);
+        this.participants = participants;
         this.state.active = true;
-        let message: Message;
         try {
             const { page, index } = await this.loadPage(
                 await this.resolveDestination(this.state.index.chapter, this.state.index.nested)
             );
             this.state.index = index;
             this.state.currentPage = page;
-            message = await dynaSend(handler, { ...this.buildSendOptions(page, options), withResponse: true });
+            const message = await dynaSend(handler, { ...this.buildSendOptions(page, options), withResponse: true });
             this.state.message = message;
+            this.collectComponents();
+            return message;
         } catch (error) {
             this.state.active = false;
-            console.error("[Paginator] Initial load failed:", error);
+            console.error("[Paginator] Initial send failed:", error);
             throw error;
         }
-        this.collectComponents();
-        return message;
     }
 
     stop(reason = "manual"): void {

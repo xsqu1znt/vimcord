@@ -13,7 +13,9 @@ import type {
     MessageReturningSendOptions,
     MessageSendHandler,
     RequiredDynaSendOptions,
-    SendHandler
+    SendHandler,
+    SentMessage,
+    TriggeredMessage
 } from "./dynaSend.js";
 
 import {
@@ -211,9 +213,10 @@ export class BetterContainer {
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      */
-    send(handler: MessageSendHandler, options?: DynaSendOptions): Promise<Message>;
-    send(handler: SendHandler, options: DynaSendOptions & MessageReturningSendOptions): Promise<Message>;
-    send(handler: SendHandler, options?: DynaSendOptions): Promise<Message | null>;
+    send(handler: Message, options: DynaSendOptions & { sendMethod: "edit" }): Promise<Message>;
+    send<T extends MessageSendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T>>;
+    send<T extends SendHandler>(handler: T, options: DynaSendOptions & MessageReturningSendOptions): Promise<SentMessage<T>>;
+    send<T extends SendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T> | null>;
     send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
         return dynaSend(handler, this.toSendOptions(options));
     }
@@ -223,7 +226,7 @@ export class BetterContainer {
      * @param interaction Interaction to follow up on
      * @param options Additional dynaSend options
      */
-    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<Message> {
+    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<TriggeredMessage> {
         return dynaSend(interaction, { ...this.toSendOptions(options), sendMethod: "followUp" });
     }
 

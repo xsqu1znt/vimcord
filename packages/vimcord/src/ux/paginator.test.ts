@@ -53,6 +53,8 @@ function createMessage(components: { toJSON(): unknown }[] = []) {
         editable: true,
         deletable: true,
         components,
+        author: { id: "bot" },
+        mentions: { repliedUser: { id: "user" } },
         edit: vi.fn(),
         delete: vi.fn(),
         createMessageComponentCollector: vi.fn(() => collector)
@@ -1140,16 +1142,48 @@ describe("Paginator defaults", () => {
         }
     });
 
+    function filterFor(message: ReturnType<typeof createMessage>["message"]) {
+        const [options] = message.createMessageComponentCollector.mock.lastCall as unknown as [
+            { filter(i: unknown): Promise<boolean> }
+        ];
+        const reply = vi.fn().mockResolvedValue(undefined);
+        return (id: string) => options.filter({ user: { id }, customId: "paginator:next", reply });
+    }
+
     it("restricts to the interaction's user by default", async () => {
         const handler = Object.assign(Object.create(BaseInteraction.prototype), { user: { id: "invoker" } });
         const { message } = createMessage();
         vi.mocked(dynaSend).mockResolvedValue(message as never);
         await new Paginator({ pages: ["A", "B"] }).send(handler);
-        const [options] = message.createMessageComponentCollector.mock.lastCall as unknown as [
-            { filter(i: unknown): Promise<boolean> }
-        ];
-        const reply = vi.fn().mockResolvedValue(undefined);
-        expect(await options.filter({ user: { id: "other" }, customId: "paginator:next", reply })).toBe(false);
-        expect(await options.filter({ user: { id: "invoker" }, customId: "paginator:next" })).toBe(true);
+        expect(await filterFor(message)("other")).toBe(false);
+        expect(await filterFor(message)("invoker")).toBe(true);
+    });
+
+    it("takes participants on send, without passing them on to Discord", async () => {
+        const { message } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants: ["chosen"], content: "Hi" });
+        expect(await filterFor(message)("chosen")).toBe(true);
+        expect(await filterFor(message)("user")).toBe(false);
+        expect(vi.mocked(dynaSend).mock.lastCall![1]).not.toHaveProperty("participants");
+    });
+
+    it.each([["anyone" as const], [[]]])("leaves navigation open with participants %j", async participants => {
+        const { message } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants });
+        expect(await filterFor(message)("someone")).toBe(true);
+    });
+
+    it("stops being active when the sent message has no trigger to read", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const { message } = createMessage();
+        Object.assign(message, { mentions: { repliedUser: null } });
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        const p = new Paginator({ pages: ["A", "B"] });
+        await expect(p.send({} as never)).rejects.toThrow(/participants/);
+        expect(message.createMessageComponentCollector).not.toHaveBeenCalled();
+        await expect(p.refresh()).resolves.toBe(message);
+        expect(vi.mocked(dynaSend)).toHaveBeenCalledOnce();
     });
 });

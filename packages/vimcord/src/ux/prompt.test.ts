@@ -1,13 +1,5 @@
 import EventEmitter from "node:events";
-import {
-    ActionRowBuilder,
-    BaseInteraction,
-    ButtonBuilder,
-    ButtonStyle,
-    Collection,
-    ComponentType,
-    Message
-} from "discord.js";
+import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, Collection, ComponentType } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
@@ -25,16 +17,6 @@ vi.mock("./interactionRouter.js", () => ({
     ) => message.createMessageComponentCollector(options)
 }));
 
-/** A real Message target, so instanceof picks the invoker up from it. */
-function createTarget(authorId: string, botId = "bot") {
-    const target = Object.create(Message.prototype) as Message;
-    Object.defineProperties(target, {
-        author: { value: { id: authorId } },
-        client: { value: { user: { id: botId } } }
-    });
-    return target;
-}
-
 function createFakeMessage() {
     const collector = Object.assign(new EventEmitter(), {
         stop: vi.fn(),
@@ -45,6 +27,8 @@ function createFakeMessage() {
         editable: true,
         deletable: true,
         components: [],
+        author: { id: "bot" },
+        mentions: { repliedUser: { id: "u1" } },
         edit: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
         createMessageComponentCollector: () => collector
@@ -236,11 +220,9 @@ describe("prompt defaults", () => {
     });
 
     it.each([
-        ["only the invoker of a message", () => createTarget("invoker"), undefined, true],
-        ["anyone with anyone", () => createTarget("invoker"), "anyone" as const, false],
-        ["anyone when the target is the bot's own message", () => createTarget("bot"), undefined, false],
-        ["anyone on a target with no invoker", () => ({}) as never, undefined, false]
-    ])("lets in %s", async (_name, target, participants, restricted) => {
+        ["only the invoker", undefined, true],
+        ["anyone with anyone", "anyone" as const, false]
+    ])("lets in %s", async (_name, participants, restricted) => {
         const { message } = createFakeMessage();
         let filter!: (i: unknown) => Promise<boolean>;
         message.createMessageComponentCollector = (options: { filter: typeof filter }) => {
@@ -252,7 +234,7 @@ describe("prompt defaults", () => {
             });
         };
         vi.mocked(dynaSend).mockResolvedValue(message);
-        void promptMessage(target(), { participants });
+        void promptMessage({} as never, { participants });
         await new Promise(resolve => setImmediate(resolve));
         const click = {
             user: { id: "someone-else" },
@@ -260,5 +242,12 @@ describe("prompt defaults", () => {
             reply: vi.fn().mockResolvedValue(undefined)
         };
         expect(await filter(click)).toBe(!restricted);
+    });
+
+    it("rejects when the sent message has no trigger to read", async () => {
+        const { message } = createFakeMessage();
+        message.mentions.repliedUser = null;
+        vi.mocked(dynaSend).mockResolvedValue(message);
+        await expect(promptMessage({} as never)).rejects.toThrow(/participants/);
     });
 });
