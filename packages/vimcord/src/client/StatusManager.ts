@@ -1,17 +1,15 @@
 import type { ActivityOptions, PresenceStatusData } from "discord.js";
 import type { Vimcord } from "./Vimcord.js";
 
-import EventEmitter from "node:events";
-
-export interface VimcordStatusActivity extends ActivityOptions {
+export interface VimcordStatusActivity extends Omit<ActivityOptions, "name"> {
     /** Presence status to use while this activity is active. */
     status?: PresenceStatusData;
-    /** Stream URL alias for Discord.js `url`. */
-    streamUrl?: string;
+    /** Resolved each time the activity is applied. */
+    name: string | ((client: Vimcord<true>) => string | Promise<string>);
 }
 
 export interface VimcordStatusProfile {
-    /** Milliseconds between activity rotations. Leave blank to set one activity without rotating. */
+    /** Milliseconds between rotations or function-name refreshes. Omit to apply once. */
     interval?: number;
     /** Pick a random activity each rotation instead of stepping through the list. */
     randomize?: boolean;
@@ -32,29 +30,8 @@ export type VimcordStatusConfig =
     | VimcordStatusProfile
     | (VimcordEnvironmentStatusConfig & ({ production: VimcordStatusProfile } | { development: VimcordStatusProfile }));
 
-/** Events emitted during status lifecycle changes. */
-export interface StatusManagerEvents {
-    /** Emitted after an activity is applied. */
-    changed: [activity: VimcordStatusActivity];
-    /** Emitted after the active status is cleared. */
-    cleared: [];
-    /** Emitted after a rotation applies its next activity. */
-    rotation: [activity: VimcordStatusActivity];
-    /** Emitted after activity rotation is paused. */
-    paused: [];
-    /** Emitted after activity rotation starts. */
-    started: [];
-    /** Emitted after the manager is destroyed. */
-    destroyed: [];
-}
-
-const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
-
 /** Manages Discord presence profiles and activity rotation for a Vimcord client. */
 export class StatusManager {
-    /** Emits status lifecycle events. */
-    readonly emitter = new EventEmitter<StatusManagerEvents>();
-
     private currentProfile: VimcordStatusProfile | null = null;
     private lastActivity: VimcordStatusActivity | null = null;
     private lastActivityIndex = 0;
@@ -68,14 +45,6 @@ export class StatusManager {
     /** Creates a status manager attached to a Vimcord client. */
     constructor(private readonly client: Vimcord) {
         this.client.on("clientReady", this.handleReady);
-
-        this.emitter.on("changed", activity => {
-            this.client.logger.debug(`[StatusManager] Status changed to '${activity.name}'`);
-        });
-
-        this.emitter.on("cleared", () => {
-            this.client.logger.debug("[StatusManager] Status cleared");
-        });
     }
 
     private getActivityList(profile: VimcordStatusProfile): VimcordStatusActivity[] {
@@ -92,55 +61,31 @@ export class StatusManager {
         return this.client;
     }
 
-    private async formatActivityName(name: string): Promise<string> {
-        const replacements = {
-            $USER_COUNT: NUMBER_FORMATTER.format(this.client.users.cache.size),
-            $GUILD_COUNT: NUMBER_FORMATTER.format(this.client.guilds.cache.size),
-            $INVITE: this.client.globals.staff.guild.inviteUrl ?? "<STAFF_INVITE_URL_NOT_SET>"
-        };
-        let formattedName = Object.entries(replacements).reduce(
-            (current, [key, value]) => current.replaceAll(key, value),
-            name
-        );
-
-        if (!formattedName.includes("$STAFF_GUILD_MEMBER_COUNT")) return formattedName;
-
-        const staffGuildId = this.client.globals.staff.guild.id;
-        if (!staffGuildId) return formattedName.replaceAll("$STAFF_GUILD_MEMBER_COUNT", "<STAFF_GUILD_NOT_SET>");
-
-        try {
-            const guild = await this.client.fetchGuild(staffGuildId);
-            formattedName = formattedName.replaceAll(
-                "$STAFF_GUILD_MEMBER_COUNT",
-                guild ? NUMBER_FORMATTER.format(guild.memberCount) : "<STAFF_GUILD_NOT_FOUND>"
-            );
-        } catch (err) {
-            this.client.logger.error("[StatusManager] Failed to fetch the staff guild", err as Error);
-        }
-
-        return formattedName;
-    }
-
     private isCurrent(version: number): boolean {
         return version === this.version;
     }
 
-    private async setActivity(activity: VimcordStatusActivity, version: number): Promise<boolean> {
+    private async setActivity(activity: VimcordStatusActivity, version: number): Promise<void> {
         const client = await this.getReadyClient();
-        if (!client?.user || !this.isCurrent(version)) return false;
+        if (!client?.user || !this.isCurrent(version)) return;
 
-        const { status = "online", streamUrl, shardId, ...activityOptions } = activity;
-        const name = await this.formatActivityName(activity.name);
-        if (!client.isReady() || !client.user || !this.isCurrent(version)) return false;
+        const { status = "online", shardId, name: activityName, ...activityOptions } = activity;
+        let name: string;
+        try {
+            name = typeof activityName === "function" ? await activityName(client) : activityName;
+        } catch (error) {
+            this.client.logger.error("[StatusManager] Failed to resolve activity name", error as Error);
+            return;
+        }
+        if (!client.isReady() || !client.user || !this.isCurrent(version)) return;
 
         client.user.setPresence({
             status,
-            activities: [{ ...activityOptions, name, url: activityOptions.url ?? streamUrl }],
+            activities: [{ ...activityOptions, name }],
             shardId
         });
         this.lastActivity = activity;
-        this.emitter.emit("changed", activity);
-        return true;
+        this.client.logger.debug(`[StatusManager] Status changed to '${name}'`);
     }
 
     private pickNextActivity(profile: VimcordStatusProfile): VimcordStatusActivity {
@@ -159,7 +104,7 @@ export class StatusManager {
         if (!this.isCurrent(version)) return;
 
         const activity = this.pickNextActivity(profile);
-        if (await this.setActivity(activity, version)) this.emitter.emit("rotation", activity);
+        await this.setActivity(activity, version);
     }
 
     private async applyProfile(profile: VimcordStatusProfile, version: number): Promise<void> {
@@ -173,7 +118,7 @@ export class StatusManager {
         this.lastActivityIndex = 0;
         await this.setActivity(firstActivity, version);
 
-        if (this.isCurrent(version) && profile.interval && activities.length > 1) this.start();
+        if (this.isCurrent(version)) this.start();
     }
 
     private resolveProfile(status: VimcordStatusConfig): VimcordStatusProfile | null {
@@ -183,18 +128,17 @@ export class StatusManager {
         return (this.client.$devMode ? status.development : status.production) ?? null;
     }
 
-    /** Starts activity rotation if the current profile has a rotation interval. */
+    /** Starts rotation or refreshes a single function name at the profile interval. */
     start(): this {
         if (this.rotationTimer || !this.currentProfile?.interval) return this;
 
         const profile = this.currentProfile;
         const version = this.version;
         const activities = this.getActivityList(profile);
-        if (activities.length < 2) return this;
+        if (!activities.length || (activities.length === 1 && typeof activities[0]!.name !== "function")) return this;
 
         this.rotationTimer = setInterval(() => void this.rotate(profile, version), profile.interval);
         this.rotationTimer.unref?.();
-        this.emitter.emit("started");
         return this;
     }
 
@@ -204,7 +148,6 @@ export class StatusManager {
 
         clearInterval(this.rotationTimer);
         this.rotationTimer = null;
-        this.emitter.emit("paused");
         return this;
     }
 
@@ -234,7 +177,7 @@ export class StatusManager {
             this.client.user.setActivity();
         }
 
-        this.emitter.emit("cleared");
+        this.client.logger.debug("[StatusManager] Status cleared");
         return this;
     }
 
@@ -242,7 +185,6 @@ export class StatusManager {
     async destroy(): Promise<this> {
         this.client.off("clientReady", this.handleReady);
         await this.clear();
-        this.emitter.emit("destroyed");
         return this;
     }
 }
