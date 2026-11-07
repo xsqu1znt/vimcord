@@ -1,6 +1,13 @@
 import type { Message, MessageEditOptions } from "discord.js";
 import type { DynaSendOptions, EmbedResolvable, SendHandler, TriggeredMessage } from "./dynaSend.js";
-import type { OnResolve, ParticipantSendArgs, ParticipantsOption, ResolveResult, TimingOptions } from "./shared.js";
+import type {
+    InferredSendOptions,
+    OnResolve,
+    ParticipantSendArgs,
+    ParticipantsOption,
+    ResolveResult,
+    TimingOptions
+} from "./shared.js";
 
 import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
@@ -25,8 +32,9 @@ export interface PromptMessageButtonOptions {
 /** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageBaseOptions {
     /**
-     * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required
-     * for guild channels, where nothing says who that is. An empty list lets nobody click; `"anyone"` opts out.
+     * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required for
+     * guild channels and message edits, where nothing says who that is. An empty list lets nobody click;
+     * `"anyone"` opts out.
      */
     participants?: ParticipantsOption;
     /** Message content sent with the prompt. */
@@ -116,7 +124,11 @@ function highlightPromptComponents(
  */
 export function promptMessage<T extends SendHandler>(
     handler: T,
-    ...args: ParticipantSendArgs<T, PromptMessageOptions, [sendOptions?: DynaSendOptions]>
+    ...args: ParticipantSendArgs<
+        T,
+        [options?: PromptMessageOptions, sendOptions?: InferredSendOptions<T>],
+        [options: PromptMessageOptions & { participants: ParticipantsOption }, sendOptions?: DynaSendOptions]
+    >
 ): Promise<PromptMessageResult>;
 export async function promptMessage(
     handler: SendHandler,

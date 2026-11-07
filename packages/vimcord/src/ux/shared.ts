@@ -1,5 +1,5 @@
 import type { GuildMember, Message, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
-import type { InteractionBasedSendHandler, TriggeredSendHandler } from "./dynaSend.js";
+import type { DynaSendOptions, InteractionBasedSendHandler, SendMethod, TriggeredSendHandler } from "./dynaSend.js";
 
 import { ChannelType, ComponentType } from "discord.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
@@ -11,13 +11,23 @@ export type Participant = GuildMember | User | string;
 export type ParticipantsOption = Participant[] | "anyone";
 
 /**
- * The trailing arguments of a send that starts a collector. `participants` is required when the target
- * can be a guild channel, because nothing there says who triggered the message. The `[T]` wrapper stops
- * a union from distributing, so a union containing a guild channel requires it too.
+ * Send options for a target whose `participants` are left to be inferred. Editing a message rules that
+ * out, because it might be the bot's own message, which says nothing about who triggered it.
  */
-export type ParticipantSendArgs<T, Options = object, Rest extends unknown[] = []> = [T] extends [TriggeredSendHandler]
-    ? [options?: Options & { participants?: ParticipantsOption }, ...rest: Rest]
-    : [options: Options & { participants: ParticipantsOption }, ...rest: Rest];
+export type InferredSendOptions<T> = [Extract<T, Message>] extends [never]
+    ? DynaSendOptions
+    : DynaSendOptions & { sendMethod?: Exclude<SendMethod, "edit"> };
+
+/**
+ * The trailing arguments of a send that starts a collector. `Explicit` always works, while `Inferred`, which
+ * leaves out `participants`, only works when the target has a trigger. The `[T]` wrapper stops a union from
+ * distributing, so a union containing a guild channel needs `Explicit` too.
+ */
+export type ParticipantSendArgs<T, Inferred extends unknown[], Explicit extends unknown[]> = [T] extends [
+    TriggeredSendHandler
+]
+    ? Inferred | Explicit
+    : Explicit;
 
 /**
  * The one rule for who may click a collector, paginator, or prompt: the explicit option, otherwise whoever

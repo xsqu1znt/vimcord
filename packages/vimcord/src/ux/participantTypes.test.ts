@@ -8,7 +8,7 @@ import type {
     TextChannel,
     User
 } from "discord.js";
-import type { TriggeredMessage } from "./dynaSend.js";
+import type { DynaSendOptions, TriggeredMessage } from "./dynaSend.js";
 
 import { expect, it } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
@@ -28,10 +28,12 @@ async function compileChecks(
     dm: DMChannel,
     mixed: GuildTextBasedChannel | DMChannel,
     message: Message,
+    messageOrButton: Message | ButtonInteraction,
     interaction: ChatInputCommandInteraction,
     button: ButtonInteraction,
     user: User,
-    member: GuildMember
+    member: GuildMember,
+    sendOptions: DynaSendOptions
 ) {
     const idle = 1_000;
     const embed = new BetterEmbed();
@@ -113,6 +115,19 @@ async function compileChecks(
     await promptMessage(user);
     await promptMessage(member);
     await promptMessage(dm, { timeout: idle });
+    // @ts-expect-error Editing a message might be editing the bot's own message.
+    await promptMessage(message, { idle }, { sendMethod: "edit" });
+    // @ts-expect-error Same with no prompt options to speak of.
+    await promptMessage(message, undefined, { sendMethod: "edit" });
+    // @ts-expect-error A union containing a message might be that edit.
+    await promptMessage(messageOrButton, {}, { sendMethod: "edit" });
+    // @ts-expect-error Options that might hold an edit count as one.
+    await promptMessage(message, {}, sendOptions);
+    await promptMessage(message, { participants: [user] }, { sendMethod: "edit" });
+    await promptMessage(message, { idle }, { allowedMentions: {} });
+    await promptMessage(interaction, undefined, { sendMethod: "edit" });
+    await promptMessage(button, { idle }, { sendMethod: "followUp" });
+    await promptMessage(interaction, {}, sendOptions);
 
     // --- Paginator.send ---
     // @ts-expect-error A guild channel has no trigger.
@@ -126,7 +141,16 @@ async function compileChecks(
     await paginator.send(channel, { participants: "anyone", content: "x" });
     await paginator.send(mixed, { participants: [user] });
     await paginator.send(message);
+    // @ts-expect-error Editing a message might be editing the bot's own message.
     await paginator.send(message, { sendMethod: "edit" });
+    // @ts-expect-error A union containing a message might be that edit.
+    await paginator.send(messageOrButton, { sendMethod: "edit" });
+    // @ts-expect-error Options that might hold an edit count as one.
+    await paginator.send(message, sendOptions);
+    await paginator.send(message, { sendMethod: "edit", participants: [user] });
+    await paginator.send(message, { content: "x" });
+    await paginator.send(interaction, { sendMethod: "edit" });
+    await paginator.send(interaction, sendOptions);
     await paginator.send(interaction, { flags: "Ephemeral" });
     await paginator.send(button, { sendMethod: "followUp" });
     await paginator.send(user);

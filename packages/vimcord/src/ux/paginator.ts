@@ -13,7 +13,7 @@ import type {
     SendHandler,
     TriggeredMessage
 } from "./dynaSend.js";
-import type { OnResolve, ParticipantSendArgs, ParticipantsOption, TimingOptions } from "./shared.js";
+import type { InferredSendOptions, OnResolve, ParticipantSendArgs, ParticipantsOption, TimingOptions } from "./shared.js";
 
 import {
     ActionRowBuilder,
@@ -956,10 +956,17 @@ export class Paginator {
      * Sends the paginator and starts collecting navigation clicks.
      * @param handler Discord target to send through
      * @param options dynaSend options, plus `participants`: who may navigate. Defaults to whoever triggered the
-     * paginator, and required for guild channels, where nothing says who that is. An empty list lets nobody
-     * navigate; `"anyone"` opts out.
+     * paginator, and required for guild channels and message edits, where nothing says who that is. An empty
+     * list lets nobody navigate; `"anyone"` opts out.
      */
-    send<T extends SendHandler>(handler: T, ...args: ParticipantSendArgs<T, DynaSendOptions>): Promise<Message>;
+    send<T extends SendHandler>(
+        handler: T,
+        ...args: ParticipantSendArgs<
+            T,
+            [options?: InferredSendOptions<T> & { participants?: ParticipantsOption }],
+            [options: DynaSendOptions & { participants: ParticipantsOption }]
+        >
+    ): Promise<Message>;
     async send(
         handler: SendHandler,
         { participants, ...options }: DynaSendOptions & { participants?: ParticipantsOption } = {}
