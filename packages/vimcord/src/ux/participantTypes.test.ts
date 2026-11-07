@@ -57,11 +57,11 @@ async function compileChecks(
     // @ts-expect-error Options without participants don't help.
     new BetterCollector(await text.send("x"), { idle });
     // @ts-expect-error Editing a message might be editing the bot's own message.
-    new BetterCollector(await container.send(message, { sendMethod: "edit" }));
+    new BetterCollector(await container.send(message, { method: "edit" }));
     // @ts-expect-error Same for an embed.
-    new BetterCollector(await embed.send(message, { sendMethod: "edit" }));
+    new BetterCollector(await embed.send(message, { method: "edit" }));
     // @ts-expect-error Same for dynaSend.
-    new BetterCollector(await dynaSend(message, { content: "x", sendMethod: "edit" }));
+    new BetterCollector(await dynaSend(message, { content: "x", method: "edit" }));
     // @ts-expect-error A fresh interaction reply might not return a message.
     new BetterCollector(await container.send(interaction));
 
@@ -73,24 +73,24 @@ async function compileChecks(
     new BetterCollector(await container.send(member));
     new BetterCollector(await container.send(dm));
     new BetterCollector(await container.send(interaction, { withResponse: true }));
-    new BetterCollector(await container.send(button, { sendMethod: "edit" }));
-    new BetterCollector(await container.send(button, { sendMethod: "followUp" }));
+    new BetterCollector(await container.send(button, { method: "edit" }));
+    new BetterCollector(await container.send(button, { method: "followUp" }));
     new BetterCollector(await embed.send(interaction, { withResponse: true }));
-    new BetterCollector(await embed.send(interaction, { sendMethod: "edit" }));
-    new BetterCollector(await dynaSend(interaction, { content: "x", sendMethod: "followUp" }));
+    new BetterCollector(await embed.send(interaction, { method: "edit" }));
+    new BetterCollector(await dynaSend(interaction, { content: "x", method: "followUp" }));
     new BetterCollector(await container.followUp(interaction));
     new BetterCollector(await embed.followUp(interaction));
 
     const reply = await container.send(interaction);
     triggered(reply!);
-    // @ts-expect-error Still nullable with no withResponse or sendMethod.
+    // @ts-expect-error Still nullable with no withResponse or method.
     triggered(reply);
 
     // --- BetterCollector: anything goes once it's explicit ---
     new BetterCollector(await text.send("x"), { participants: "anyone" });
     new BetterCollector(await message.reply("x"), { participants: [user, member, "id"], idle });
     new BetterCollector(await container.send(channel), { participants: [user] });
-    new BetterCollector(await container.send(message, { sendMethod: "edit" }), { participants: "anyone" });
+    new BetterCollector(await container.send(message, { method: "edit" }), { participants: "anyone" });
     new BetterCollector(await text.send("x"), { interaction });
 
     // --- Plain Message return types still hold ---
@@ -116,17 +116,17 @@ async function compileChecks(
     await promptMessage(member);
     await promptMessage(dm, { timeout: idle });
     // @ts-expect-error Editing a message might be editing the bot's own message.
-    await promptMessage(message, { idle }, { sendMethod: "edit" });
+    await promptMessage(message, { idle }, { method: "edit" });
     // @ts-expect-error Same with no prompt options to speak of.
-    await promptMessage(message, undefined, { sendMethod: "edit" });
+    await promptMessage(message, undefined, { method: "edit" });
     // @ts-expect-error A union containing a message might be that edit.
-    await promptMessage(messageOrButton, {}, { sendMethod: "edit" });
+    await promptMessage(messageOrButton, {}, { method: "edit" });
     // @ts-expect-error Options that might hold an edit count as one.
     await promptMessage(message, {}, sendOptions);
-    await promptMessage(message, { participants: [user] }, { sendMethod: "edit" });
+    await promptMessage(message, { participants: [user] }, { method: "edit" });
     await promptMessage(message, { idle }, { allowedMentions: {} });
-    await promptMessage(interaction, undefined, { sendMethod: "edit" });
-    await promptMessage(button, { idle }, { sendMethod: "followUp" });
+    await promptMessage(interaction, undefined, { method: "edit" });
+    await promptMessage(button, { idle }, { method: "followUp" });
     await promptMessage(interaction, {}, sendOptions);
 
     // --- Paginator.send ---
@@ -142,17 +142,17 @@ async function compileChecks(
     await paginator.send(mixed, { participants: [user] });
     await paginator.send(message);
     // @ts-expect-error Editing a message might be editing the bot's own message.
-    await paginator.send(message, { sendMethod: "edit" });
+    await paginator.send(message, { method: "edit" });
     // @ts-expect-error A union containing a message might be that edit.
-    await paginator.send(messageOrButton, { sendMethod: "edit" });
+    await paginator.send(messageOrButton, { method: "edit" });
     // @ts-expect-error Options that might hold an edit count as one.
     await paginator.send(message, sendOptions);
-    await paginator.send(message, { sendMethod: "edit", participants: [user] });
+    await paginator.send(message, { method: "edit", participants: [user] });
     await paginator.send(message, { content: "x" });
-    await paginator.send(interaction, { sendMethod: "edit" });
+    await paginator.send(interaction, { method: "edit" });
     await paginator.send(interaction, sendOptions);
     await paginator.send(interaction, { flags: "Ephemeral" });
-    await paginator.send(button, { sendMethod: "followUp" });
+    await paginator.send(button, { method: "followUp" });
     await paginator.send(user);
     await paginator.send(dm);
 

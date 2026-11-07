@@ -375,7 +375,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
             interaction: modalSubmit,
             fields: fields as Fields,
             reply: async options => dynaSend(modalSubmit, options),
-            followUp: async options => dynaSend(modalSubmit, { ...options, sendMethod: "followUp" })
+            followUp: async options => dynaSend(modalSubmit, { ...options, method: "followUp" })
         };
     }
 }

@@ -314,7 +314,7 @@ describe("assertTargetHasTrigger", () => {
         ['"anyone"', target(true), "anyone", undefined],
         ["a user's message", target(false), undefined, undefined],
         ["a target that isn't a message", { author: { bot: true } }, undefined, undefined]
-    ] as const)("lets through %s", (_name, handler, participants, sendMethod) => {
-        expect(() => assertTargetHasTrigger(handler as never, participants as never, sendMethod)).not.toThrow();
+    ] as const)("lets through %s", (_name, handler, participants, method) => {
+        expect(() => assertTargetHasTrigger(handler as never, participants as never, method)).not.toThrow();
     });
 });

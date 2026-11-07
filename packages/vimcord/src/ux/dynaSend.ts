@@ -64,7 +64,7 @@ export type InteractionBasedSendHandler = CommandInteraction | RepliableInteract
 /** Targets that always hand back the sent message. A fresh interaction reply only does with `withResponse`. */
 export type MessageSendHandler = Exclude<SendHandler, InteractionBasedSendHandler>;
 /** Options that guarantee an interaction send hands back its message. */
-export type MessageReturningSendOptions = { withResponse: true } | { sendMethod: SendMethod };
+export type MessageReturningSendOptions = { withResponse: true } | { method: SendMethod };
 
 /** Targets whose sent message says who may click it. A guild channel's doesn't. */
 export type TriggeredSendHandler = Exclude<SendHandler, GuildTextBasedChannel>;
@@ -86,7 +86,7 @@ export type SendableComponent = BetterContainer | ContainerBuilder | ActionRowBu
 export type RequiredDynaSendOptions = AtLeastOne<DynaSendOptions, SendableContentKeys>;
 
 export interface DynaSendOptions {
-    sendMethod?: SendMethod;
+    method?: SendMethod;
     content?: string;
     embeds?: EmbedResolvable[];
     components?: SendableComponent[];
@@ -151,13 +151,13 @@ function filterFlags(
 function resolveSendMethod(handler: SendHandler, method: SendMethod | undefined): ResolvedSendMethod {
     const isInteraction = handler instanceof BaseInteraction;
     if (method === "followUp") {
-        if (!isInteraction) throw new TypeError("[DynaSend] sendMethod 'followUp' requires an interaction");
+        if (!isInteraction) throw new TypeError("[DynaSend] method 'followUp' requires an interaction");
         return "followUp";
     }
     if (method === "edit") {
         if (isInteraction) return "editReply";
         if (handler instanceof Message) return "messageEdit";
-        throw new TypeError("[DynaSend] sendMethod 'edit' requires an interaction or a message");
+        throw new TypeError("[DynaSend] method 'edit' requires an interaction or a message");
     }
 
     if (isInteraction) return handler.replied || handler.deferred ? "editReply" : "reply";
@@ -172,7 +172,7 @@ function resolveSendMethod(handler: SendHandler, method: SendMethod | undefined)
 function executeSend(
     handler: SendHandler,
     method: ResolvedSendMethod,
-    data: Omit<DynaSendOptions, "sendMethod" | "deleteAfter">
+    data: Omit<DynaSendOptions, "method" | "deleteAfter">
 ): Promise<Message | null> {
     switch (method) {
         // Reply to an interaction (initial response)
@@ -236,7 +236,7 @@ function scheduleDelete(message: Message, delay: number): void {
  * @param handler The Discord.js object to send the message through
  * @param options Message options (content, embeds, flags, etc.). At least one content-bearing field is required.
  */
-export function dynaSend(handler: Message, options: RequiredDynaSendOptions & { sendMethod: "edit" }): Promise<Message>;
+export function dynaSend(handler: Message, options: RequiredDynaSendOptions & { method: "edit" }): Promise<Message>;
 export function dynaSend<T extends MessageSendHandler>(
     handler: T,
     options: RequiredDynaSendOptions
@@ -250,7 +250,7 @@ export function dynaSend<T extends SendHandler>(
     options: RequiredDynaSendOptions
 ): Promise<SentMessage<T> | null>;
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
-    const { sendMethod: requested, deleteAfter, ...data } = options;
+    const { method: requested, deleteAfter, ...data } = options;
     const sendMethod = resolveSendMethod(handler, requested);
 
     if (sendMethod === "editReply" || sendMethod === "messageEdit") {

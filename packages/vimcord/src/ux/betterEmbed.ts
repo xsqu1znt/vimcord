@@ -280,7 +280,7 @@ export class BetterEmbed {
      */
     send(
         handler: Message,
-        options: DynaSendOptions & { sendMethod: "edit" },
+        options: DynaSendOptions & { method: "edit" },
         overrides?: Partial<BetterEmbedData>
     ): Promise<Message>;
     send<T extends MessageSendHandler>(
@@ -315,7 +315,7 @@ export class BetterEmbed {
      * @param options Additional dynaSend options
      */
     followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<TriggeredMessage> {
-        return dynaSend(interaction, { ...options, embeds: [this, ...(options.embeds ?? [])], sendMethod: "followUp" });
+        return dynaSend(interaction, { ...options, embeds: [this, ...(options.embeds ?? [])], method: "followUp" });
     }
 
     /**
@@ -324,6 +324,6 @@ export class BetterEmbed {
      * @param options Additional dynaSend options
      */
     edit(target: InteractionBasedSendHandler | Message, options: DynaSendOptions = {}): Promise<Message> {
-        return dynaSend(target, { ...options, embeds: [this, ...(options.embeds ?? [])], sendMethod: "edit" });
+        return dynaSend(target, { ...options, embeds: [this, ...(options.embeds ?? [])], method: "edit" });
     }
 }

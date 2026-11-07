@@ -443,7 +443,7 @@ describe("Paginator collection and navigation", () => {
             "chapter:0.3>1.0",
             "set:1.0>0.4"
         ]);
-        expect(vi.mocked(dynaSend).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ sendMethod: "edit" }));
+        expect(vi.mocked(dynaSend).mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ method: "edit" }));
     });
 
     it("renders navigation and chapter selection for the destination chapter", async () => {
@@ -804,7 +804,7 @@ describe("Paginator acknowledgement and snapshots", () => {
             expect(i.update).not.toHaveBeenCalled();
             expect(vi.mocked(dynaSend).mock.lastCall![1]).toMatchObject({
                 content: "Destination",
-                sendMethod: "edit"
+                method: "edit"
             });
             if (navigation.startsWith("cached chapter")) expect(loader).toHaveBeenCalledOnce();
             if (navigation === "jump submission") {

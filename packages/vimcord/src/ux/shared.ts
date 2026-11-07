@@ -22,7 +22,7 @@ export type ParticipantsOption = Participant[] | "anyone";
  */
 export type InferredSendOptions<T> = [Extract<T, Message>] extends [never]
     ? DynaSendOptions
-    : DynaSendOptions & { sendMethod?: Exclude<SendMethod, "edit"> };
+    : DynaSendOptions & { method?: Exclude<SendMethod, "edit"> };
 
 /**
  * The trailing arguments of a send that starts a collector. `Explicit` always works, while `Inferred`, which
@@ -69,14 +69,14 @@ export function resolveParticipantIds(
  * and post buttons nobody can use. Bots can't click. A DM stays open to the recipient, so it's let through.
  * @param target The send target
  * @param participants The explicit option, if any
- * @param sendMethod The send's explicit method, if any
+ * @param method The send's explicit method, if any
  */
 export function assertTargetHasTrigger(
     target: SendHandler,
     participants: ParticipantsOption | undefined,
-    sendMethod: SendMethod | undefined
+    method: SendMethod | undefined
 ): void {
-    if (!(target instanceof Message) || !target.author.bot || participants || sendMethod === "edit") return;
+    if (!(target instanceof Message) || !target.author.bot || participants || method === "edit") return;
     if (target.channel?.type === ChannelType.DM) return;
     throw new Error("[Participants] This is a bot's message, so pass `participants`");
 }

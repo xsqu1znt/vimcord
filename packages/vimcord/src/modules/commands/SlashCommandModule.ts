@@ -188,7 +188,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
         await dynaSend(ctx.interaction, {
             content: `Subcommand '${block.path}' was not found.`,
             flags: "Ephemeral",
-            sendMethod: ctx.interaction.replied || ctx.interaction.deferred ? "followUp" : undefined
+            method: ctx.interaction.replied || ctx.interaction.deferred ? "followUp" : undefined
         });
     }
 }

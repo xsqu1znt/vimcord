@@ -47,9 +47,9 @@ describe("dynaSend transport", () => {
         [BaseInteraction.prototype, "edit", MessageFlags.SuppressEmbeds],
         [BaseInteraction.prototype, "followUp", MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds],
         [Message.prototype, "edit", MessageFlags.SuppressEmbeds]
-    ] as const)("sends once with method-appropriate flags (%#)", async (prototype, sendMethod, flags) => {
+    ] as const)("sends once with method-appropriate flags (%#)", async (prototype, method, flags) => {
         const { handler, send } = target(prototype);
-        const options = { content: "Response", sendMethod, flags: MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds };
+        const options = { content: "Response", method, flags: MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds };
         await dynaSend(handler, options);
         expect(send).toHaveBeenCalledExactlyOnceWith({ content: "Response", flags });
         expect(options.flags).toBe(MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds);
@@ -76,12 +76,10 @@ describe("dynaSend transport", () => {
 
     it("rejects a method that doesn't fit the target before sending", async () => {
         const { handler, send } = target(User.prototype);
-        await expect(dynaSend(handler, { content: "Response", sendMethod: "followUp" })).rejects.toThrow(
+        await expect(dynaSend(handler, { content: "Response", method: "followUp" })).rejects.toThrow(
             /requires an interaction/
         );
-        await expect(dynaSend(handler, { content: "Response", sendMethod: "edit" })).rejects.toThrow(
-            /interaction or a message/
-        );
+        await expect(dynaSend(handler, { content: "Response", method: "edit" })).rejects.toThrow(/interaction or a message/);
         expect(send).not.toHaveBeenCalled();
     });
 
@@ -96,7 +94,7 @@ describe("message typing", () => {
         const check = async (interaction: ChatInputCommandInteraction, user: User) => {
             const direct: Message = await dynaSend(user, { content: "a" });
             const requested: Message = await dynaSend(interaction, { content: "a", withResponse: true });
-            const followUp: Message = await dynaSend(interaction, { content: "a", sendMethod: "followUp" });
+            const followUp: Message = await dynaSend(interaction, { content: "a", method: "followUp" });
             // @ts-expect-error A fresh interaction reply has no message without withResponse.
             const missing: Message = await dynaSend(interaction, { content: "a" });
             const embed = new BetterEmbed();

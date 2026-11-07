@@ -272,7 +272,7 @@ describe("prompt defaults", () => {
 
         it.each([
             ["participants", botMessage(), { participants: ["a"] }, undefined],
-            ["an edit", botMessage(), {}, { sendMethod: "edit" }],
+            ["an edit", botMessage(), {}, { method: "edit" }],
             ["a DM", botMessage(ChannelType.DM), {}, undefined]
         ] as const)("still sends with %s", async (_name, target, options, sendOptions) => {
             const { message, collector } = createFakeMessage();

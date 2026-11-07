@@ -550,7 +550,7 @@ export class Paginator {
             ? await this.state.interaction.webhook.editMessage(message.id, editOptions)
             : await dynaSend(message, {
                   ...data,
-                  sendMethod: "edit"
+                  method: "edit"
               });
         return this.state.message;
     }
@@ -972,7 +972,7 @@ export class Paginator {
         handler: SendHandler,
         { participants, ...options }: DynaSendOptions & { participants?: ParticipantsOption } = {}
     ): Promise<Message> {
-        assertTargetHasTrigger(handler, participants, options.sendMethod);
+        assertTargetHasTrigger(handler, participants, options.method);
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;

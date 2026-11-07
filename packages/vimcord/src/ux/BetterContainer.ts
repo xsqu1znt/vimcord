@@ -213,7 +213,7 @@ export class BetterContainer {
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      */
-    send(handler: Message, options: DynaSendOptions & { sendMethod: "edit" }): Promise<Message>;
+    send(handler: Message, options: DynaSendOptions & { method: "edit" }): Promise<Message>;
     send<T extends MessageSendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T>>;
     send<T extends SendHandler>(handler: T, options: DynaSendOptions & MessageReturningSendOptions): Promise<SentMessage<T>>;
     send<T extends SendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T> | null>;
@@ -227,7 +227,7 @@ export class BetterContainer {
      * @param options Additional dynaSend options
      */
     followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<TriggeredMessage> {
-        return dynaSend(interaction, { ...this.toSendOptions(options), sendMethod: "followUp" });
+        return dynaSend(interaction, { ...this.toSendOptions(options), method: "followUp" });
     }
 
     /**
@@ -236,6 +236,6 @@ export class BetterContainer {
      * @param options Additional dynaSend options
      */
     edit(target: InteractionBasedSendHandler | Message, options: DynaSendOptions = {}): Promise<Message> {
-        return dynaSend(target, { ...this.toSendOptions(options), sendMethod: "edit" });
+        return dynaSend(target, { ...this.toSendOptions(options), method: "edit" });
     }
 }

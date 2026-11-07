@@ -104,7 +104,7 @@ describe("BetterModal submission results", () => {
 
         expect(dynaSend).toHaveBeenCalledWith(submit, {
             content: "Done",
-            sendMethod: "followUp"
+            method: "followUp"
         });
     });
 

@@ -136,7 +136,7 @@ export async function promptMessage(
     options: PromptMessageOptions = {},
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
-    assertTargetHasTrigger(handler, options.participants, sendOptions?.sendMethod);
+    assertTargetHasTrigger(handler, options.participants, sendOptions?.method);
     resolveTiming(options);
     const config = getGlobalUxConfig().prompt;
     const extraButtons = options.extraButtons ?? [];
