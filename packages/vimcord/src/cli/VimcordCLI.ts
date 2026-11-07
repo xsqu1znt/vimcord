@@ -1,6 +1,6 @@
 import type { Interface as ReadlineInterface } from "node:readline";
 import type { Vimcord } from "@/client/Vimcord.js";
-import type { CLICommand, CLICommandContext, CLIOptions } from "./types.js";
+import type { CLICommand, CLICommandContext } from "./types.js";
 
 import { createInterface } from "node:readline";
 import { Vimcord as VimcordClient } from "@/client/Vimcord.js";
@@ -11,8 +11,6 @@ import { hasCLIFlag, parseCLIInput } from "./parser.js";
 
 /** Single process-wide stdin command runtime for the Vimcord client. */
 export class VimcordCLI {
-    /** Resolved process-wide configuration. */
-    readonly options: Required<CLIOptions>;
     /** Dedicated CLI logger and output utilities. */
     readonly logger: CLILogger;
 
@@ -31,12 +29,8 @@ export class VimcordCLI {
     private started = false;
 
     /** @internal Use `setupCLI()` to initialize the process singleton. */
-    constructor(
-        options: CLIOptions = {},
-        private readonly onStop?: () => void
-    ) {
-        this.options = { loaders: "auto", ...options };
-        this.logger = new CLILogger(this.options.loaders);
+    constructor(private readonly onStop?: () => void) {
+        this.logger = new CLILogger();
         this.coreCommands = createBuiltinCLICommands();
     }
 

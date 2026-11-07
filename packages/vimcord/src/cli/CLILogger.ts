@@ -1,5 +1,5 @@
 import type { Vimcord } from "@/client/Vimcord.js";
-import type { LoaderHandle, LoaderMode } from "@/utils/Logger.js";
+import type { LoaderHandle } from "@/utils/Logger.js";
 
 import ansis from "ansis";
 import { Logger, stripAnsi } from "@/utils/Logger.js";
@@ -52,8 +52,8 @@ function wrapTableCell(value: string, width: number): string[] {
 
 /** Dedicated CLI logger with target headers, groups, fields, tables, JSON, and command loaders. */
 export class CLILogger extends Logger {
-    constructor(loaders: LoaderMode = "auto") {
-        super({ prefix: "CLI", loaders });
+    constructor() {
+        super({ prefix: "CLI" });
     }
 
     /** Shared styles for core and plugin-provided CLI commands. */
