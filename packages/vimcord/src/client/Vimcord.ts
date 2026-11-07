@@ -1,8 +1,7 @@
 import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
-import type { PartialDeep } from "@/types/helpers.js";
-import type { AppGlobals, StaffGlobals, VimcordGlobals } from "./globals.js";
+import type { AppGlobals, StaffOptions, VimcordGlobals } from "./globals.js";
 import type { CommandPrefix, CommandRoutingOptions } from "./managers/CommandManager.js";
 import type { AppModuleImports } from "./managers/ModuleManager.js";
 import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
@@ -31,7 +30,7 @@ export type VimcordEvents = {
 /** Discord.js client options plus Vimcord's own settings, all flat. */
 export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals> {
     /** Bot staff, read back through `client.globals.staff`. */
-    staff?: PartialDeep<StaffGlobals>;
+    staff?: StaffOptions;
     /** Plugins installed by `login()`, dependencies first. */
     plugins?: VimcordPlugin[];
     /** Module directories imported by `login()`. */
@@ -68,7 +67,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private readonly awaitReadyWaiters = new Set<(ready: boolean) => void>();
     private readonly handleAwaitReady = (): void => this.resolveAwaitReady(true);
     private startupBannerHandle: VimcordStartupBannerHandle | undefined;
-    private warnedMissingStaffGuild = false;
     private readonly pendingStaffRoleLookups = new Map<string, Promise<string[]>>();
     private readonly moduleImports: AppModuleImports | undefined;
     private readonly commandRouting: CommandRoutingOptions;
@@ -107,7 +105,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 enableCLI,
                 disableBanner
             }),
-            staff: mergeDeep(defaultStaffGlobals(), staff),
+            staff: { ...defaultStaffGlobals(), ...staff },
             hooks
         };
         this.moduleImports = modules;
@@ -327,22 +325,14 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      */
     async getStaffGuildRoleIds(userId: string): Promise<string[]> {
         const staff = this.globals.staff;
-        if (!staff.guild.id) {
-            if (!this.warnedMissingStaffGuild) {
-                this.warnedMissingStaffGuild = true;
-                this.logger.warn(
-                    "[Staff] `staff.guild.id` is not configured, so staff-guild role checks (superUserRoles, bypassesStaff.roleIds) can never match anyone."
-                );
-            }
-            return [];
-        }
+        if (!staff.guildId) return [];
 
         // Concurrent command checks for one user share the pending lookup. The result is not cached.
         const pending = this.pendingStaffRoleLookups.get(userId);
         if (pending) return await pending;
 
         const lookup = (async () => {
-            const guild = await this.fetchGuild(staff.guild.id);
+            const guild = await this.fetchGuild(staff.guildId);
             const member = await guild?.members.fetch(userId).catch(() => null);
             return member ? [...member.roles.cache.keys()] : [];
         })();
@@ -361,10 +351,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
      */
     async isBotStaff(userId: string): Promise<boolean> {
         const staff = this.globals.staff;
-        if (staff.ownerId === userId || staff.superUsers.includes(userId)) return true;
-        if (!staff.superUserRoles.length) return false;
+        if (staff.users.includes(userId)) return true;
+        if (!staff.roles.length) return false;
 
         const staffGuildRoleIds = await this.getStaffGuildRoleIds(userId);
-        return staff.superUserRoles.some(roleId => staffGuildRoleIds.includes(roleId));
+        return staff.roles.some(roleId => staffGuildRoleIds.includes(roleId));
     }
 }

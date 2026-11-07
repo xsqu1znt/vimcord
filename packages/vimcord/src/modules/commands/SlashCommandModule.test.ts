@@ -5,14 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultAppGlobals } from "@/client/globals.js";
 import { SlashCommandModule } from "./SlashCommandModule.js";
 
-const STAFF_DEFAULTS: StaffGlobals = {
-    ownerId: null,
-    superUsers: [],
-    superUserRoles: [],
-    bypassesStaff: [],
-    bypassesGuildAdmin: { allBotStaff: false, botOwner: false, superUsers: false, bypassers: false },
-    guild: { id: null, inviteUrl: null, channels: {}, roles: {} }
-};
+const STAFF_DEFAULTS: StaffGlobals = { users: [], roles: [], guildId: null };
 
 function createClient() {
     return {

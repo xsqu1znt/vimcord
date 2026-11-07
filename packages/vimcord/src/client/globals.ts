@@ -76,37 +76,18 @@ export interface AppGlobals {
 }
 
 export interface StaffGlobals {
-    /** The Discord user ID of the bot owner. */
-    ownerId: string | null;
-    /** Discord user IDs granted superuser privileges. */
-    superUsers: string[];
-    /** Discord role IDs granted superuser privileges. */
-    superUserRoles: string[];
-    /** Per-command user/role ID grants for bot staff commands. */
-    bypassesStaff: { commandName: string; userIds?: string[]; roleIds?: string[] }[];
-    /** Controls which staff roles bypass guild administrator permission checks. */
-    bypassesGuildAdmin: {
-        /** Applies to all staff roles. */
-        allBotStaff: boolean;
-        /** Applies to the bot owner. */
-        botOwner: boolean;
-        /** Applies to superusers. */
-        superUsers: boolean;
-        /** Applies to matching `bypassesStaff` entries. */
-        bypassers: boolean;
-    };
-    /** The bot's associated Discord guild. */
-    guild: {
-        /** The guild ID. */
-        id: string | null;
-        /** An invite URL to the guild. */
-        inviteUrl: string | null;
-        /** Named channel IDs for use throughout the bot. */
-        channels: Record<string, string>;
-        /** Named role IDs for use throughout the bot. */
-        roles: Record<string, string>;
-    };
+    /** Discord user IDs granted bot staff access. */
+    users: string[];
+    /** Discord role IDs granted bot staff access in `guildId`. */
+    roles: string[];
+    /** The server used for staff role checks and command role fallbacks. */
+    guildId: string | null;
 }
+
+/** Staff roles require a server to check them in. */
+export type StaffOptions = { users?: string[] } & (
+    { roles?: never; guildId?: string } | { roles: string[]; guildId: string }
+);
 
 export const defaultAppGlobals = (): AppGlobals => {
     const packageJson = getPackageJson();
@@ -122,23 +103,4 @@ export const defaultAppGlobals = (): AppGlobals => {
     };
 };
 
-export const defaultStaffGlobals = (): StaffGlobals => {
-    return {
-        ownerId: null,
-        superUsers: [],
-        superUserRoles: [],
-        bypassesStaff: [],
-        bypassesGuildAdmin: {
-            allBotStaff: false,
-            botOwner: false,
-            superUsers: false,
-            bypassers: false
-        },
-        guild: {
-            id: null,
-            inviteUrl: null,
-            channels: {},
-            roles: {}
-        }
-    };
-};
+export const defaultStaffGlobals = (): StaffGlobals => ({ users: [], roles: [], guildId: null });

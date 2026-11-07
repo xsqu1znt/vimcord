@@ -6,24 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CommandModuleType } from "@/abstracts/commands/CommandModuleTypeKit.js";
 import { MissingPermissionReason, testCommandPermissions } from "./commandPermissions.js";
 
-const STAFF_DEFAULTS: StaffGlobals = {
-    ownerId: null,
-    superUsers: [],
-    superUserRoles: [],
-    bypassesStaff: [],
-    bypassesGuildAdmin: {
-        allBotStaff: false,
-        botOwner: false,
-        superUsers: false,
-        bypassers: false
-    },
-    guild: {
-        id: null,
-        inviteUrl: null,
-        channels: {},
-        roles: {}
-    }
-};
+const STAFF_DEFAULTS: StaffGlobals = { users: [], roles: [], guildId: null };
 
 function createClient(staff: StaffGlobals = STAFF_DEFAULTS) {
     return {
@@ -69,88 +52,21 @@ function createMessageContext(client = createClient(), overrides = {}) {
 }
 
 describe("testCommandPermissions", () => {
-    it("uses bypassesStaff only as a bot staff grant", async () => {
-        const client = createClient({
-            ...STAFF_DEFAULTS,
-            bypassesStaff: [{ commandName: "manage", userIds: ["user"] }]
-        });
+    it("uses staff as an alternative to Administrator without bypass flags", async () => {
+        const client = createClient({ ...STAFF_DEFAULTS, users: ["user"] });
         const ctx = createInteractionContext(client);
-
-        expect(await testCommandPermissions(ctx, { access: { users: ["other"] } })).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.UserNotAllowed
+        expect(testCommandPermissions(ctx, { access: { permissions: ["Administrator"], staff: true } })).toEqual({
+            passed: true
         });
-        expect(await testCommandPermissions(ctx, { access: { roles: ["moderator"] } })).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.Role
-        });
-        expect(await testCommandPermissions(ctx, { access: { botOwner: true } })).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.NotBotOwner
-        });
-        expect(await testCommandPermissions(ctx, { access: { staff: true } })).toEqual({ passed: true });
-    });
-
-    it("removes only Administrator for enabled staff bypasses", async () => {
-        const client = createClient({
-            ...STAFF_DEFAULTS,
-            bypassesStaff: [{ commandName: "manage", userIds: ["user"] }],
-            bypassesGuildAdmin: { ...STAFF_DEFAULTS.bypassesGuildAdmin, bypassers: true }
-        });
-        const ctx = createInteractionContext(client, {
-            memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageMessages)
-        });
-        const required = [PermissionFlagsBits.Administrator | PermissionFlagsBits.ManageMessages];
-
-        expect(await testCommandPermissions(ctx, { access: { permissions: required } })).toEqual({ passed: true });
-
-        const missingOtherPermission = createInteractionContext(client);
-        expect(await testCommandPermissions(missingOtherPermission, { access: { permissions: required } })).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.User,
-            missingUserPermissions: [PermissionFlagsBits.ManageMessages]
-        });
-    });
-
-    it("keeps Administrator required when the bypasser flag is off", async () => {
-        const client = createClient({
-            ...STAFF_DEFAULTS,
-            bypassesStaff: [{ commandName: "manage", userIds: ["user"] }]
-        });
-        const ctx = createInteractionContext(client, {
-            memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageMessages)
-        });
-
-        expect(
-            await testCommandPermissions(ctx, { access: { permissions: [PermissionFlagsBits.Administrator] } })
-        ).toMatchObject({
+        expect(testCommandPermissions(ctx, { access: { permissions: ["Administrator"] } })).toMatchObject({
             passed: false,
             reason: MissingPermissionReason.User
         });
-    });
-
-    it("uses a known bypasser before staff role lookups for an Administrator exemption", async () => {
-        const client = createClient({
-            ...STAFF_DEFAULTS,
-            superUserRoles: ["staff"],
-            bypassesStaff: [{ commandName: "manage", userIds: ["user"] }],
-            bypassesGuildAdmin: {
-                ...STAFF_DEFAULTS.bypassesGuildAdmin,
-                allBotStaff: true,
-                bypassers: true
-            }
-        });
-
-        expect(
-            await testCommandPermissions(createInteractionContext(client), {
-                access: { permissions: [PermissionFlagsBits.Administrator] }
-            })
-        ).toEqual({ passed: true });
         expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
     });
 
     it("applies must-pass restrictions before every grant and avoids staff lookups", async () => {
-        const client = createClient({ ...STAFF_DEFAULTS, ownerId: "user" });
+        const client = createClient({ ...STAFF_DEFAULTS, users: ["user"] });
         const ctx = createInteractionContext(client, { guildId: null, guild: null, memberPermissions: null });
 
         expect(
@@ -185,7 +101,7 @@ describe("testCommandPermissions", () => {
     });
 
     it("uses known bot staff before an uncached guild-owner lookup", async () => {
-        const client = createClient({ ...STAFF_DEFAULTS, ownerId: "user" });
+        const client = createClient({ ...STAFF_DEFAULTS, users: ["user"] });
         const ctx = createInteractionContext(client);
 
         expect(await testCommandPermissions(ctx, { access: { guildOwner: true, staff: true } })).toEqual({ passed: true });
@@ -203,7 +119,6 @@ describe("testCommandPermissions", () => {
                     users: ["other"],
                     roles: ["moderator"],
                     guildOwner: true,
-                    botOwner: true,
                     staff: true
                 }
             })
@@ -254,36 +169,56 @@ describe("testCommandPermissions", () => {
         });
     });
 
-    it("uses configured staff-guild roles and shares one role lookup", async () => {
-        const configuredStaff = createClient({
-            ...STAFF_DEFAULTS,
-            superUserRoles: ["staff"]
-        });
-        configuredStaff.getStaffGuildRoleIds.mockResolvedValue(["staff"]);
-        const invokingMember = createInteractionContext(configuredStaff, { member: { roles: [] } });
-
-        expect(await testCommandPermissions(invokingMember, { access: { staff: true } })).toEqual({ passed: true });
-
-        const sharedLookup = createClient({
-            ...STAFF_DEFAULTS,
-            superUserRoles: ["staff"],
-            bypassesStaff: [{ commandName: "manage", roleIds: ["bypass"] }]
-        });
-        const denied = createInteractionContext(sharedLookup, { member: { roles: ["staff", "bypass"] } });
-
-        expect(await testCommandPermissions(denied, { access: { staff: true } })).toMatchObject({
-            passed: false,
-            reason: MissingPermissionReason.NotBotStaff
-        });
-        expect(sharedLookup.getStaffGuildRoleIds).toHaveBeenCalledTimes(1);
+    it("passes local roles synchronously without a staff lookup", () => {
+        const client = createClient({ ...STAFF_DEFAULTS, guildId: "staff-guild" });
+        const ctx = createInteractionContext(client, { member: { roles: ["helper"] } });
+        expect(testCommandPermissions(ctx, { access: { roles: ["helper"] } })).toEqual({ passed: true });
+        expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
     });
 
-    it("keeps bot permissions required ahead of staff bypasses", async () => {
-        const client = createClient({
-            ...STAFF_DEFAULTS,
-            bypassesStaff: [{ commandName: "manage", userIds: ["user"] }]
-        });
+    it.each(["guild", null])("falls back to staff-server roles from %s", async guildId => {
+        const client = createClient({ ...STAFF_DEFAULTS, guildId: "staff-guild" });
+        client.getStaffGuildRoleIds.mockResolvedValue(["helper"]);
+        const ctx = createInteractionContext(client, { guildId, member: guildId ? { roles: [] } : null });
+        expect(await testCommandPermissions(ctx, { access: { roles: ["helper"] } })).toEqual({ passed: true });
+        expect(client.getStaffGuildRoleIds).toHaveBeenCalledExactlyOnceWith("user");
+    });
 
+    it("uses the invoking member inside the staff server without looking up failures", () => {
+        const client = createClient({ ...STAFF_DEFAULTS, guildId: "guild", roles: ["staff"] });
+        const ctx = createInteractionContext(client, { member: { roles: ["staff"] } });
+        expect(testCommandPermissions(ctx, { access: { roles: ["helper"] } })).toMatchObject({ passed: false });
+        expect(testCommandPermissions(ctx, { access: { staff: true } })).toEqual({ passed: true });
+        expect(testCommandPermissions(ctx, { access: { roles: ["helper"], staff: true } })).toEqual({ passed: true });
+        expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
+    });
+
+    it("shares one lookup for command roles and configured staff roles", async () => {
+        const client = createClient({ ...STAFF_DEFAULTS, guildId: "staff-guild", roles: ["staff"] });
+        const ctx = createInteractionContext(client);
+        client.getStaffGuildRoleIds.mockResolvedValue(["staff"]);
+        expect(await testCommandPermissions(ctx, { access: { roles: ["helper"], staff: true } })).toEqual({ passed: true });
+        expect(client.getStaffGuildRoleIds).toHaveBeenCalledTimes(1);
+        client.getStaffGuildRoleIds.mockClear().mockResolvedValue([]);
+        expect(await testCommandPermissions(ctx, { access: { roles: ["helper"], staff: true } })).toMatchObject({
+            passed: false
+        });
+        expect(client.getStaffGuildRoleIds).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips remote roles for a cheap pass or a failure without a staff server", () => {
+        const client = createClient({ ...STAFF_DEFAULTS, roles: ["staff"] });
+        const ctx = createInteractionContext(client);
+        expect(testCommandPermissions(ctx, { access: { roles: ["helper"], staff: true } })).toMatchObject({ passed: false });
+        client.globals.staff.guildId = "staff-guild";
+        expect(testCommandPermissions(ctx, { access: { users: ["user"], roles: ["helper"], staff: true } })).toEqual({
+            passed: true
+        });
+        expect(client.getStaffGuildRoleIds).not.toHaveBeenCalled();
+    });
+
+    it("keeps bot permissions required ahead of staff grants", async () => {
+        const client = createClient({ ...STAFF_DEFAULTS, users: ["user"] });
         expect(
             await testCommandPermissions(createInteractionContext(client), {
                 botPermissions: [PermissionFlagsBits.ManageMessages],

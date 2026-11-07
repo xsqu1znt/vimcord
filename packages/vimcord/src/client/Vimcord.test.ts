@@ -1,8 +1,10 @@
+import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/commands/CommandModuleTypeKit.js";
 import type { VimcordClientOptions } from "./Vimcord.js";
 
 import EventEmitter from "node:events";
 import { Client } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { VimcordPlugin } from "@/plugins/Plugin.js";
 import { getGlobalUxConfig, resolveGlobalEmbedColor } from "@/ux/uxConfig.js";
 import { Vimcord } from "./Vimcord.js";
@@ -214,12 +216,12 @@ describe("Vimcord.login startup", () => {
     });
 
     it("strips Vimcord settings before configuring Discord.js", () => {
-        const client = createClient({ name: "Bot", staff: { ownerId: "1" }, closeTimeout: 1234 });
+        const client = createClient({ name: "Bot", staff: { users: ["1"] }, closeTimeout: 1234 });
         expect(client.options).toMatchObject({ closeTimeout: 1234 });
         expect(client.options).not.toHaveProperty("name");
         expect(client.options).not.toHaveProperty("staff");
         expect(client.$name).toBe("Bot");
-        expect(client.globals.staff.ownerId).toBe("1");
+        expect(client.globals.staff.users).toEqual(["1"]);
     });
 });
 
@@ -271,5 +273,31 @@ describe("Vimcord dev mode", () => {
 
         client.$devMode = false;
         expect(resolveGlobalEmbedColor()).toBe("#111111");
+    });
+});
+
+// These assignments are checked by pnpm check, including non-literal staff options.
+const staffWithRoles = { roles: ["staff-role"] };
+void ({ intents: [], staff: { users: ["user"] } } satisfies VimcordClientOptions);
+void ({ intents: [], staff: { roles: ["staff-role"], guildId: "staff-guild" } } satisfies VimcordClientOptions);
+// @ts-expect-error Staff roles require guildId.
+void ({ intents: [], staff: { roles: ["staff-role"] } } satisfies VimcordClientOptions);
+// @ts-expect-error Variables with staff roles also require guildId.
+void ({ intents: [], staff: staffWithRoles } satisfies VimcordClientOptions);
+
+describe("Vimcord staff identity", () => {
+    it("does not treat command-only role grants as bot staff", async () => {
+        const client = createClient({ staff: { users: ["listed"], roles: ["staff-role"], guildId: "staff-guild" } });
+        const lookup = vi.spyOn(client, "getStaffGuildRoleIds").mockResolvedValue(["helper"]);
+        expect(await client.isBotStaff("listed")).toBe(true);
+        expect(lookup).not.toHaveBeenCalled();
+        const ctx = {
+            client,
+            interaction: { user: { id: "helper-user", bot: false }, guildId: null, member: null }
+        } as unknown as CommandModuleHookContext<CommandModuleType.Slash>;
+        expect(await testCommandPermissions(ctx, { access: { roles: ["helper"] } })).toEqual({ passed: true });
+        expect(await client.isBotStaff("helper-user")).toBe(false);
+        lookup.mockResolvedValue(["staff-role"]);
+        expect(await client.isBotStaff("staff-user")).toBe(true);
     });
 });

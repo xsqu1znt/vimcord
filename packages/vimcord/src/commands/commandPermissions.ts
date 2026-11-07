@@ -8,9 +8,8 @@ import type {
 } from "discord.js";
 import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
 import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
-import type { StaffGlobals } from "@/client/globals.js";
 
-import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
+import { PermissionsBitField } from "discord.js";
 
 export enum MissingPermissionReason {
     User = "User",
@@ -24,7 +23,6 @@ export enum MissingPermissionReason {
     NotInGuild = "NotInGuild",
 
     NotGuildOwner = "NotGuildOwner",
-    NotBotOwner = "NotBotOwner",
     NotBotStaff = "NotBotStaff"
 }
 
@@ -36,12 +34,10 @@ export interface CommandAccess {
     permissions?: PermissionResolvable[];
     /** Specific users. */
     users?: UserResolvable[];
-    /** Holders of these roles. */
+    /** Holders of these roles in the invoking server or the configured staff server. */
     roles?: RoleResolvable[];
     /** The owner of the invoking guild. */
     guildOwner?: boolean;
-    /** The bot owner. */
-    botOwner?: boolean;
     /** Configured bot staff. */
     staff?: boolean;
 }
@@ -103,18 +99,12 @@ function testRoles(member: CommandMember, requiredRoles: RoleResolvable[] | unde
 
 function testUserPermissions(
     permissions: PermissionsBitField | null,
-    requiredPermissions: PermissionResolvable[] | undefined,
-    bypassAdministrator = false
+    requiredPermissions: PermissionResolvable[] | undefined
 ): PermissionTestResult {
     if (!requiredPermissions?.length) return { passed: true };
     if (!permissions) return { passed: false, reason: MissingPermissionReason.NotInGuild };
 
-    const effectivePermissions = bypassAdministrator
-        ? requiredPermissions
-              .map(permission => PermissionsBitField.resolve(permission) & ~PermissionFlagsBits.Administrator)
-              .filter(permission => permission !== 0n)
-        : requiredPermissions;
-    const missing = effectivePermissions.filter(permission => !permissions.has(permission));
+    const missing = requiredPermissions.filter(permission => !permissions.has(permission));
     return missing.length
         ? { passed: false, reason: MissingPermissionReason.User, missingUserPermissions: missing }
         : { passed: true };
@@ -143,43 +133,13 @@ function testClientPermissions(
         : { passed: true };
 }
 
-function requiresAdministrator(requiredPermissions: PermissionResolvable[] | undefined): boolean {
-    return Boolean(
-        requiredPermissions?.some(
-            permission =>
-                (PermissionsBitField.resolve(permission) & PermissionFlagsBits.Administrator) ===
-                PermissionFlagsBits.Administrator
-        )
-    );
-}
-
-function getBypassesStaff(staff: StaffGlobals, commandName: string) {
-    const normalizedCommandName = commandName.trim().toLowerCase();
-    return staff.bypassesStaff.filter(entry => entry.commandName.trim().toLowerCase() === normalizedCommandName);
-}
-
-async function hasStaffBypassRole(
-    entries: StaffGlobals["bypassesStaff"],
-    getStaffRoleIds: () => Promise<string[]>
-): Promise<boolean> {
-    if (!entries.some(entry => entry.roleIds?.length)) return false;
-
-    const roleIds = await getStaffRoleIds();
-    return entries.some(entry => entry.roleIds?.some(id => roleIds.includes(id)));
-}
-
 function resolveCommandSource<K extends CommandModuleType>(ctx: CommandModuleHookContext<K>) {
     return "message" in ctx ? ctx.message : ctx.interaction;
 }
 
 function hasConfiguredGrants(access: CommandAccess): boolean {
     return Boolean(
-        access.permissions?.length ||
-        access.users?.length ||
-        access.roles?.length ||
-        access.guildOwner ||
-        access.botOwner ||
-        access.staff
+        access.permissions?.length || access.users?.length || access.roles?.length || access.guildOwner || access.staff
     );
 }
 
@@ -254,9 +214,6 @@ export function testCommandPermissions<K extends CommandModuleType>(
         firstFailure ??= result;
     }
 
-    const staffBypassEntries = getBypassesStaff(staff, ctx.module.name);
-    const isStaffBypasserById = staffBypassEntries.some(entry => entry.userIds?.includes(user.id));
-    const isKnownBotStaff = staff.ownerId === user.id || staff.superUsers.includes(user.id);
     const cachedGuild = source.guild;
 
     if (access.guildOwner && !guildId) {
@@ -268,60 +225,36 @@ export function testCommandPermissions<K extends CommandModuleType>(
         firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
     }
 
-    const botOwnerFailed = Boolean(access.botOwner && staff.ownerId !== user.id);
-    if (access.botOwner && !botOwnerFailed) return { passed: true };
-    if (access.staff && (isKnownBotStaff || isStaffBypasserById)) return { passed: true };
+    if (access.staff) {
+        if (staff.users.includes(user.id)) return { passed: true };
+        if (guildId === staff.guildId && staff.roles.some(id => hasRole(member, id))) return { passed: true };
+    }
 
+    const needsRoleLookup = Boolean(
+        staff.guildId && guildId !== staff.guildId && (access.roles?.length || (access.staff && staff.roles.length))
+    );
+    const needsOwnerLookup = Boolean(access.guildOwner && guildId && !cachedGuild);
+    if (!needsRoleLookup && !needsOwnerLookup) return failedGrants();
     return testRemoteGrants();
 
+    function failedGrants(): PermissionTestResult {
+        if (access.staff) firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
+        return firstFailure ?? { passed: true };
+    }
+
     async function testRemoteGrants(): Promise<PermissionTestResult> {
-        const administratorRequired = !userPermissionResult.passed && requiresAdministrator(access.permissions);
-        let staffRoleIds: Promise<string[]> | undefined;
-        const getStaffRoleIds = () => (staffRoleIds ??= ctx.client.getStaffGuildRoleIds(user.id));
-        const getBotStaff = async () => {
-            if (isKnownBotStaff) return true;
-            if (!staff.superUserRoles.length) return false;
-
-            const roleIds = await getStaffRoleIds();
-            return staff.superUserRoles.some(id => roleIds.includes(id));
-        };
-
-        if (administratorRequired) {
-            const bypasses = staff.bypassesGuildAdmin;
-            let bypassAdministrator =
-                (bypasses.botOwner && staff.ownerId === user.id) ||
-                (bypasses.superUsers && staff.superUsers.includes(user.id)) ||
-                (bypasses.allBotStaff && isKnownBotStaff) ||
-                (bypasses.bypassers && isStaffBypasserById);
-            if (!bypassAdministrator && bypasses.allBotStaff) bypassAdministrator = await getBotStaff();
-            if (!bypassAdministrator && bypasses.bypassers && staffBypassEntries.length) {
-                bypassAdministrator = isStaffBypasserById || (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds));
-            }
-            if (bypassAdministrator) {
-                result = testUserPermissions(userPermissions, access.permissions, true);
-                if (result.passed) return result;
-                firstFailure = result;
-            }
-        }
-
-        if (access.guildOwner && guildId && !cachedGuild) {
+        if (needsOwnerLookup) {
             const guild = await ctx.client.fetchGuild(guildId);
             if (guild?.ownerId === user.id) return { passed: true };
             firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
         }
 
-        if (botOwnerFailed) {
-            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotOwner };
+        if (needsRoleLookup) {
+            const roleIds = await ctx.client.getStaffGuildRoleIds(user.id);
+            if (access.roles?.some(role => roleIds.includes(resolveRoleId(role)))) return { passed: true };
+            if (access.staff && staff.roles.some(id => roleIds.includes(id))) return { passed: true };
         }
 
-        if (access.staff) {
-            if (await getBotStaff()) return { passed: true };
-            if (staffBypassEntries.length && (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds))) {
-                return { passed: true };
-            }
-            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
-        }
-
-        return firstFailure ?? { passed: true };
+        return failedGrants();
     }
 }
