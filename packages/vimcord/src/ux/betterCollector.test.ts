@@ -44,6 +44,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
 afterEach(() => {
     vi.restoreAllMocks();
+    defineGlobalUxConfig({ collector: { notAParticipantMessage: "You are not allowed to use this." } });
 });
 
 describe("BetterCollector handlers", () => {
@@ -180,10 +181,29 @@ describe("BetterCollector rejection", () => {
         expect(await getFilter()(createInteraction("b", "btn"))).toBe(true);
     });
 
-    it("leaves a user-supplied empty participants list open", async () => {
+    it("lets nobody click with an empty participants list", async () => {
         const { message, getFilter } = createMessage();
         new BetterCollector(message, { participants: [] });
-        expect(await getFilter()(createInteraction("anyone", "btn"))).toBe(true);
+        expect(await getFilter()(createInteraction("anyone", "btn"))).toBe(false);
+    });
+
+    it("acknowledges silently on an explicit null, even with a message configured", async () => {
+        defineGlobalUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: ["a"], notAParticipantMessage: null });
+        const outsider = createInteraction("c", "btn");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).not.toHaveBeenCalled();
+        expect(outsider.deferUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to the configured message only when the option is omitted", async () => {
+        defineGlobalUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: ["a"], notAParticipantMessage: undefined });
+        const outsider = createInteraction("c", "btn");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).toHaveBeenCalledWith(expect.objectContaining({ content: "Configured" }));
     });
 
     it("acknowledges silently when the not-a-participant message is configured off", async () => {
@@ -194,7 +214,6 @@ describe("BetterCollector rejection", () => {
         expect(await getFilter()(outsider)).toBe(false);
         expect(outsider.reply).not.toHaveBeenCalled();
         expect(outsider.deferUpdate).toHaveBeenCalledOnce();
-        defineGlobalUxConfig({ collector: { notAParticipantMessage: "You are not allowed to use this." } });
     });
 
     it("doesn't fire onCollect for rejected clicks, because they never reach the collector's collect event", async () => {

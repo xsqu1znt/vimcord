@@ -220,9 +220,10 @@ describe("prompt defaults", () => {
     });
 
     it.each([
-        ["only the invoker", undefined, true],
-        ["anyone with anyone", "anyone" as const, false]
-    ])("lets in %s", async (_name, participants, restricted) => {
+        ["only the invoker", undefined, true, false],
+        ["anyone with anyone", "anyone" as const, true, true],
+        ["nobody with an empty list", [], false, false]
+    ])("lets in %s", async (_name, participants, invoker, others) => {
         const { message } = createFakeMessage();
         let filter!: (i: unknown) => Promise<boolean>;
         message.createMessageComponentCollector = (options: { filter: typeof filter }) => {
@@ -236,12 +237,13 @@ describe("prompt defaults", () => {
         vi.mocked(dynaSend).mockResolvedValue(message);
         void promptMessage({} as never, { participants });
         await new Promise(resolve => setImmediate(resolve));
-        const click = {
-            user: { id: "someone-else" },
+        const click = (id: string) => ({
+            user: { id },
             customId: "prompt:confirm",
             reply: vi.fn().mockResolvedValue(undefined)
-        };
-        expect(await filter(click)).toBe(!restricted);
+        });
+        expect(await filter(click("u1"))).toBe(invoker);
+        expect(await filter(click("someone-else"))).toBe(others);
     });
 
     it("rejects when the sent message has no trigger to read", async () => {

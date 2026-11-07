@@ -283,7 +283,7 @@ describe("resolveParticipantIds", () => {
     it("uses an explicit option without reading the message at all", () => {
         const unread = {} as never;
         expect(resolveParticipantIds("anyone", unread)).toBeNull();
-        expect(resolveParticipantIds([], unread)).toBeNull();
+        expect(resolveParticipantIds([], unread)).toEqual(new Set());
         expect(resolveParticipantIds(["a", { id: "b" } as never], unread)).toEqual(new Set(["a", "b"]));
     });
 });

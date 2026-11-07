@@ -123,6 +123,7 @@ function getRowIds(components: DynaSendOptions["components"] = []) {
 afterEach(() => {
     vi.restoreAllMocks();
     vi.mocked(dynaSend).mockReset();
+    getGlobalUxConfig().paginator.notAParticipantMessage = "You are not allowed to use this.";
     const messages = getGlobalUxConfig().paginator.messages;
     messages.loadFailed = null;
     messages.expired = null;
@@ -1168,11 +1169,38 @@ describe("Paginator defaults", () => {
         expect(vi.mocked(dynaSend).mock.lastCall![1]).not.toHaveProperty("participants");
     });
 
-    it.each([["anyone" as const], [[]]])("leaves navigation open with participants %j", async participants => {
+    it("leaves navigation open with anyone", async () => {
         const { message } = createMessage();
         vi.mocked(dynaSend).mockResolvedValue(message as never);
-        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants });
+        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants: "anyone" });
         expect(await filterFor(message)("someone")).toBe(true);
+    });
+
+    it("lets nobody navigate with an empty participants list", async () => {
+        const { message } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants: [] });
+        expect(await filterFor(message)("someone")).toBe(false);
+        expect(await filterFor(message)("user")).toBe(false);
+    });
+
+    it("acknowledges silently when its not-a-participant message is configured off", async () => {
+        getGlobalUxConfig().paginator.notAParticipantMessage = null;
+        const { message } = createMessage();
+        vi.mocked(dynaSend).mockResolvedValue(message as never);
+        await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants: ["chosen"] });
+        const [options] = message.createMessageComponentCollector.mock.lastCall as unknown as [
+            { filter(i: unknown): Promise<boolean> }
+        ];
+        const outsider = {
+            user: { id: "other" },
+            customId: "paginator:next",
+            reply: vi.fn().mockResolvedValue(undefined),
+            deferUpdate: vi.fn().mockResolvedValue(undefined)
+        };
+        expect(await options.filter(outsider)).toBe(false);
+        expect(outsider.reply).not.toHaveBeenCalled();
+        expect(outsider.deferUpdate).toHaveBeenCalledOnce();
     });
 
     it("stops being active when the sent message has no trigger to read", async () => {

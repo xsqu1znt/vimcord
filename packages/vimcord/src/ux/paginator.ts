@@ -956,7 +956,8 @@ export class Paginator {
      * Sends the paginator and starts collecting navigation clicks.
      * @param handler Discord target to send through
      * @param options dynaSend options, plus `participants`: who may navigate. Defaults to whoever triggered the
-     * paginator, and required for guild channels, where nothing says who that is. `"anyone"` opts out.
+     * paginator, and required for guild channels, where nothing says who that is. An empty list lets nobody
+     * navigate; `"anyone"` opts out.
      */
     send<T extends SendHandler>(handler: T, ...args: ParticipantSendArgs<T, DynaSendOptions>): Promise<Message>;
     async send(

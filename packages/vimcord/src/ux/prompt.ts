@@ -26,7 +26,7 @@ export interface PromptMessageButtonOptions {
 export interface PromptMessageBaseOptions {
     /**
      * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required
-     * for guild channels, where nothing says who that is. `"anyone"` opts out.
+     * for guild channels, where nothing says who that is. An empty list lets nobody click; `"anyone"` opts out.
      */
     participants?: ParticipantsOption;
     /** Message content sent with the prompt. */

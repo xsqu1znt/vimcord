@@ -7,7 +7,7 @@ import { getGlobalUxConfig } from "./uxConfig.js";
 // --- Participants ---
 export type Participant = GuildMember | User | string;
 
-/** Who may click. `"anyone"` opts out of the default of only whoever triggered the message. */
+/** Who may click. An empty list lets nobody click. `"anyone"` is the only way to open a message to everyone. */
 export type ParticipantsOption = Participant[] | "anyone";
 
 /**
@@ -22,7 +22,8 @@ export type ParticipantSendArgs<T, Options = object, Rest extends unknown[] = []
 /**
  * The one rule for who may click a collector, paginator, or prompt: the explicit option, otherwise whoever
  * triggered the bot's message. Throws when nothing says who that is, rather than silently opening the buttons.
- * Resolves to user IDs so each click is a cheap lookup. `null` means anyone can click, as does an empty list.
+ * Resolves to user IDs so each click is a cheap lookup. An empty list resolves to an empty set, so nobody can click.
+ * `null` means clicks aren't filtered: `"anyone"`, or a DM with no trigger, where only the recipient can click.
  * @param participants The explicit option, if any
  * @param message The bot's message
  * @param interaction The interaction that sent the message, if known
@@ -33,7 +34,7 @@ export function resolveParticipantIds(
     interaction?: InteractionBasedSendHandler
 ): ReadonlySet<string> | null {
     if (participants === "anyone") return null;
-    if (participants) return participants.length ? new Set(participants.map(p => (typeof p === "string" ? p : p.id))) : null;
+    if (participants) return new Set(participants.map(p => (typeof p === "string" ? p : p.id)));
 
     // A reply to the bot's own message names no one who could click, so it doesn't count as a trigger.
     const replied = message.mentions.repliedUser;

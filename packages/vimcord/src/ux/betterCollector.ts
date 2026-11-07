@@ -18,7 +18,7 @@ export type CollectorTimingOptions = TimingOptions;
 
 /** Options for configuring the BetterCollector behavior. */
 interface BetterCollectorBaseOptions {
-    /** Users allowed to click. Defaults to whoever triggered the message; `"anyone"` leaves it open. */
+    /** Users allowed to click. Defaults to whoever triggered the message. An empty list lets nobody click; `"anyone"` leaves it open. */
     participants?: ParticipantsOption;
     /** Rejects a user's clicks while their previous click is still being handled. */
     clickLock?: boolean;
@@ -28,6 +28,7 @@ interface BetterCollectorBaseOptions {
     interaction?: InteractionBasedSendHandler;
     /** Cleanup action or awaited final payload, applied once after the collector ends. @default "disable" */
     onResolve?: OnResolve<CollectorResolveContext>;
+    /** Shown to users who aren't participants. `null` acknowledges silently; omitted uses the UX config's message. */
     notAParticipantMessage?: string | null;
 }
 
@@ -65,7 +66,10 @@ export class BetterCollector {
         this.message = message;
         this.options = options;
         this.participantIds = resolveParticipantIds(options.participants, message, options.interaction);
-        this.notAParticipantMessage = options.notAParticipantMessage ?? getGlobalUxConfig().collector.notAParticipantMessage;
+        this.notAParticipantMessage =
+            options.notAParticipantMessage === undefined
+                ? getGlobalUxConfig().collector.notAParticipantMessage
+                : options.notAParticipantMessage;
         const timing = resolveTiming(options);
 
         this.collector = createRoutedMessageCollector(message, {

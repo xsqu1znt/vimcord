@@ -57,14 +57,14 @@ export interface UxConfig {
     collector: {
         /** Ephemeral message shown to a user who clicks during `clickLock` while their prior click is running. */
         clickLockMessage: string;
-        /** Message shown to users who are not collector participants. */
+        /** Message shown to users who are not collector participants. `null` acknowledges silently. */
         notAParticipantMessage: string | null;
     };
     /** Paginator navigation, timeout, and message defaults. */
     paginator: {
         /** Default timeout resolution action. */
         onResolve: ResolveAction;
-        /** Message shown to users who are not paginator participants. */
+        /** Message shown to users who are not paginator participants. `null` acknowledges silently. */
         notAParticipantMessage: string | null;
         /** Page-jump modal defaults. */
         jumpModal: UxPaginatorJumpModalConfig;
