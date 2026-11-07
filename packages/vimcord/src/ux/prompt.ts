@@ -12,7 +12,7 @@ import type {
 import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from "discord.js";
 import { BetterCollector } from "./betterCollector.js";
 import { dynaSend } from "./dynaSend.js";
-import { handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
+import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
@@ -33,8 +33,8 @@ export interface PromptMessageButtonOptions {
 export interface PromptMessageBaseOptions {
     /**
      * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required for
-     * guild channels and message edits, where nothing says who that is. An empty list lets nobody click;
-     * `"anyone"` opts out.
+     * guild channels, message edits, and replies to a bot's message, where nothing says who that is. An empty
+     * list lets nobody click; `"anyone"` opts out.
      */
     participants?: ParticipantsOption;
     /** Message content sent with the prompt. */
@@ -121,6 +121,7 @@ function highlightPromptComponents(
  * @param handler Discord target used to send the prompt
  * @param options Prompt options
  * @param sendOptions Additional options passed to dynaSend
+ * @throws Before sending, when replying to a bot's message outside of a DM without `participants`
  */
 export function promptMessage<T extends SendHandler>(
     handler: T,
@@ -135,6 +136,7 @@ export async function promptMessage(
     options: PromptMessageOptions = {},
     sendOptions?: DynaSendOptions
 ): Promise<PromptMessageResult> {
+    assertTargetHasTrigger(handler, options.participants, sendOptions?.sendMethod);
     resolveTiming(options);
     const config = getGlobalUxConfig().prompt;
     const extraButtons = options.extraButtons ?? [];

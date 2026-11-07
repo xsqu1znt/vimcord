@@ -1,7 +1,13 @@
-import type { GuildMember, Message, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
-import type { DynaSendOptions, InteractionBasedSendHandler, SendMethod, TriggeredSendHandler } from "./dynaSend.js";
+import type { GuildMember, MessageEditOptions, MessageMentionOptions, User } from "discord.js";
+import type {
+    DynaSendOptions,
+    InteractionBasedSendHandler,
+    SendHandler,
+    SendMethod,
+    TriggeredSendHandler
+} from "./dynaSend.js";
 
-import { ChannelType, ComponentType } from "discord.js";
+import { ChannelType, ComponentType, Message } from "discord.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 // --- Participants ---
@@ -46,10 +52,9 @@ export function resolveParticipantIds(
     if (participants === "anyone") return null;
     if (participants) return new Set(participants.map(p => (typeof p === "string" ? p : p.id)));
 
-    // A reply to the bot's own message names no one who could click, so it doesn't count as a trigger.
+    // Bots can't click, so a reply to any bot's message, including this bot's own, doesn't count as a trigger.
     const replied = message.mentions.repliedUser;
-    const trigger =
-        interaction?.user ?? message.interactionMetadata?.user ?? (replied?.id === message.author.id ? null : replied);
+    const trigger = interaction?.user ?? message.interactionMetadata?.user ?? (replied?.bot ? null : replied);
     if (trigger) return new Set([trigger.id]);
 
     // Only the recipient can click in a DM. An uncached channel isn't assumed to be one.
@@ -57,6 +62,23 @@ export function resolveParticipantIds(
     throw new Error(
         '[Participants] This message has no trigger to read. Pass `participants`, or `"anyone"` to leave it open'
     );
+}
+
+/**
+ * Fails a paginator or prompt before it sends anything, when its reply to a bot's message would have no trigger
+ * and post buttons nobody can use. Bots can't click. A DM stays open to the recipient, so it's let through.
+ * @param target The send target
+ * @param participants The explicit option, if any
+ * @param sendMethod The send's explicit method, if any
+ */
+export function assertTargetHasTrigger(
+    target: SendHandler,
+    participants: ParticipantsOption | undefined,
+    sendMethod: SendMethod | undefined
+): void {
+    if (!(target instanceof Message) || !target.author.bot || participants || sendMethod === "edit") return;
+    if (target.channel?.type === ChannelType.DM) return;
+    throw new Error("[Participants] This is a bot's message, so pass `participants`");
 }
 
 // --- Timing ---

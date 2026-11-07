@@ -7,11 +7,13 @@ import {
     BaseInteraction,
     ButtonBuilder,
     ButtonStyle,
+    ChannelType,
     Client,
     Collection,
     ComponentType,
     ContainerBuilder,
     EmbedBuilder,
+    Message,
     MessageComponentInteraction,
     MessagePayload
 } from "discord.js";
@@ -53,7 +55,6 @@ function createMessage(components: { toJSON(): unknown }[] = []) {
         editable: true,
         deletable: true,
         components,
-        author: { id: "bot" },
         mentions: { repliedUser: { id: "user" } },
         edit: vi.fn(),
         delete: vi.fn(),
@@ -1201,6 +1202,36 @@ describe("Paginator defaults", () => {
         expect(await options.filter(outsider)).toBe(false);
         expect(outsider.reply).not.toHaveBeenCalled();
         expect(outsider.deferUpdate).toHaveBeenCalledOnce();
+    });
+
+    describe("sending to a bot's message", () => {
+        function botMessage(channelType = ChannelType.GuildText) {
+            const target = Object.assign(Object.create(Message.prototype), { author: { bot: true } });
+            return Object.defineProperty(target, "channel", { value: { type: channelType } }) as Message;
+        }
+
+        it("throws before loading a page, sending, or changing state", async () => {
+            const { message } = createMessage();
+            vi.mocked(dynaSend).mockResolvedValue(message as never);
+            const loader = vi.fn(async () => "A");
+            const p = new Paginator().addChapter({ label: "Lazy", pageCount: 2, page: loader });
+            await expect(p.send(botMessage())).rejects.toThrow(/bot's message.*`participants`/);
+            expect(loader).not.toHaveBeenCalled();
+            expect(dynaSend).not.toHaveBeenCalled();
+            expect(message.createMessageComponentCollector).not.toHaveBeenCalled();
+
+            // Nothing stuck, so the same paginator can still be sent properly.
+            await p.send(botMessage(), { participants: ["chosen"] });
+            expect(dynaSend).toHaveBeenCalledOnce();
+            expect(await filterFor(message)("chosen")).toBe(true);
+        });
+
+        it("still sends in a DM", async () => {
+            const { message } = createMessage();
+            vi.mocked(dynaSend).mockResolvedValue(message as never);
+            await new Paginator({ pages: ["A"] }).send(botMessage(ChannelType.DM));
+            expect(dynaSend).toHaveBeenCalledOnce();
+        });
     });
 
     it("stops being active when the sent message has no trigger to read", async () => {

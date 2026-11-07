@@ -1,8 +1,8 @@
 import type { InteractionBasedSendHandler } from "./dynaSend.js";
 
-import { ChannelType, ComponentType } from "discord.js";
+import { ChannelType, ComponentType, Message } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
-import { handleResolveAction, resolveParticipantIds, resolveTiming } from "./shared.js";
+import { assertTargetHasTrigger, handleResolveAction, resolveParticipantIds, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 function createMessage(componentsJSON: unknown[]) {
@@ -243,7 +243,6 @@ describe("resolveParticipantIds", () => {
 
     function message(data: { metadata?: object; replied?: object | null; channelType?: ChannelType } = {}) {
         return {
-            author: { id: "bot" },
             interactionMetadata: data.metadata ? { user: data.metadata } : null,
             mentions: { repliedUser: data.replied ?? null },
             channel: data.channelType === undefined ? null : { type: data.channelType }
@@ -274,8 +273,11 @@ describe("resolveParticipantIds", () => {
         expect(() => resolveParticipantIds(undefined, message(data))).toThrow(/`participants`.*"anyone"/);
     });
 
-    it("doesn't lock a reply to the bot's own message to the bot", () => {
-        const reply = (channelType: ChannelType) => message({ replied: { id: "bot" }, channelType });
+    it.each([
+        ["this bot", "bot"],
+        ["another bot", "other-bot"]
+    ])("doesn't lock a reply to %s's message to that bot", (_name, id) => {
+        const reply = (channelType: ChannelType) => message({ replied: { id, bot: true }, channelType });
         expect(() => resolveParticipantIds(undefined, reply(ChannelType.GuildText))).toThrow(/participants/);
         expect(resolveParticipantIds(undefined, reply(ChannelType.DM))).toBeNull();
     });
@@ -285,5 +287,34 @@ describe("resolveParticipantIds", () => {
         expect(resolveParticipantIds("anyone", unread)).toBeNull();
         expect(resolveParticipantIds([], unread)).toEqual(new Set());
         expect(resolveParticipantIds(["a", { id: "b" } as never], unread)).toEqual(new Set(["a", "b"]));
+    });
+});
+
+describe("assertTargetHasTrigger", () => {
+    function target(bot: boolean, channelType: ChannelType | null = ChannelType.GuildText) {
+        const message = Object.assign(Object.create(Message.prototype), { author: { bot } });
+        const channel = channelType === null ? null : { type: channelType };
+        return Object.defineProperty(message, "channel", { value: channel }) as Message;
+    }
+
+    it("throws for a bot's message with nothing else to go on, naming the way out", () => {
+        expect(() => assertTargetHasTrigger(target(true), undefined, undefined)).toThrow(/bot's message.*`participants`/);
+        expect(() => assertTargetHasTrigger(target(true), undefined, "followUp")).toThrow(/`participants`/);
+        expect(() => assertTargetHasTrigger(target(true, ChannelType.GroupDM), undefined, undefined)).toThrow(
+            /participants/
+        );
+        expect(() => assertTargetHasTrigger(target(true, null), undefined, undefined)).toThrow(/participants/);
+    });
+
+    it.each([
+        ["a DM", target(true, ChannelType.DM), undefined, undefined],
+        ["an edit", target(true), undefined, "edit"],
+        ["a participants list", target(true), ["a"], undefined],
+        ["an empty participants list", target(true), [], undefined],
+        ['"anyone"', target(true), "anyone", undefined],
+        ["a user's message", target(false), undefined, undefined],
+        ["a target that isn't a message", { author: { bot: true } }, undefined, undefined]
+    ] as const)("lets through %s", (_name, handler, participants, sendMethod) => {
+        expect(() => assertTargetHasTrigger(handler as never, participants as never, sendMethod)).not.toThrow();
     });
 });

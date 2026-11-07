@@ -1,6 +1,15 @@
 import EventEmitter from "node:events";
-import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, Collection, ComponentType } from "discord.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+    ActionRowBuilder,
+    BaseInteraction,
+    ButtonBuilder,
+    ButtonStyle,
+    ChannelType,
+    Collection,
+    ComponentType,
+    Message
+} from "discord.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
 import { defineGlobalUxConfig } from "./uxConfig.js";
@@ -27,7 +36,6 @@ function createFakeMessage() {
         editable: true,
         deletable: true,
         components: [],
-        author: { id: "bot" },
         mentions: { repliedUser: { id: "u1" } },
         edit: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -244,6 +252,37 @@ describe("prompt defaults", () => {
         });
         expect(await filter(click("u1"))).toBe(invoker);
         expect(await filter(click("someone-else"))).toBe(others);
+    });
+
+    describe("sending to a bot's message", () => {
+        function botMessage(channelType = ChannelType.GuildText) {
+            const target = Object.assign(Object.create(Message.prototype), { author: { bot: true } });
+            return Object.defineProperty(target, "channel", { value: { type: channelType } }) as Message;
+        }
+
+        beforeEach(() => {
+            vi.mocked(dynaSend).mockReset();
+        });
+
+        it("throws before sending anything", async () => {
+            await expect(promptMessage(botMessage())).rejects.toThrow(/bot's message.*`participants`/);
+            await expect(promptMessage(botMessage(), { idle: 1000 }, { content: "x" })).rejects.toThrow(/`participants`/);
+            expect(dynaSend).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["participants", botMessage(), { participants: ["a"] }, undefined],
+            ["an edit", botMessage(), {}, { sendMethod: "edit" }],
+            ["a DM", botMessage(ChannelType.DM), {}, undefined]
+        ] as const)("still sends with %s", async (_name, target, options, sendOptions) => {
+            const { message, collector } = createFakeMessage();
+            vi.mocked(dynaSend).mockResolvedValue(message);
+            const result = promptMessage(target, options as never, sendOptions);
+            await new Promise(resolve => setImmediate(resolve));
+            expect(dynaSend).toHaveBeenCalledOnce();
+            collector.emit("end", [], "time");
+            await result;
+        });
     });
 
     it("rejects when the sent message has no trigger to read", async () => {

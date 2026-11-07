@@ -35,7 +35,7 @@ import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
 import { addMessageFlag, dynaSend } from "./dynaSend.js";
-import { handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
+import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
 type NavButtonId = "first" | "back" | "jump" | "next" | "last";
@@ -956,8 +956,9 @@ export class Paginator {
      * Sends the paginator and starts collecting navigation clicks.
      * @param handler Discord target to send through
      * @param options dynaSend options, plus `participants`: who may navigate. Defaults to whoever triggered the
-     * paginator, and required for guild channels and message edits, where nothing says who that is. An empty
-     * list lets nobody navigate; `"anyone"` opts out.
+     * paginator, and required for guild channels, message edits, and replies to a bot's message, where nothing
+     * says who that is. An empty list lets nobody navigate; `"anyone"` opts out.
+     * @throws Before sending, when replying to a bot's message outside of a DM without `participants`
      */
     send<T extends SendHandler>(
         handler: T,
@@ -971,6 +972,7 @@ export class Paginator {
         handler: SendHandler,
         { participants, ...options }: DynaSendOptions & { participants?: ParticipantsOption } = {}
     ): Promise<Message> {
+        assertTargetHasTrigger(handler, participants, options.sendMethod);
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;
