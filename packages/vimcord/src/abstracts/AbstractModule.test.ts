@@ -1,6 +1,7 @@
 import type { ModuleContext, ModuleHookContext } from "./AbstractModule.js";
 
 import { describe, expect, it, vi } from "vitest";
+import { EventModule } from "@/modules/EventModule.js";
 import { AbstractModule } from "./AbstractModule.js";
 
 type TestContext = ModuleContext & { id: string };
@@ -72,6 +73,22 @@ describe("AbstractModule singleInvocation", () => {
 });
 
 describe("AbstractModule stages", () => {
+    it("keeps event invocations unmeasured", async () => {
+        const execute = vi.fn();
+        const module = new EventModule({ name: "ready", event: "clientReady", execute });
+        module.inject(createClient());
+        const clock = vi.spyOn(performance, "now");
+        try {
+            await module.run();
+            const result = await module.runWithResult();
+            expect(execute).toHaveBeenCalledTimes(2);
+            expect(result.executionTiming).toBeUndefined();
+            expect(clock).not.toHaveBeenCalled();
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
     it("runs overridden async tests and readiness checks even with empty base configuration", async () => {
         const calls: string[] = [];
         class CustomizedModule extends TestModule {

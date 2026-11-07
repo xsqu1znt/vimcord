@@ -10,7 +10,7 @@ const STAFF_DEFAULTS: StaffGlobals = { users: [], roles: [], guildId: null };
 function createClient() {
     return {
         isReady: () => true,
-        logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn(), options: { verbose: false } },
+        logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn(), commandUsed: vi.fn(), options: { verbose: false } },
         globals: { hooks: undefined, app: defaultAppGlobals(), staff: STAFF_DEFAULTS }
     } as any;
 }

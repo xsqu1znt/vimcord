@@ -1,5 +1,4 @@
 import type { LoggerOptions } from "@/utils/Logger.js";
-import type { CommandLoggingTiming } from "./globals.js";
 import type { Vimcord } from "./Vimcord.js";
 
 import ansis from "ansis";
@@ -35,12 +34,8 @@ export interface VimcordCommandLogData {
     userName: string;
     /** Guild name, when available. */
     guildName?: string;
-    /** Guild ID, retained for existing callers; omitted from usage-log output. */
-    guildId?: string;
-    /** Legacy module-pipeline duration in milliseconds. */
-    durationMs?: number;
-    /** Selected timing values in display order. Undefined values display as `n/a`. */
-    timings?: readonly { timing: CommandLoggingTiming; durationMs?: number }[];
+    /** Fixed timing values in milliseconds. Unavailable or negative values display as `n/a`. */
+    timings: { delivery?: number; pre?: number; exec?: number };
     /** Whether the command threw while executing. */
     failed?: boolean;
 }
@@ -59,12 +54,9 @@ const STARTUP_LINES = [
 
 const MIN_CONSOLE_WIDTH = 80;
 
-const COMMAND_TIMING_LABELS = {
-    delivery: "delivery",
-    preExecute: "pre",
-    execute: "exec",
-    total: "total"
-} as const;
+function formatCommandTiming(label: string, duration: number | undefined): string {
+    return ansis.dim(`| ${label} ${duration !== undefined && duration >= 0 ? `${duration.toFixed(1)}ms` : "n/a"}`);
+}
 
 function createCommandStyle(muted: string, error: string) {
     const formatGuild = ansis.hex(muted);
@@ -189,7 +181,7 @@ export class VimcordLogger extends Logger {
     }
 
     /** Logs a completed command execution. */
-    commandUsed({ commandName, userName, guildName, durationMs, timings, failed }: VimcordCommandLogData): void {
+    commandUsed({ commandName, userName, guildName, timings, failed }: VimcordCommandLogData): void {
         const { colors } = this.options;
         if (this.commandStyle?.muted !== colors.muted || this.commandStyle.error !== colors.error) {
             this.commandStyle = createCommandStyle(colors.muted, colors.error);
@@ -201,17 +193,11 @@ export class VimcordLogger extends Logger {
             `used by ${userName}`,
             style.formatGuild(`in ${guildName ?? "Unknown Guild"}`)
         ];
-        if (timings) {
-            for (const { timing, durationMs } of timings) {
-                parts.push(
-                    ansis.dim(
-                        `| ${COMMAND_TIMING_LABELS[timing]} ${durationMs === undefined ? "n/a" : `${durationMs.toFixed(1)}ms`}`
-                    )
-                );
-            }
-        } else if (durationMs !== undefined) {
-            parts.push(ansis.dim(`| ${durationMs.toFixed(1)}ms`));
-        }
+        parts.push(
+            formatCommandTiming("delivery", timings.delivery),
+            formatCommandTiming("pre", timings.pre),
+            formatCommandTiming("exec", timings.exec)
+        );
         if (failed) parts.push(style.failed);
         this.log(...parts);
     }

@@ -1,5 +1,4 @@
 import type { ChatInputCommandInteraction } from "discord.js";
-import type { CommandLoggingTiming } from "@/client/globals.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { CommandRestrictions, PermissionTestResult } from "@/commands/commandPermissions.js";
@@ -20,8 +19,6 @@ import { pickRestrictions, testCommandPermissions } from "@/commands/commandPerm
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
-// Used when global logging is omitted or a command explicitly opts back in.
-const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 const MATCHED_COMMAND = () => true;
 
 function getCommandHooks<T extends CommandModuleType>(
@@ -70,23 +67,11 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         this.metadata = options.metadata ?? {};
     }
 
-    /** Dispatches a matched command and emits only the selected usage timings. */
+    /** Dispatches a matched command, logging its fixed timings when enabled. */
     dispatch(...args: CommandModuleArgs<T>): Promise<boolean> {
-        // --- Select usage timing ---
-        const logging = this.client!.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
-        const logUsage = this.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        let selected: readonly CommandLoggingTiming[] | undefined;
-        let startedAt: number | undefined;
-        let recognizedAt: number | undefined;
-        let measure = false;
-        if (logUsage) {
-            selected = logging === false || !logging.length ? DEFAULT_COMMAND_LOGGING : logging;
-            const executeOnly = selected.length === 1 && selected[0] === "execute";
-            measure = executeOnly || selected.includes("execute") || selected.includes("preExecute");
-            if (!executeOnly && (selected.includes("total") || selected.includes("preExecute")))
-                startedAt = performance.now();
-            if (!executeOnly && selected.includes("delivery")) recognizedAt = Date.now();
-        }
+        const logging = this.client!.globals.app.commandLogging;
+        const startedAt = logging ? performance.now() : undefined;
+        const recognizedAt = logging ? Date.now() : undefined;
 
         // --- Run optional module stages ---
         if (
@@ -101,12 +86,11 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             ("author" in args[0] ? args[0].author : args[0].user).bot ||
             this.getHook("before")
         ) {
-            const complete = selected
+            const complete = logging
                 ? (result: ModuleRunResult): boolean => {
                       if (result.executed)
                           this.logUsage(
                               args[0],
-                              selected,
                               startedAt,
                               recognizedAt,
                               result.executionTiming?.startedAt,
@@ -116,16 +100,16 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
                       return true;
                   }
                 : MATCHED_COMMAND;
-            return this.invoke(args, complete, measure);
+            return this.invoke(args, complete, logging);
         }
 
         // --- Call the handler directly ---
         const ctx = this.createModuleCTX(args);
-        const executionStartedAt = measure ? performance.now() : undefined;
-        const finish = selected
+        const executionStartedAt = logging ? performance.now() : undefined;
+        const finish = logging
             ? (): boolean => {
                   const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
-                  this.logUsage(args[0], selected, startedAt, recognizedAt, executionStartedAt, durationMs);
+                  this.logUsage(args[0], startedAt, recognizedAt, executionStartedAt, durationMs);
                   return true;
               }
             : MATCHED_COMMAND;
@@ -136,16 +120,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             return this.runHook("onError", hookCTX, async () =>
                 this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error as Error)
             ).then(() => {
-                if (selected)
-                    this.logUsage(
-                        args[0],
-                        selected,
-                        startedAt,
-                        recognizedAt,
-                        executionStartedAt,
-                        durationMs,
-                        error as Error
-                    );
+                if (logging) this.logUsage(args[0], startedAt, recognizedAt, executionStartedAt, durationMs, error as Error);
                 return true;
             });
         };
@@ -159,46 +134,23 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     /** Builds the final log entry directly, without an intermediate invocation result for direct handlers. */
     private logUsage(
         source: CommandModuleArgs<T>[0],
-        selected: readonly CommandLoggingTiming[],
         startedAt: number | undefined,
         recognizedAt: number | undefined,
         executionStartedAt: number | undefined,
         executionDurationMs: number | undefined,
         error?: Error
     ): void {
-        const totalDuration = startedAt === undefined ? undefined : performance.now() - startedAt;
-        const timings =
-            selected.length === 1 && selected[0] === "execute"
-                ? [{ timing: "execute" as const, durationMs: executionDurationMs }]
-                : selected.map(timing => {
-                      let durationMs: number | undefined;
-                      switch (timing) {
-                          case "delivery": {
-                              const delivery = recognizedAt === undefined ? -1 : recognizedAt - source.createdTimestamp;
-                              durationMs = delivery >= 0 ? delivery : undefined;
-                              break;
-                          }
-                          case "preExecute":
-                              durationMs =
-                                  executionStartedAt === undefined || startedAt === undefined
-                                      ? undefined
-                                      : executionStartedAt - startedAt;
-                              break;
-                          case "execute":
-                              durationMs = executionDurationMs;
-                              break;
-                          case "total":
-                              durationMs = totalDuration;
-                      }
-                      return { timing, durationMs };
-                  });
+        const delivery = recognizedAt === undefined ? NaN : recognizedAt - source.createdTimestamp;
+        const timings = {
+            delivery: delivery >= 0 ? delivery : undefined,
+            pre: executionStartedAt === undefined || startedAt === undefined ? undefined : executionStartedAt - startedAt,
+            exec: executionDurationMs
+        };
         const guild = source.guild;
         this.client!.logger.commandUsed({
             commandName: this.name,
             userName: ("author" in source ? source.author : source.user).username,
             guildName: guild?.name,
-            guildId: guild?.id,
-            durationMs: totalDuration,
             timings,
             failed: Boolean(error)
         });
@@ -206,13 +158,6 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
 
     protected canExecuteDirectly(): boolean {
         return this.directExecution && !this.deferReply;
-    }
-
-    protected override shouldMeasureExecution(): boolean {
-        if (this.metadata.logUsage === false) return false;
-        const logging = this.client?.globals.app.commandLogging;
-        if (logging === false || logging?.length === 0) return this.metadata.logUsage === true;
-        return !logging || logging.includes("execute") || logging.includes("preExecute");
     }
 
     protected deferInteraction(ctx: CommandModuleContext<T>, deferReply = this.deferReply): void | Promise<void> {

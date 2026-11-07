@@ -242,10 +242,6 @@ export abstract class AbstractModule<
     /** Prepares optional work, such as interaction deferral, before handler timing starts. */
     protected prepareExecute(_ctx: ModuleCTX): void | Promise<void> {}
 
-    protected shouldMeasureExecution(): boolean {
-        return false;
-    }
-
     /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
     private timed<T>(message: () => string, fn: () => Promise<T> | T): Promise<T> | T {
         if (!this.client?.logger.options.verbose) return fn();
@@ -307,7 +303,7 @@ export abstract class AbstractModule<
     protected async invoke<Result>(
         args: Args,
         complete: (result: ModuleRunResult) => Result,
-        measure = this.shouldMeasureExecution()
+        measure = false
     ): Promise<Result> {
         let executionTiming: ModuleExecutionTiming | undefined;
         let executed = false;
@@ -340,11 +336,11 @@ export abstract class AbstractModule<
                 this.activeInvocationKeys!.add(invocationKey);
             }
 
-            executed = true;
             let executeResponse: unknown;
             try {
                 const preparation = this.prepareExecute(moduleCTX);
                 if (preparation) await preparation;
+                executed = true;
                 if (measure) executionTiming = { startedAt: performance.now(), durationMs: 0 };
                 try {
                     executeResponse = await (this.client!.logger.options.verbose

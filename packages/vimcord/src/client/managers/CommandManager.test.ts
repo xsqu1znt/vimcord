@@ -1,5 +1,4 @@
 import type { ClientEvents, Interaction, Message } from "discord.js";
-import type { CommandLoggingTiming } from "../globals.js";
 import type { CommandPrefix } from "./CommandManager.js";
 
 import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
@@ -15,7 +14,6 @@ import { CommandManager } from "./CommandManager.js";
 
 type ApplicationCommandKind = "slash" | "message" | "user";
 
-const ALL_TIMINGS = ["delivery", "preExecute", "execute", "total"] as const;
 const CREATED_AT = 1_000;
 
 let client: Vimcord | undefined;
@@ -25,7 +23,7 @@ function advance(ms: number) {
     now += ms;
 }
 
-function createClient(commandLogging?: false | readonly CommandLoggingTiming[]) {
+function createClient(commandLogging?: boolean) {
     client = new Vimcord({ intents: [], commandLogging });
     vi.spyOn(client.logger, "commandUsed").mockImplementation(() => {});
     vi.spyOn(client.logger, "error").mockImplementation(() => {});
@@ -125,8 +123,8 @@ afterEach(async () => {
 });
 
 describe("CommandManager usage timing", () => {
-    it("includes waiting for client readiness in pre-execute and total", async () => {
-        const client = createClient(ALL_TIMINGS);
+    it("includes waiting for client readiness in pre-execute", async () => {
+        const client = createClient(true);
         vi.spyOn(client, "isReady").mockReturnValue(false);
         vi.spyOn(client, "awaitReady").mockImplementation(async () => {
             advance(9);
@@ -143,18 +141,13 @@ describe("CommandManager usage timing", () => {
 
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 9 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 39 }
-                ]
+                timings: { delivery: 48, pre: 9, exec: 30 }
             })
         );
     });
 
     it("separates prefix preparation and user execution", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const command = new PrefixCommandModule({
             name: "balance",
             requiresReady: false,
@@ -176,20 +169,13 @@ describe("CommandManager usage timing", () => {
             commandName: "balance",
             userName: "maya",
             guildName: "Workshop",
-            guildId: "guild",
-            durationMs: 138,
             failed: false,
-            timings: [
-                { timing: "delivery", durationMs: 48 },
-                { timing: "preExecute", durationMs: 12 },
-                { timing: "execute", durationMs: 126 },
-                { timing: "total", durationMs: 138 }
-            ]
+            timings: { delivery: 48, pre: 12, exec: 126 }
         });
     });
 
     it.each(["slash", "message", "user"] as const)("counts %s deferral in pre-execute, not execution", async kind => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const command = createApplicationCommand(kind, () => advance(126));
         if (command instanceof SlashCommandModule) client.modules.commands.slash.register(command);
         if (command instanceof MessageContextCommandModule) client.modules.commands.context.message.register(command);
@@ -201,19 +187,13 @@ describe("CommandManager usage timing", () => {
         expect(interaction.deferReply).toHaveBeenCalledOnce();
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                durationMs: 138,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 12 },
-                    { timing: "execute", durationMs: 126 },
-                    { timing: "total", durationMs: 138 }
-                ]
+                timings: { delivery: 48, pre: 12, exec: 126 }
             })
         );
     });
 
     it("measures the selected slash route after its checks and route-specific deferral", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const execute = vi.fn();
         const command = new SlashCommandModule({
             builder: new SlashCommandBuilder()
@@ -242,18 +222,13 @@ describe("CommandManager usage timing", () => {
         expect(interaction.deferReply).toHaveBeenCalledOnce();
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 11 },
-                    { timing: "execute", durationMs: 20 },
-                    { timing: "total", durationMs: 31 }
-                ]
+                timings: { delivery: 48, pre: 11, exec: 20 }
             })
         );
     });
 
     it("finishes execution timing before awaited error handling", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const command = new PrefixCommandModule({
             name: "balance",
             requiresReady: false,
@@ -276,46 +251,26 @@ describe("CommandManager usage timing", () => {
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
                 failed: true,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 12 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 48 }
-                ]
+                timings: { delivery: 48, pre: 12, exec: 30 }
             })
         );
     });
 
-    it("leaves pre-execute and execute unavailable when deferral fails before the handler", async () => {
-        const client = createClient(ALL_TIMINGS);
+    it("does not log when deferral fails before the handler executes", async () => {
+        const client = createClient(true);
         const execute = vi.fn();
         const command = createApplicationCommand("slash", execute);
         if (!(command instanceof SlashCommandModule)) throw new Error("Expected slash command");
         client.modules.commands.slash.register(command);
         const interaction = createInteraction();
-        interaction.deferReply.mockImplementation(async () => {
-            advance(7);
-            throw new Error("defer failed");
-        });
-
+        interaction.deferReply.mockRejectedValue(new Error("defer failed"));
         await client.modules.commands.dispatchInteraction(interaction as unknown as Interaction);
-
         expect(execute).not.toHaveBeenCalled();
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                failed: true,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: undefined },
-                    { timing: "execute", durationMs: undefined },
-                    { timing: "total", durationMs: 12 }
-                ]
-            })
-        );
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
     it("includes prompt waits and keeps overlapping invocations independent", async () => {
-        const client = createClient(["execute", "total"]);
+        const client = createClient(true);
         const waits = { first: deferred(), second: deferred() };
         const started = { first: deferred(), second: deferred() };
         client.modules.commands.prefix.register(
@@ -348,26 +303,20 @@ describe("CommandManager usage timing", () => {
             1,
             expect.objectContaining({
                 userName: "second",
-                timings: [
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 30 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 30 }
             })
         );
         expect(client.logger.commandUsed).toHaveBeenNthCalledWith(
             2,
             expect.objectContaining({
                 userName: "first",
-                timings: [
-                    { timing: "execute", durationMs: 90 },
-                    { timing: "total", durationMs: 90 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 90 }
             })
         );
     });
 
     it("does not invent delivery duration for clock skew or use wall-clock changes for local spans", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         vi.mocked(Date.now).mockReturnValue(CREATED_AT - 48);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
@@ -384,20 +333,15 @@ describe("CommandManager usage timing", () => {
 
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: undefined },
-                    { timing: "preExecute", durationMs: 0 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 30 }
-                ]
+                timings: { delivery: undefined, pre: 0, exec: 30 }
             })
         );
     });
 });
 
-describe("CommandManager logging selection", () => {
+describe("CommandManager logging", () => {
     it("does not emit usage logs for autocomplete", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const execute = vi.fn();
         client.modules.commands.slash.register(
             new SlashCommandModule({
@@ -426,39 +370,41 @@ describe("CommandManager logging selection", () => {
         expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
-    it.each([
-        { global: undefined, local: undefined, selected: ["execute"] },
-        { global: false, local: undefined, selected: null },
-        { global: [], local: undefined, selected: null },
-        { global: false, local: true, selected: ["execute"] },
-        { global: [], local: true, selected: ["execute"] },
-        { global: ["total", "execute"], local: undefined, selected: ["total", "execute"] },
-        { global: ["total", "execute"], local: true, selected: ["total", "execute"] },
-        { global: ["total"], local: false, selected: null },
-        { global: undefined, local: false, selected: null },
-        { global: false, local: false, selected: null }
-    ] as const)("resolves global=$global and logUsage=$local", async ({ global, local, selected }) => {
-        const client = createClient(global);
+    it.each([undefined, true, false])("uses boolean logging=%s", async logging => {
+        const client = createClient(logging);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
                 name: "balance",
                 requiresReady: false,
-                metadata: { logUsage: local },
                 execute: () => advance(30)
             })
         );
-
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        if (logging === false) expect(client.logger.commandUsed).not.toHaveBeenCalled();
+        else
+            expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    timings: { delivery: 48, pre: 0, exec: 30 }
+                })
+            );
+    });
 
-        if (selected === null) {
-            expect(client.logger.commandUsed).not.toHaveBeenCalled();
-            return;
-        }
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                timings: selected.map(t => ({ timing: t, durationMs: 30 }))
+    it.each([false, true])("makes no usage clock calls when off (staged=%s)", async staged => {
+        const client = createClient(false);
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                hooks: staged ? { before: () => true } : undefined,
+                execute: () => undefined
             })
         );
+        vi.mocked(performance.now).mockClear();
+        vi.mocked(Date.now).mockClear();
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        expect(performance.now).not.toHaveBeenCalled();
+        expect(Date.now).not.toHaveBeenCalled();
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
     it("uses updated logging configuration on later invocations", async () => {
@@ -471,14 +417,11 @@ describe("CommandManager logging selection", () => {
             })
         );
 
-        client.globals.app.commandLogging = ["total", "execute"];
+        client.globals.app.commandLogging = true;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "total", durationMs: 30 },
-                    { timing: "execute", durationMs: 30 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 30 }
             })
         );
 
@@ -489,7 +432,7 @@ describe("CommandManager logging selection", () => {
     });
 
     it.each(["disabled", "before", "permission"] as const)("does not log a command blocked by %s", async reason => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const execute = vi.fn();
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
@@ -692,8 +635,8 @@ describe("prefix function", () => {
 });
 
 describe("direct command execution", () => {
-    it("awaits thenable handlers and measures execution without unused delivery or pipeline clocks", async () => {
-        const client = createClient(["execute"]);
+    it("awaits thenable handlers on the direct path with all fixed timings", async () => {
+        const client = createClient(true);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
                 name: "balance",
@@ -707,26 +650,21 @@ describe("direct command execution", () => {
             })
         );
         const message = createMessage();
-        Object.defineProperty(message, "createdTimestamp", {
-            get: () => {
-                throw new Error("Unused timestamp read");
-            }
-        });
         vi.mocked(Date.now).mockClear();
         vi.mocked(performance.now).mockClear();
         await expect(client.modules.commands.dispatchMessage(message, ["!"])).resolves.toBe(true);
-        expect(Date.now).not.toHaveBeenCalled();
-        expect(performance.now).toHaveBeenCalledTimes(2);
+        expect(Date.now).toHaveBeenCalledOnce();
+        expect(performance.now).toHaveBeenCalledTimes(3);
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [{ timing: "execute", durationMs: 30 }],
+                timings: { delivery: 48, pre: 0, exec: 30 },
                 failed: false
             })
         );
     });
 
     it("keeps thenable rejection timing separate from error hooks", async () => {
-        const client = createClient(["execute"]);
+        const client = createClient(true);
         const error = new Error("Query failed");
         const onError = vi.fn(async () => advance(8));
         client.modules.commands.prefix.register(
@@ -746,7 +684,7 @@ describe("direct command execution", () => {
         expect(onError).toHaveBeenCalledWith(expect.objectContaining({ error }));
         expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
-                timings: [{ timing: "execute", durationMs: 30 }],
+                timings: { delivery: 48, pre: 0, exec: 30 },
                 failed: true
             })
         );

@@ -170,11 +170,6 @@ export interface CommandModuleMetadata extends ModuleMetadata {
      * @default false
      */
     hidden?: boolean;
-    /** Usage logging through the built-in dispatchers. `false` suppresses this command;
-     * `true` opts in even when global logging is off, using execute timing.
-     * Omitted follows the client's `commandLogging`.
-     */
-    logUsage?: boolean;
 }
 
 // --- Subcommands ---
