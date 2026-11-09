@@ -9,24 +9,26 @@ import { abort, createMongoSchema, MongoosePlugin, TransactionAbort, tryTransact
 import { sessionContext } from "./sessionContext.js";
 
 const plugin = new MongoosePlugin();
-const Records = Object.assign(
+/** Attaches the test plugin without installing a Discord client. */
+function attach<B extends object>(builder: B): B {
+    return Object.assign(builder, { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord });
+}
+
+const Records = attach(
     createMongoSchema("transactionRecords", {
         key: { type: String, required: true },
         count: { type: Number, default: 0 }
-    }),
-    { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord }
+    })
 );
-const CachedRecords = Object.assign(
-    createMongoSchema("cachedTransactionRecords", { key: String, count: Number }, { cache: { key: "key", ttl: 60_000 } }),
-    { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord }
+const CachedRecords = attach(
+    createMongoSchema("cachedTransactionRecords", { key: String, count: Number }, { cache: { key: "key", ttl: 60_000 } })
 );
-const OtherCachedRecords = Object.assign(
+const OtherCachedRecords = attach(
     createMongoSchema(
         "otherCachedTransactionRecords",
         { key: String, count: Number },
         { cache: { key: "key", ttl: 60_000 } }
-    ),
-    { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord }
+    )
 );
 let replSet: MongoMemoryReplSet;
 
@@ -261,7 +263,7 @@ describe("transaction cache invalidation", () => {
             })
         );
         expect(result.success).toBe(!shouldAbort);
-        const read = vi.spyOn(CachedRecords.model!, "findOne");
+        const read = vi.spyOn(CachedRecords.model, "findOne");
         expect(await CachedRecords.fetch({ key: "counter" })).toMatchObject({ count: shouldAbort ? 1 : 2 });
         expect(read).toHaveBeenCalledOnce();
     });
@@ -286,7 +288,7 @@ describe("transaction cache invalidation", () => {
         const ready = new Promise<void>(r => {
             started = r;
         });
-        const model = CachedRecords.model!;
+        const model = CachedRecords.model;
         const findOne = model.findOne.bind(model);
         const spy = vi.spyOn(model, "findOne").mockImplementationOnce((...args) => {
             const query = findOne(...args);

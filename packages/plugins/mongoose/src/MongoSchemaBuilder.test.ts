@@ -46,7 +46,7 @@ beforeAll(async () => {
     await plugin.mongoose.connect(replSet.getUri(), { dbName: "test" });
     await Cooldowns.create({ key: "init" }); // Creates the collection, which a transaction can't do
     await Cooldowns.deleteAll({});
-    await Cooldowns.model!.init(); // Builds the unique index the contention test relies on
+    await Cooldowns.model.init(); // Builds the unique index the contention test relies on
 }, 120_000);
 
 afterAll(async () => {
@@ -702,7 +702,7 @@ describe("update cache invalidation", () => {
 
             expect(await CachedCooldowns.fetch({ key: "b" })).not.toBe(other);
             expect(await CachedCooldowns.fetch({ key: "a" })).toEqual(
-                await CachedCooldowns.model!.findOne({ key: "a" }).lean()
+                await CachedCooldowns.model.findOne({ key: "a" }).lean()
             );
         }
     );
@@ -723,7 +723,7 @@ describe("update cache invalidation", () => {
                 { key: "a", hits: 1 },
                 { key: "b", hits: 1 }
             ]);
-            const model = CachedCooldowns.model!;
+            const model = CachedCooldowns.model;
             const findOne = model.findOne.bind(model);
             let release!: () => void;
             let started!: () => void;
@@ -793,7 +793,7 @@ describe("bounded read cache", () => {
         expect(await CachedCooldowns.fetch({ key: "a" })).toBe(first);
         expect(freeze).not.toHaveBeenCalled();
         freeze.mockRestore();
-        await CachedCooldowns.model!.updateOne({ key: "a" }, { hits: 2 });
+        await CachedCooldowns.model.updateOne({ key: "a" }, { hits: 2 });
         for (const opts of [{ populate: "key" }, { collation: { locale: "en" } }, { lean: {} }]) {
             expect(await CachedCooldowns.fetch({ key: "a" }, undefined, opts as QueryOptions)).toMatchObject({ hits: 2 });
         }
@@ -825,7 +825,7 @@ describe("bounded read cache", () => {
         "insertMany"
     ] as const)("prevents a pending read from repopulating after %s and from deleting a newer pending read", async write => {
         await CachedCooldowns.create({ key: "a", hits: 1 });
-        const model = CachedCooldowns.model!;
+        const model = CachedCooldowns.model;
         const findOne = model.findOne.bind(model);
         let release!: () => void;
         let started!: () => void;
@@ -900,7 +900,7 @@ describe("cursor pagination and explicit write APIs", () => {
     it.each([1, -1] as const)("pages through ties in direction %s without counting or skipping", async direction => {
         await Cooldowns.insertMany(Array.from({ length: 7 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 3) })));
         const expected = await Cooldowns.fetchAll({}, undefined, { sort: { hits: direction, _id: direction } });
-        const count = vi.spyOn(Cooldowns.model!, "countDocuments");
+        const count = vi.spyOn(Cooldowns.model, "countDocuments");
         const seen: string[] = [];
         let after: { value: unknown; id: (typeof expected)[0]["_id"] } | undefined;
         for (;;) {
@@ -923,7 +923,7 @@ describe("cursor pagination and explicit write APIs", () => {
                 hits: { type: Number, get: (n: number) => n + 1000 }
             })
         );
-        builder.schema.index({ hits: 1, _id: 1 });
+        builder.index({ hits: 1, _id: 1 });
         await builder.insertMany(Array.from({ length: 6 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 2) })));
         const first = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false });
         expect(first.docs[0]?.hits).toBe(1000);
@@ -972,7 +972,7 @@ describe("cursor pagination and explicit write APIs", () => {
             saves();
         });
         await builder.create({ key: "taken", other: "taken" });
-        await builder.model!.init();
+        await builder.model.init();
         let attempt = 0;
         await builder.createUnique("key", { other: "new" }, () => (attempt++ ? "new" : "taken"));
         expect(saves).toHaveBeenCalledTimes(3);
@@ -999,9 +999,9 @@ describe("cursor pagination and explicit write APIs", () => {
 
     it("does not retry a compound index containing the generated path", async () => {
         const builder = attach(createMongoSchema("compoundUnique", { key: String, guild: String }));
-        builder.schema.index({ key: 1, guild: 1 }, { unique: true });
+        builder.index({ key: 1, guild: 1 }, { unique: true });
         await builder.create({ key: "taken", guild: "same" });
-        await builder.model!.init();
+        await builder.model.init();
         const generate = vi.fn(() => "taken");
 
         await expect(builder.createUnique("key", { guild: "same" }, generate)).rejects.toMatchObject({

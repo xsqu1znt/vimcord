@@ -194,12 +194,12 @@ export class MongoSchemaBuilder<
     Def extends SchemaDefinition<any> = SchemaDefinition<any>,
     Opts extends MongoSchemaBuilderOptions = {}
 > {
-    readonly client: Vimcord | null = null;
-    readonly plugin: MongoosePlugin | null = null;
+    private client: Vimcord | null = null;
+    private plugin: MongoosePlugin | null = null;
 
     readonly collection: string;
     readonly schema: BuilderSchema<Def, Opts>;
-    model: BuilderModel<Def, Opts> | null = null;
+    private compiledModel: BuilderModel<Def, Opts> | null = null;
     private readonly leanByDefault: boolean;
     private readonly cacheEntries = new Map<string, { value: unknown; expiresAt: number }>();
     private readonly inFlight = new Map<string, Promise<unknown>>();
@@ -235,10 +235,7 @@ export class MongoSchemaBuilder<
             throw new MongoosePluginError("Vimcord client does not exist");
         }
 
-        if (!this.client) {
-            // NOTE: We're casting `this` because `client` is readonly
-            (this as { client: Vimcord | null }).client = client;
-        }
+        this.client = client;
 
         return client;
     }
@@ -250,29 +247,31 @@ export class MongoSchemaBuilder<
             throw new MongoosePluginError(`Plugin "${PLUGIN_NAME}" is required, but not installed on the client`);
         }
 
-        if (!this.plugin) {
-            // Get the MongoosePlugin from the client
-            // NOTE: We're casting `this` because `plugin` is readonly
-            (this as { plugin: MongoosePlugin | null }).plugin = plugin;
-        }
+        this.plugin = plugin;
 
         return plugin;
     }
 
-    private compileModel(): BuilderModel<Def, Opts> {
+    /** Compiles the model on first access; the Mongoose plugin must already be installed. */
+    get model(): BuilderModel<Def, Opts> {
+        if (this.compiledModel) return this.compiledModel;
         const plugin = this.getPlugin();
 
-        if (this.model) return this.model;
-
         // Compile model on the plugin's mongoose instance
-        this.model = plugin.mongoose.model<LeanDoc<Def, Opts>, BuilderModel<Def, Opts>>(
+        this.compiledModel = plugin.mongoose.model<LeanDoc<Def, Opts>, BuilderModel<Def, Opts>>(
             this.collection,
             this.schema,
             this.collection
         );
         this.getClient().logger.plugin.debug(PLUGIN_NAME, `[${this.collection}] Compiled!`);
 
-        return this.model;
+        return this.compiledModel;
+    }
+
+    /** Registers an index on this builder's schema. */
+    index(...args: Parameters<BuilderSchema<Def, Opts>["index"]>): this {
+        this.schema.index(...args);
+        return this;
     }
 
     private resolveOptions<Options extends object>(options?: Options): Options {
@@ -431,7 +430,7 @@ export class MongoSchemaBuilder<
             throw new MongoosePluginError(`maxRetries must be greater than or equal to 0`);
         }
 
-        const model = this.compileModel();
+        const model = this.model;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             const value = await fn();
@@ -461,7 +460,7 @@ export class MongoSchemaBuilder<
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         options?: WithSession<mongo.CountOptions & MongooseBaseQueryOptions<LeanDoc<Def, Opts>> & mongo.Abortable>
     ): Promise<number> {
-        const model = this.compileModel();
+        const model = this.model;
         return await model.countDocuments(filter).setOptions(this.resolveOptions(options));
     }
 
@@ -471,7 +470,7 @@ export class MongoSchemaBuilder<
      * @param filter The filter used to match documents
      */
     async exists(filter: QueryFilter<LeanDoc<Def, Opts>>, options?: QueryOptions<LeanDoc<Def, Opts>>): Promise<boolean> {
-        const model = this.compileModel();
+        const model = this.model;
         return !!(await model.exists(filter).setOptions(this.resolveOptions(options)));
     }
 
@@ -489,7 +488,7 @@ export class MongoSchemaBuilder<
         docOrDocs: CreateDocInput<Def, Opts> | CreateDocInput<Def, Opts>[],
         options?: CreateOptions
     ): Promise<HydDoc<Def, Opts> | HydDoc<Def, Opts>[]> {
-        const model = this.compileModel();
+        const model = this.model;
         const docs = isDocumentArray(docOrDocs) ? docOrDocs : [docOrDocs];
         let created: HydDoc<Def, Opts>[];
         try {
@@ -511,10 +510,7 @@ export class MongoSchemaBuilder<
         options?: Pick<InsertManyOptions, "ordered" | "session" | "limit">
     ): Promise<HydDoc<Def, Opts>[]> {
         try {
-            return (await this.compileModel().insertMany(docs, this.resolveOptions(options))) as unknown as HydDoc<
-                Def,
-                Opts
-            >[];
+            return (await this.model.insertMany(docs, this.resolveOptions(options))) as unknown as HydDoc<Def, Opts>[];
         } finally {
             this.invalidateCache();
         }
@@ -569,7 +565,7 @@ export class MongoSchemaBuilder<
     ): Promise<mongo.UpdateResult> {
         const queryOptions = this.resolveOptions(options);
         try {
-            const result = await this.compileModel().updateOne(filter, update, {
+            const result = await this.model.updateOne(filter, update, {
                 ...queryOptions,
                 updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
             } as mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>);
@@ -592,7 +588,7 @@ export class MongoSchemaBuilder<
         update: UpdateQuery<LeanDoc<Def, Opts>>,
         options?: Options
     ): Promise<ProjectedWriteDoc<Def, Opts, Options>> {
-        const model = this.compileModel();
+        const model = this.model;
         const queryOptions = this.resolveOptions(options);
         try {
             // The model shortcut applies projections twice, dropping `_id: 0` from inclusion projections.
@@ -619,7 +615,7 @@ export class MongoSchemaBuilder<
         filter: QueryFilter<LeanDoc<Def, Opts>>,
         options?: WithSession<mongo.DeleteOptions & MongooseBaseQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.DeleteResult> {
-        const model = this.compileModel();
+        const model = this.model;
         try {
             const result = await model.deleteOne(filter).setOptions(this.resolveOptions(options));
             return result;
@@ -638,7 +634,7 @@ export class MongoSchemaBuilder<
         filter: QueryFilter<LeanDoc<Def, Opts>>,
         options?: WithSession<mongo.DeleteOptions & MongooseBaseQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.DeleteResult> {
-        const model = this.compileModel();
+        const model = this.model;
         try {
             const result = await model.deleteMany(filter).setOptions(this.resolveOptions(options));
             return result;
@@ -669,7 +665,7 @@ export class MongoSchemaBuilder<
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         options?: QueryOptions<LeanDoc<Def, Opts>>
     ): Promise<unknown[]> {
-        const model = this.compileModel();
+        const model = this.model;
         const values = await model.distinct(path, filter, this.resolveOptions(options));
 
         return values;
@@ -708,7 +704,7 @@ export class MongoSchemaBuilder<
             required?: boolean;
         }
     ): Promise<ResolvedDoc<Def, Opts, Options> | null> {
-        const model = this.compileModel();
+        const model = this.model;
         const { required = false, ...queryOptions } = (options ?? {}) as QueryOptions<LeanDoc<Def, Opts>> & {
             required?: boolean;
         };
@@ -753,7 +749,7 @@ export class MongoSchemaBuilder<
         projection?: ProjectionType<LeanDoc<Def, Opts>>,
         options?: Options
     ): Promise<ResolvedDoc<Def, Opts, Options>[]> {
-        const model = this.compileModel();
+        const model = this.model;
         const queryOptions = this.resolveOptions(options);
         const results = await model.find(filter, projection, {
             ...queryOptions,
@@ -784,7 +780,7 @@ export class MongoSchemaBuilder<
         hasPrev: boolean;
         hasNext: boolean;
     }> {
-        const model = this.compileModel();
+        const model = this.model;
         const {
             page: requestedPage = 1,
             limit = 10,
@@ -853,7 +849,7 @@ export class MongoSchemaBuilder<
                   }
             : undefined;
         const resolvedOptions = this.resolveOptions(queryOptions) as QueryOptions<LeanDoc<Def, Opts>>;
-        const rows = await this.compileModel().find(boundary ? { $and: [filter, boundary] } : filter, null, {
+        const rows = await this.model.find(boundary ? { $and: [filter, boundary] } : filter, null, {
             ...resolvedOptions,
             lean: resolvedOptions.lean ?? this.leanByDefault,
             sort: path === "_id" ? { _id: direction } : { [path]: direction, _id: direction },
@@ -893,7 +889,7 @@ export class MongoSchemaBuilder<
             );
         }
 
-        const model = this.compileModel();
+        const model = this.model;
         const queryOptions = this.resolveOptions(options);
         const result = await model.findOne(filter, projection, {
             ...queryOptions,
@@ -924,7 +920,7 @@ export class MongoSchemaBuilder<
         update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: Options
     ): Promise<UpdateResult<Def, Opts, Options>> {
-        const model = this.compileModel();
+        const model = this.model;
         const queryOptions = this.resolveOptions(options);
         try {
             // The model shortcut applies projections twice, dropping `_id: 0` from inclusion projections.
@@ -956,7 +952,7 @@ export class MongoSchemaBuilder<
         update: UpdateQuery<LeanDoc<Def, Opts>> | UpdateWithAggregationPipeline,
         options?: WithSession<mongo.UpdateOptions & MongooseUpdateQueryOptions<LeanDoc<Def, Opts>>>
     ): Promise<mongo.UpdateResult> {
-        const model = this.compileModel();
+        const model = this.model;
         const queryOptions = this.resolveOptions(options);
         try {
             const result = await model.updateMany(filter, update, {
@@ -976,7 +972,7 @@ export class MongoSchemaBuilder<
      * @param options The aggregation options to pass to Mongoose
      */
     async aggregate<Result = unknown>(pipeline: PipelineStage[], options?: AggregateOptions): Promise<Result[]> {
-        const model = this.compileModel();
+        const model = this.model;
         const writes = pipeline.some(stage => "$out" in stage || "$merge" in stage);
         try {
             return await model.aggregate<Result>(pipeline, this.resolveOptions(options));
@@ -995,7 +991,7 @@ export class MongoSchemaBuilder<
         ops: BulkWriteOperations<Def, Opts>,
         options?: WithSession<MongooseBulkWriteOptions>
     ): Promise<mongo.BulkWriteResult> {
-        const model = this.compileModel();
+        const model = this.model;
         try {
             return await model.bulkWrite(ops, this.resolveOptions(options) as MongooseBulkWriteOptions);
         } finally {
@@ -1013,7 +1009,7 @@ export class MongoSchemaBuilder<
         docs: HydDoc<Def, Opts>[],
         options?: WithSession<MongooseBulkSaveOptions>
     ): Promise<mongo.BulkWriteResult> {
-        const model = this.compileModel();
+        const model = this.model;
         try {
             return await model.bulkSave(docs, this.resolveOptions(options) as MongooseBulkSaveOptions);
         } finally {
