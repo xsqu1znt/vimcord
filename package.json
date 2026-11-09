@@ -3,7 +3,7 @@
     "private": true,
     "scripts": {
         "build": "pnpm -r build",
-        "format": "pnpm -r format && prettier --write \"vitest.config.ts\" \"package.json\" \"tsconfig.json\"",
+        "format": "pnpm -r format && prettier --cache --write \"vitest.config.ts\" \"package.json\" \"tsconfig.json\"",
         "check": "pnpm -r check && tsc --noEmit -p tsconfig.json",
         "changeset": "changeset",
         "version-packages": "changeset version",

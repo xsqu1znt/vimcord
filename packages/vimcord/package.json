@@ -23,7 +23,7 @@
     "scripts": {
         "build": "tsup",
         "check": "tsc --noEmit",
-        "format": "prettier --write \"./**/*.{ts,json}\""
+        "format": "prettier --cache --write \"./**/*.{ts,json}\""
     },
     "devDependencies": {
         "@types/node": "^25.8.0"
