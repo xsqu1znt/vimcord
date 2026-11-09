@@ -26,5 +26,8 @@
     },
     "devDependencies": {
         "vimcord": "workspace:*"
-    }
+    },
+    "files": [
+        "dist"
+    ]
 }
