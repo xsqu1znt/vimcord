@@ -28,7 +28,7 @@ export interface CLICommandContext {
     signal: AbortSignal;
 }
 
-/** A core CLI command. */
+/** A built-in or custom CLI command. */
 export interface CLICommand {
     /** Lowercase command name without a leading slash. */
     name: string;

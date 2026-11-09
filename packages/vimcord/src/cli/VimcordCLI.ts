@@ -14,7 +14,7 @@ export class VimcordCLI {
     /** Dedicated CLI logger and output utilities. */
     readonly logger: CLILogger;
 
-    private readonly coreCommands: readonly CLICommand[];
+    private readonly commands: CLICommand[];
     private readonly handleClientCreate = (client: Vimcord): void => this.syncClient(client);
     private readonly handleClientDestroy = (client: Vimcord): void => this.detachClient(client);
     private readonly handleReadlineClose = (): void => {
@@ -31,7 +31,7 @@ export class VimcordCLI {
     /** @internal Use `setupCLI()` to initialize the process singleton. */
     constructor(private readonly onStop?: () => void) {
         this.logger = new CLILogger();
-        this.coreCommands = createBuiltinCLICommands();
+        this.commands = [...createBuiltinCLICommands()];
     }
 
     /** Starts stdin handling and attaches the current or next eligible client. */
@@ -82,9 +82,28 @@ export class VimcordCLI {
         return this.client;
     }
 
-    /** Returns the core CLI commands. */
+    /** Registers a command whose name and aliases are unique across the CLI.
+     * @param command Command to make available through stdin and `/help`.
+     */
+    addCommand(command: CLICommand): this {
+        const triggers = [command.name, ...(command.aliases ?? [])];
+        const existing = new Set(this.commands.flatMap(c => [c.name, ...(c.aliases ?? [])]));
+        for (const trigger of triggers) {
+            if (!trigger || trigger.startsWith("/") || trigger !== trigger.toLowerCase() || /\s/.test(trigger)) {
+                throw new Error(
+                    `Invalid CLI command name or alias '${trigger}': use lowercase without a leading slash or whitespace`
+                );
+            }
+            if (existing.has(trigger)) throw new Error(`CLI command name or alias '${trigger}' is already registered`);
+            existing.add(trigger);
+        }
+        this.commands.push(command);
+        return this;
+    }
+
+    /** Returns built-in and custom CLI commands. */
     getAvailableCommands(): readonly CLICommand[] {
-        return this.coreCommands;
+        return this.commands;
     }
 
     /** Returns whether the given client is attached to this running CLI. */
