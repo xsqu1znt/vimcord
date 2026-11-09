@@ -225,9 +225,9 @@ describe("transaction boundaries", () => {
         expect(console.warn).not.toHaveBeenCalled();
     });
 
-    it("restores an enclosing session after an aborted transaction", async () => {
+    it("restores an enclosing transaction after an aborted transaction", async () => {
         let outer: ClientSession | undefined;
-        await plugin.useSession(async session => {
+        await useTransaction(async session => {
             outer = session;
             const result = await tryTransaction(() =>
                 useTransaction(async inner => {

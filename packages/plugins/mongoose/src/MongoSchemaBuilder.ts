@@ -1,7 +1,6 @@
 import type {
     AggregateOptions,
     ApplySchemaOptions,
-    ClientSessionOptions,
     CreateOptions,
     DefaultSchemaOptions,
     HydratedDocument,
@@ -70,19 +69,8 @@ type HydDoc<
 
 /** The lean document type a `MongoSchemaBuilder` infers, for naming it as a consumer-facing interface. */
 export type InferDoc<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? LeanDoc<Def, Opts> : never;
-/** The hydrated document type a `MongoSchemaBuilder` infers, for typing values returned by `create()` or `{ lean: false }` reads. */
-export type InferHydratedDoc<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? HydDoc<Def, Opts> : never;
-/** The document shape accepted by a `MongoSchemaBuilder`'s `create()`, for hand-building literals such as `bulkWrite` operations. */
-export type CreateDocument<B> = B extends MongoSchemaBuilder<infer Def, infer Opts> ? CreateDocInput<Def, Opts> : never;
-
-/** Per-call `lean` wins, then the builder's `leanByDefault`, then lean. */
-type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false }
-    ? HydDoc<Def, Opts>
-    : [QOpts] extends [{ lean: unknown }]
-      ? LeanDoc<Def, Opts>
-      : Opts extends { leanByDefault: false }
-        ? HydDoc<Def, Opts>
-        : LeanDoc<Def, Opts>;
+/** Reads return lean documents unless the call explicitly requests hydration. */
+type ResolvedDoc<Def, Opts, QOpts> = QOpts extends { lean: false } ? HydDoc<Def, Opts> : LeanDoc<Def, Opts>;
 
 /** Object projections can explicitly exclude `_id` from either lean or hydrated write results. */
 type ProjectedWriteDoc<Def, Opts, QOpts> = QOpts extends { projection: { _id: 0 | false } }
@@ -104,8 +92,6 @@ type BulkWriteOperations<Def, Opts> = Parameters<BuilderModel<Def, Opts>["bulkWr
 type WithSession<Options> = Omit<Options, "session"> & { session?: mongoose.ClientSession | null };
 
 export interface MongoSchemaBuilderOptions extends SchemaOptions {
-    /** Return plain objects instead of hydrated Mongoose documents. @default true */
-    leanByDefault?: boolean;
     /** Opt-in read cache for full lean documents fetched by a single schema path. */
     cache?: {
         /** The schema path to key the cache on. */
@@ -175,14 +161,7 @@ function deepFreeze<T>(value: T): T {
     return value;
 }
 
-// Cursor boundaries use stored values even when hydrated documents expose transforming getters.
-function getCursorValue(document: object, path: string): unknown {
-    return document instanceof mongoose.Document
-        ? document.get(path, undefined, { getters: false })
-        : Reflect.get(document, path);
-}
-
-// Both `const` modifiers keep literal options like `{ leanByDefault: false }` from widening to `boolean`.
+// Keep literal definitions and options narrow for document inference.
 export function createMongoSchema<
     const Def extends SchemaDefinition<any>,
     const Opts extends MongoSchemaBuilderOptions = {}
@@ -200,7 +179,6 @@ export class MongoSchemaBuilder<
     readonly collection: string;
     readonly schema: BuilderSchema<Def, Opts>;
     private compiledModel: BuilderModel<Def, Opts> | null = null;
-    private readonly leanByDefault: boolean;
     private readonly cacheEntries = new Map<string, { value: unknown; expiresAt: number }>();
     private readonly inFlight = new Map<string, Promise<unknown>>();
     private cacheTimer: ReturnType<typeof setTimeout> | undefined;
@@ -211,7 +189,6 @@ export class MongoSchemaBuilder<
         private options: Opts = {} as Opts
     ) {
         this.collection = collectionName;
-        this.leanByDefault = options.leanByDefault ?? true;
         this.schema = MongoSchemaBuilder.createSchema(definition, options);
 
         const cache = options.cache;
@@ -224,7 +201,7 @@ export class MongoSchemaBuilder<
         definition: Def,
         options: Opts
     ): BuilderSchema<Def, Opts> {
-        const { leanByDefault, cache, ...schemaOptions } = options;
+        const { cache, ...schemaOptions } = options;
         const schema = new Schema(definition, { versionKey: false, ...schemaOptions });
         return schema as BuilderSchema<Def, Opts>;
     }
@@ -377,79 +354,7 @@ export class MongoSchemaBuilder<
         }
     }
 
-    /**
-     * Starts a new session.
-     * @param options The options for the session
-     */
-    async startSession(options?: ClientSessionOptions): Promise<mongoose.ClientSession> {
-        return await this.getPlugin().startSession(options);
-    }
-
-    /**
-     * Starts and uses a new session.
-     * @param fn The function to use inside of the session
-     * @param options The options for the session
-     */
-    async useSession<T>(fn: (session: mongoose.ClientSession) => Promise<T>, options?: ClientSessionOptions): Promise<T> {
-        return await this.getPlugin().useSession(fn, options);
-    }
-
-    /**
-     * Starts a new transaction.
-     * @param options The options for the transaction
-     */
-    async startTransaction(options?: mongoose.mongo.TransactionOptions): Promise<mongoose.ClientSession> {
-        return await this.getPlugin().startTransaction(options);
-    }
-
     // --- CRUD Methods ---
-    /**
-     * Generates a value that is unique for the provided schema path.
-     *
-     * The provided function is called once per attempt. If the generated value already exists on another document at
-     * `path`, the function is called again until a unique value is found or `maxRetries` is reached.
-     *
-     * @example
-     * ```ts
-     * const inviteCode = await Invites.unique("code", () => randomUUID());
-     * ```
-     *
-     * @param path The schema path to check for existing documents with the same value
-     * @param fn The function that generates a candidate value. This should randomize or otherwise change its output
-     * @param maxRetries The number of collision retries allowed after the first attempt
-     *
-     * This checks before the caller writes, so concurrent callers can still choose the same value. Keep a unique index on
-     * `path`; retries reduce collisions but do not prevent them.
-     */
-    async unique<Path extends keyof LeanDoc<Def, Opts> & string>(
-        path: Path,
-        fn: () => LeanDoc<Def, Opts>[Path] | Promise<LeanDoc<Def, Opts>[Path]>,
-        maxRetries: number = 10
-    ): Promise<LeanDoc<Def, Opts>[Path]> {
-        if (maxRetries < 0) {
-            throw new MongoosePluginError(`maxRetries must be greater than or equal to 0`);
-        }
-
-        const model = this.model;
-
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const value = await fn();
-            const collision = await model
-                .exists({ [path]: value } as QueryFilter<LeanDoc<Def, Opts>>)
-                .setOptions(this.resolveOptions());
-
-            if (!collision) return value;
-
-            if (attempt === maxRetries) {
-                throw new MongoosePluginError(
-                    `Failed to generate a unique value for "${path}" after ${maxRetries} attempt${maxRetries === 1 ? "" : "s"}`
-                );
-            }
-        }
-
-        throw new MongoosePluginError(`Failed to generate a unique value for "${path}"`);
-    }
-
     /**
      * Counts the number of documents that match a filter.
      *
@@ -596,7 +501,7 @@ export class MongoSchemaBuilder<
                 returnDocument: "after",
                 ...queryOptions,
                 upsert: true,
-                lean: queryOptions.lean ?? this.leanByDefault
+                lean: queryOptions.lean ?? true
             });
 
             return result as unknown as ProjectedWriteDoc<Def, Opts, Options>;
@@ -674,8 +579,7 @@ export class MongoSchemaBuilder<
     /**
      * Fetches the first document that matches a filter.
      *
-     * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
-     * hydrated Mongoose document.
+     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
      * Lean reads skip virtuals, getters, defaults, and `toJSON` and `toObject` transforms.
      * Passing `{ required: true }` throws when no document is found and removes `null` from the return type.
      *
@@ -709,7 +613,7 @@ export class MongoSchemaBuilder<
             required?: boolean;
         };
         const resolvedOptions = this.resolveOptions(queryOptions);
-        const lean = resolvedOptions.lean ?? this.leanByDefault;
+        const lean = resolvedOptions.lean ?? true;
         const cache = this.options.cache;
         const cacheKey =
             cache &&
@@ -736,8 +640,7 @@ export class MongoSchemaBuilder<
     /**
      * Fetches every document that matches a filter.
      *
-     * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for
-     * hydrated Mongoose documents.
+     * Queries return plain objects by default. Pass `{ lean: false }` for hydrated Mongoose documents.
      * Lean reads skip virtuals, getters, defaults, and `toJSON` and `toObject` transforms.
      *
      * @param filter The filter used to match documents
@@ -753,126 +656,16 @@ export class MongoSchemaBuilder<
         const queryOptions = this.resolveOptions(options);
         const results = await model.find(filter, projection, {
             ...queryOptions,
-            lean: queryOptions.lean ?? this.leanByDefault
+            lean: queryOptions.lean ?? true
         });
 
         return results as ResolvedDoc<Def, Opts, Options>[];
     }
 
     /**
-     * Fetches one page of matching documents and the pagination details.
-     *
-     * Page numbers start at `1`. Deep pages are slower because MongoDB scans skipped documents for offset pagination.
-     *
-     * @param filter The filter used to match documents
-     * @param projection The fields to include or exclude
-     * @param options The query options, page number, and page size
-     */
-    async paginate<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
-        filter?: QueryFilter<LeanDoc<Def, Opts>>,
-        projection?: ProjectionType<LeanDoc<Def, Opts>>,
-        options?: Options & { page?: number; limit?: number }
-    ): Promise<{
-        docs: ResolvedDoc<Def, Opts, Options>[];
-        total: number;
-        page: number;
-        pages: number;
-        hasPrev: boolean;
-        hasNext: boolean;
-    }> {
-        const model = this.model;
-        const {
-            page: requestedPage = 1,
-            limit = 10,
-            skip: _skip,
-            ...queryOptions
-        } = (options ?? {}) as Options & {
-            page?: number;
-            limit?: number;
-        };
-        const page = Math.max(1, requestedPage);
-        const resolvedOptions = this.resolveOptions(queryOptions);
-        const count = model.countDocuments(filter);
-
-        if (Object.hasOwn(resolvedOptions, "session")) {
-            count.session(resolvedOptions.session ?? null);
-        }
-
-        const [total, docs] = await Promise.all([
-            count,
-            model.find(filter, projection, {
-                ...resolvedOptions,
-                lean: resolvedOptions.lean ?? this.leanByDefault,
-                skip: (page - 1) * limit,
-                limit
-            })
-        ]);
-        const pages = Math.ceil(total / limit);
-
-        return {
-            docs: docs as ResolvedDoc<Def, Opts, Options>[],
-            total,
-            page,
-            pages,
-            hasPrev: page > 1,
-            hasNext: page < pages
-        };
-    }
-
-    /**
-     * Fetches limit + 1 documents without counting or skipping. Index `{ [path]: direction, _id: direction }`
-     * when using a path other than `_id`; the `_id` tie-breaker makes equal values stable.
-     * @param filter Document filter
-     * @param options Page size, ordering and the previous nextCursor; lean/session options
-     */
-    async paginateCursor<Options extends Pick<QueryOptions<LeanDoc<Def, Opts>>, "lean" | "session">>(
-        filter: QueryFilter<LeanDoc<Def, Opts>> = {},
-        options?: Options & {
-            limit?: number;
-            path?: keyof LeanDoc<Def, Opts> & string;
-            direction?: 1 | -1;
-            after?: { value: unknown; id: mongoose.Types.ObjectId };
-        }
-    ): Promise<{
-        docs: ResolvedDoc<Def, Opts, Options>[];
-        hasNext: boolean;
-        nextCursor: { value: unknown; id: mongoose.Types.ObjectId } | null;
-    }> {
-        const { limit = 10, path = "_id", direction = 1, after, ...queryOptions } = options ?? {};
-        if (!Number.isInteger(limit) || limit < 1) throw new MongoosePluginError("limit must be a positive integer");
-        const op = direction === 1 ? "$gt" : "$lt";
-        const boundary = after
-            ? path === "_id"
-                ? { _id: { [op]: after.id } }
-                : {
-                      $or: [{ [path]: { [op]: after.value } }, { [path]: after.value, _id: { [op]: after.id } }]
-                  }
-            : undefined;
-        const resolvedOptions = this.resolveOptions(queryOptions) as QueryOptions<LeanDoc<Def, Opts>>;
-        const rows = await this.model.find(boundary ? { $and: [filter, boundary] } : filter, null, {
-            ...resolvedOptions,
-            lean: resolvedOptions.lean ?? this.leanByDefault,
-            sort: path === "_id" ? { _id: direction } : { [path]: direction, _id: direction },
-            limit: limit + 1
-        });
-        const hasNext = rows.length > limit;
-        const docs = rows.slice(0, limit);
-        const last = docs.at(-1);
-        return {
-            docs: docs as unknown as ResolvedDoc<Def, Opts, Options>[],
-            hasNext,
-            nextCursor:
-                hasNext && last
-                    ? { value: getCursorValue(last, path), id: getCursorValue(last, "_id") as mongoose.Types.ObjectId }
-                    : null
-        };
-    }
-
-    /**
      * Fetches the latest document that matches a filter.
      *
-     * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
-     * hydrated Mongoose document.
+     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
      *
      * @param filter The filter used to match the document
      * @param projection The fields to include or exclude
@@ -893,7 +686,7 @@ export class MongoSchemaBuilder<
         const queryOptions = this.resolveOptions(options);
         const result = await model.findOne(filter, projection, {
             ...queryOptions,
-            lean: queryOptions.lean ?? this.leanByDefault,
+            lean: queryOptions.lean ?? true,
             sort: queryOptions.sort ?? { createdAt: -1 }
         });
 
@@ -907,8 +700,7 @@ export class MongoSchemaBuilder<
      * operation. Pipeline stages are not cast to the schema.
      * Pass `{ returnDocument: "before" }` to get the document as it was before the update. With `upsert`, that is `null`
      * when the document was inserted.
-     * Queries use `leanByDefault`, which is `true` unless the builder overrides it. Pass `{ lean: false }` for a
-     * hydrated Mongoose document.
+     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
      * Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
      *
      * @param filter The filter used to match the document
@@ -926,7 +718,7 @@ export class MongoSchemaBuilder<
             // The model shortcut applies projections twice, dropping `_id: 0` from inclusion projections.
             const result = await model.findOne().findOneAndUpdate(filter, update, {
                 ...queryOptions,
-                lean: queryOptions.lean ?? this.leanByDefault,
+                lean: queryOptions.lean ?? true,
                 returnDocument: queryOptions.returnDocument ?? "after",
                 updatePipeline: Array.isArray(update) || queryOptions.updatePipeline
             });

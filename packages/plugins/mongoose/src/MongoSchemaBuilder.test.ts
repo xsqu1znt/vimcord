@@ -1,5 +1,5 @@
 import type { mongo, QueryOptions, Types, UpdateQuery, UpdateWithAggregationPipeline } from "mongoose";
-import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
+import type { InferDoc } from "./MongoSchemaBuilder.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { Document } from "mongoose";
@@ -79,11 +79,10 @@ describe("hydrated timestamp inference", () => {
                 { timestamps: true }
             )
         );
-        const input = { releaseId: 1, status: "draft" } satisfies CreateDocument<typeof builder>;
+        const input = { releaseId: 1, status: "draft" } as const;
         const doc = await builder.create(input);
         const plain = doc.toObject();
 
-        expectTypeOf(doc).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
         expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
         expectTypeOf(doc.createdAt).toEqualTypeOf<Date>();
         expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
@@ -103,7 +102,7 @@ describe("hydrated timestamp inference", () => {
         expectTypeOf(created!.toObject()).toExtend<InferDoc<typeof builder>>();
         expect(created!.createdAt).toBeInstanceOf(Date);
         const fetched = await builder.fetch({ releaseId: 1 }, undefined, { lean: false, required: true });
-        expectTypeOf(fetched).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(fetched).toEqualTypeOf<typeof doc>();
         expectTypeOf(fetched.toObject()).toExtend<InferDoc<typeof builder>>();
         expect(fetched.toObject().createdAt).toEqual(plain.createdAt);
     });
@@ -354,11 +353,7 @@ describe("update() and upsert() projections", () => {
 
     it("preserves validation, sorting, and update middleware without running findOne middleware", async () => {
         const builder = attach(
-            createMongoSchema(
-                "projectedWrites",
-                { key: String, hits: { type: Number, min: 0, default: 0 } },
-                { leanByDefault: false }
-            )
+            createMongoSchema("projectedWrites", { key: String, hits: { type: Number, min: 0, default: 0 } })
         );
         const found = vi.fn();
         const updated = vi.fn();
@@ -373,8 +368,16 @@ describe("update() and upsert() projections", () => {
             { key: "b", hits: 2 }
         ]);
 
-        const result = await builder.update({}, { hits: 3 }, { projection: { key: 1, _id: 0 }, sort: { hits: -1 } });
-        const upserted = await builder.upsert({ key: "c" }, { hits: 4 }, { projection: { hits: 1, _id: false } });
+        const result = await builder.update(
+            {},
+            { hits: 3 },
+            { projection: { key: 1, _id: 0 }, sort: { hits: -1 }, lean: false }
+        );
+        const upserted = await builder.upsert(
+            { key: "c" },
+            { hits: 4 },
+            { projection: { hits: 1, _id: false }, lean: false }
+        );
 
         expect(result?.toObject()).toEqual({ key: "b" });
         expect(upserted.toObject()).toEqual({ hits: 4 });
@@ -382,7 +385,7 @@ describe("update() and upsert() projections", () => {
         expect(updated).toHaveBeenCalledTimes(2);
         expectTypeOf(result!.save).toBeFunction();
         expectTypeOf(upserted.save).toBeFunction();
-        // @ts-expect-error Builder-default hydrated documents also exclude _id.
+        // @ts-expect-error Hydrated documents also exclude _id.
         expectTypeOf(result!._id);
         // @ts-expect-error Upsert preserves hydration and explicit _id exclusion.
         expectTypeOf(upserted._id);
@@ -896,46 +899,7 @@ describe("bounded read cache", () => {
     });
 });
 
-describe("cursor pagination and explicit write APIs", () => {
-    it.each([1, -1] as const)("pages through ties in direction %s without counting or skipping", async direction => {
-        await Cooldowns.insertMany(Array.from({ length: 7 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 3) })));
-        const expected = await Cooldowns.fetchAll({}, undefined, { sort: { hits: direction, _id: direction } });
-        const count = vi.spyOn(Cooldowns.model, "countDocuments");
-        const seen: string[] = [];
-        let after: { value: unknown; id: (typeof expected)[0]["_id"] } | undefined;
-        for (;;) {
-            const result = await Cooldowns.paginateCursor({}, { path: "hits", direction, limit: 2, after });
-            seen.push(...result.docs.map(d => d.key));
-            if (!result.hasNext) break;
-            after = result.nextCursor!;
-        }
-        expect(seen).toEqual(expected.map(d => d.key));
-        expect(count).not.toHaveBeenCalled();
-        count.mockRestore();
-        const numbered = await Cooldowns.paginate({}, undefined, { page: 2, limit: 2 });
-        expect(numbered).toMatchObject({ total: 7, pages: 4, hasNext: true });
-    });
-
-    it("uses stored sort values for hydrated cursors instead of transformed getters", async () => {
-        const builder = attach(
-            createMongoSchema("cursorGetters", {
-                key: String,
-                hits: { type: Number, get: (n: number) => n + 1000 }
-            })
-        );
-        builder.index({ hits: 1, _id: 1 });
-        await builder.insertMany(Array.from({ length: 6 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 2) })));
-        const first = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false });
-        expect(first.docs[0]?.hits).toBe(1000);
-        expect(first.nextCursor?.value).toBe(0);
-        const second = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: first.nextCursor! });
-        expect(second.docs.map(d => d.key)).toEqual(["2", "3"]);
-        expect(second.nextCursor?.value).toBe(1);
-        const last = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: second.nextCursor! });
-        expect(last.docs.map(d => d.key)).toEqual(["4", "5"]);
-        expect(last.hasNext).toBe(false);
-    });
-
+describe("explicit write APIs", () => {
     it("validates insertMany without save hooks and uses updateOne query middleware", async () => {
         const builder = attach(createMongoSchema("middleware", { key: { type: String, required: true } }));
         const saved = vi.fn();

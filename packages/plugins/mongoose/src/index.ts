@@ -1,11 +1,10 @@
-import type { ClientSessionOptions, ConnectOptions } from "mongoose";
+import type { ConnectOptions } from "mongoose";
 import type { HealthProbeResult, VimcordPluginContext } from "vimcord";
 
 import mongoose from "mongoose";
 import { getPackageVersion, Vimcord, VimcordPlugin } from "vimcord";
 import { isDuplicateKeyError } from "./isDuplicateKeyError.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
-import { sessionContext } from "./sessionContext.js";
 
 export * from "./MongoSchemaBuilder.js";
 export { isDuplicateKeyError } from "./isDuplicateKeyError.js";
@@ -220,24 +219,5 @@ export class MongoosePlugin extends VimcordPlugin {
             }
         }
         this.migrationsFinished = true;
-    }
-
-    async startSession(options?: ClientSessionOptions): Promise<mongoose.ClientSession> {
-        return this.mongoose.startSession(options);
-    }
-
-    async useSession<T>(fn: (session: mongoose.ClientSession) => Promise<T>, options?: ClientSessionOptions): Promise<T> {
-        const session = await this.startSession(options);
-        try {
-            return await sessionContext.run({ session, writtenCaches: new Set() }, () => fn(session));
-        } finally {
-            await session.endSession();
-        }
-    }
-
-    async startTransaction(options?: mongoose.mongo.TransactionOptions): Promise<mongoose.ClientSession> {
-        const session = await this.startSession();
-        session.startTransaction(options);
-        return session;
     }
 }
