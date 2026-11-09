@@ -22,11 +22,11 @@ export interface ColorScheme {
 
 /** Logger display and verbosity options. */
 export interface LoggerOptions {
-    /** Prefix shown before each normal log entry. */
+    /** Prefix displayed before normal log entries. @default null */
     prefix?: string | null;
     /** Enables diagnostic `debug()` output. @default false */
     verbose?: boolean;
-    /** Color overrides. */
+    /** Overrides for the logger palette. @default DEFAULT_COLORS */
     colors?: Partial<ColorScheme>;
 }
 
@@ -107,7 +107,10 @@ export function stripAnsi(str: string): string {
 /** Timestamped console logger with colors, optional diagnostics, and live terminal loaders. */
 export class Logger {
     /** Active logger configuration. */
-    readonly options: Required<Omit<LoggerOptions, "colors">> & { colors: ColorScheme };
+    readonly options: Required<Omit<LoggerOptions, "colors">> & {
+        /** Logger colors merged with the default palette. */
+        colors: ColorScheme;
+    };
 
     private static readonly loaderLoggers = new Set<Logger>();
     private static renderInterval: ReturnType<typeof setInterval> | null = null;

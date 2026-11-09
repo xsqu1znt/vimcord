@@ -14,34 +14,54 @@ import { resolveColor } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
 import { resolveGlobalEmbedColor } from "./uxConfig.js";
 
+/** Embed author text with an optional icon and link. */
 export interface BetterEmbedAuthor {
+    /** Text displayed in this embed block. */
     text: string;
+    /** Icon URL; null removes the icon. */
     icon?: string | null;
+    /** URL opened when this text is clicked. */
     hyperlink?: string | null;
 }
 
+/** Embed title text with an optional link. */
 export interface BetterEmbedTitle {
+    /** Text displayed in this embed block. */
     text: string;
+    /** URL opened when this text is clicked. */
     hyperlink?: string | null;
 }
 
+/** Embed footer text with an optional icon. */
 export interface BetterEmbedFooter {
+    /** Text displayed in this embed block. */
     text: string;
+    /** Icon URL; null removes the icon. */
     icon?: string | null;
 }
 
 /** A description line or a falsey conditional value that should be omitted. */
 export type BetterEmbedDescriptionLine = string | false | 0 | 0n | null | undefined;
 
+/** Embed content and appearance passed to BetterEmbed. */
 export interface BetterEmbedData {
+    /** Author text or author appearance; null clears it. @default null */
     author?: string | BetterEmbedAuthor | null;
+    /** Title text or linked title; null clears it. @default null */
     title?: string | BetterEmbedTitle | null;
+    /** Thumbnail image URL; null clears it. @default null */
     thumbnailUrl?: string | null;
+    /** Description text or conditional lines joined with newlines. @default null */
     description?: string | BetterEmbedDescriptionLine[] | null;
+    /** Main image URL; null clears it. @default null */
     imageUrl?: string | null;
+    /** Footer text or footer appearance; null clears it. @default null */
     footer?: string | BetterEmbedFooter | null;
+    /** Embed fields; null and undefined entries are skipped. @default [] */
     fields?: (APIEmbedField | null | undefined)[];
+    /** Fixed color, random pool, or null for no color. @default UX config's environment embed color */
     color?: ColorResolvable | ColorResolvable[] | null;
+    /** Timestamp to display; true uses serialization time. @default null */
     timestamp?: number | boolean | Date | null;
 }
 
@@ -79,6 +99,7 @@ function normalizeDescription(description: BetterEmbedState["description"]): str
     return description;
 }
 
+/** Builds embeds with conditional description lines and shared colors. */
 export class BetterEmbed {
     private data: BetterEmbedState;
 
@@ -96,11 +117,7 @@ export class BetterEmbed {
         };
     }
 
-    /**
-     * Creates the Discord payload directly from stored data. Setters only update data; this runs at the
-     * `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly
-     * once per serialization, not once per setter call.
-     */
+    /** Creates the Discord payload directly from stored data. Setters only update data; this runs at the `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly once per serialization, not once per setter call. */
     toJSON(): APIEmbed {
         const author = normalizeAuthor(this.data.author);
         const title = normalizeTitle(this.data.title);
@@ -162,7 +179,7 @@ export class BetterEmbed {
 
     /**
      * Creates a new BetterEmbed using this embed's data with optional overrides.
-     * @param overrides Data to override on the cloned embed
+     * @param overrides Content and appearance overrides. Defaults to `{}`.
      */
     clone(overrides: Partial<BetterEmbedData> = {}): BetterEmbed {
         return new BetterEmbed({ ...this.data, ...overrides });
@@ -272,32 +289,38 @@ export class BetterEmbed {
     }
 
     /**
-     * Sends this embed through dynaSend.
-     * A fresh interaction reply resolves to `null` unless `withResponse` is set.
+     * Sends this embed through dynaSend. A fresh interaction reply resolves to `null` unless `withResponse` is set.
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      * @param overrides Data to apply to a cloned embed before sending
      */
     send(
         handler: Message,
-        options: DynaSendOptions & { method: "edit" },
+        options: DynaSendOptions & {
+            /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+            method: "edit";
+        },
         overrides?: Partial<BetterEmbedData>
     ): Promise<Message>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends MessageSendHandler>(
         handler: T,
         options?: DynaSendOptions,
         overrides?: Partial<BetterEmbedData>
     ): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends SendHandler>(
         handler: T,
         options: DynaSendOptions & MessageReturningSendOptions,
         overrides?: Partial<BetterEmbedData>
     ): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends SendHandler>(
         handler: T,
         options?: DynaSendOptions,
         overrides?: Partial<BetterEmbedData>
     ): Promise<SentMessage<T> | null>;
+    /** Sends through a Discord target using inferred delivery. */
     send(
         handler: SendHandler,
         options: DynaSendOptions = {},

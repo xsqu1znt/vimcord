@@ -23,32 +23,29 @@ export type PromptStatus = "confirmed" | "rejected" | "custom" | "timeout";
 
 /** User-facing confirm and reject button overrides. */
 export interface PromptMessageButtonOptions {
-    /** Confirm button override. */
+    /** Confirm button override. @default UX config's prompt.buttons.confirm */
     confirm?: PromptButtonResolvable;
-    /** Reject button override. */
+    /** Reject button override. @default UX config's prompt.buttons.reject */
     reject?: PromptButtonResolvable;
 }
 
 /** Options for sending a button-based confirmation prompt. */
 export interface PromptMessageBaseOptions {
-    /**
-     * Users allowed to interact with the prompt. Defaults to whoever triggered the prompt, and required for
-     * guild channels, message edits, and replies to a bot's message, where nothing says who that is. An empty
-     * list lets nobody click; `"anyone"` opts out.
-     */
+    /** Users allowed to click; required when the target has no trigger. @default inferred from target trigger */
     participants?: ParticipantsOption;
-    /** Message content sent with the prompt. */
+    /** Message text displayed with the decision buttons. @default send options' content */
     content?: string;
-    /** Embed sent with the prompt. */
+    /** Embed displayed above the decision buttons. @default UX config's prompt title and description */
     embed?: EmbedResolvable;
-    /** Confirm and reject button overrides. */
+    /** Confirm and reject button overrides. @default UX config's prompt.buttons */
     buttons?: PromptMessageButtonOptions;
-    /** Extra buttons appended after reject. Pressing one resolves the prompt with `status: "custom"` and its `customId`. */
+    /** Up to three buttons resolving with status "custom" and their customId. @default [] */
     extraButtons?: ButtonBuilder[];
     /** Cleanup action or awaited final payload, applied once after the decision. @default "disable" */
     onResolve?: OnResolve<PromptResolveContext>;
 }
 
+/** Prompt content, participants, decision buttons, timing, and cleanup. */
 export type PromptMessageOptions = PromptMessageBaseOptions & PromptTimingOptions;
 
 /** Result returned by a button-based confirmation prompt. */
@@ -119,7 +116,7 @@ function highlightPromptComponents(
 /**
  * Sends a confirmation prompt and waits for confirm or reject.
  * @param handler Discord target used to send the prompt
- * @param options Prompt options
+ * @param options Decision buttons, participant access, and cleanup settings. Defaults to `{}`.
  * @param sendOptions Additional options passed to dynaSend
  * @throws Before sending, when replying to a bot's message outside of a DM without `participants`
  */
@@ -128,9 +125,16 @@ export function promptMessage<T extends SendHandler>(
     ...args: ParticipantSendArgs<
         T,
         [options?: PromptMessageOptions, sendOptions?: InferredSendOptions<T>],
-        [options: PromptMessageOptions & { participants: ParticipantsOption }, sendOptions?: DynaSendOptions]
+        [
+            options: PromptMessageOptions & {
+                /** Users permitted to click; an empty list permits nobody. */
+                participants: ParticipantsOption;
+            },
+            sendOptions?: DynaSendOptions
+        ]
     >
 ): Promise<PromptMessageResult>;
+/** Sends decision buttons and resolves with the user's choice or timeout. */
 export async function promptMessage(
     handler: SendHandler,
     options: PromptMessageOptions = {},

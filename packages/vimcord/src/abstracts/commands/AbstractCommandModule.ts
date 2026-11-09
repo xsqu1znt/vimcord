@@ -29,6 +29,7 @@ function getCommandHooks<T extends CommandModuleType>(
     return hooks?.[key] as CommandModuleHooks<T> | undefined;
 }
 
+/** Base for command modules with shared permissions, hooks, and routing. */
 export abstract class AbstractCommandModule<T extends CommandModuleType> extends AbstractModule<
     CommandModuleArgs<T>,
     CommandModuleContext<T>,
@@ -36,19 +37,26 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     CommandModuleHooks<T>,
     CommandBlock
 > {
+    /** Command kind used for dispatch. */
     abstract readonly type: T;
     protected directExecution = false;
+    /** Defers the interaction before the handler runs. */
     readonly deferReply?: CommandDeferReply;
     /** Guild, bot-permission, and access rules; `undefined` when there are none, so commands can skip the test. */
     protected readonly restrictions: CommandRestrictions | undefined;
     protected readonly allowBots: boolean | undefined;
+    /** Callbacks for invocation gates, blocks, and errors. */
     override readonly hooks: CommandModuleHooks<T>;
+    /** Short description displayed to users or in discovery. */
     readonly description?: string;
+    /** Project-defined display and categorization fields. */
     override readonly metadata: CommandModuleMetadata;
 
     constructor(
         options: CommandModuleBaseOptions<T> & {
+            /** Whether to require a guild for the handler. */
             guildOnly?: boolean;
+            /** Runs the module or command handler. */
             execute(ctx: CommandModuleContext<T>): unknown;
         }
     ) {

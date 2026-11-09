@@ -78,10 +78,7 @@ type ProjectedWriteDoc<Def, Opts, QOpts> = QOpts extends { projection: { _id: 0 
     ? Omit<ResolvedDoc<Def, Opts, QOpts>, "_id">
     : ResolvedDoc<Def, Opts, QOpts>;
 
-/**
- * `update()` returns `null` when nothing matched. An upsert always yields a document, unless `returnDocument` can be
- * `"before"`: an inserted document had no previous state.
- */
+/** `update()` returns `null` when nothing matched. An upsert always yields a document, unless `returnDocument` can be `"before"`: an inserted document had no previous state. */
 type UpdateResult<Def, Opts, QOpts> =
     | ProjectedWriteDoc<Def, Opts, QOpts>
     | (QOpts extends { upsert: true } ? ("before" extends QOpts[keyof QOpts & "returnDocument"] ? null : never) : null);
@@ -92,8 +89,11 @@ type CreateDocInput<Def, Opts> = Parameters<BuilderModel<Def, Opts>["create"]>[0
 type BulkWriteOperations<Def, Opts> = Parameters<BuilderModel<Def, Opts>["bulkWrite"]>[0];
 type WithSession<Options> = Omit<Options, "session"> & { session?: mongoose.ClientSession | null };
 
+/** Mongoose schema options plus an optional lean-document cache. */
 export interface MongoSchemaBuilderOptions extends SchemaOptions {
-    /** Opt-in read cache for full lean documents fetched by a single schema path. */
+    /** Version key stored on documents, or false to omit it. @default false */
+    versionKey?: SchemaOptions["versionKey"];
+    /** Caches full lean single-key reads; omit to disable caching. */
     cache?: {
         /** The schema path to key the cache on. */
         key: string;
@@ -147,10 +147,7 @@ function preservesCacheKey(update: unknown, key: string): boolean {
     });
 }
 
-/**
- * Freezes plain objects and arrays in place, leaving class instances such as ObjectId, Date, Decimal128, and Buffer
- * untouched. Freezing those reaches their internal typed arrays and throws.
- */
+/** Freezes plain objects and arrays in place, leaving class instances such as ObjectId, Date, Decimal128, and Buffer untouched. Freezing those reaches their internal typed arrays and throws. */
 function deepFreeze<T>(value: T): T {
     if (Array.isArray(value)) {
         value.forEach(deepFreeze);
@@ -163,6 +160,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 // Keep literal definitions and options narrow for document inference.
+/** Creates a schema builder while preserving literal field and option inference. */
 export function createMongoSchema<
     const Def extends SchemaDefinition<any>,
     const Opts extends MongoSchemaBuilderOptions = {}
@@ -170,6 +168,7 @@ export function createMongoSchema<
     return new MongoSchemaBuilder(collection, definition, options);
 }
 
+/** Wraps an inferred Mongoose schema with lean reads and optional caching. */
 export class MongoSchemaBuilder<
     Def extends SchemaDefinition<any> = SchemaDefinition<any>,
     Opts extends MongoSchemaBuilderOptions = {}
@@ -177,7 +176,9 @@ export class MongoSchemaBuilder<
     private client: Vimcord | null = null;
     private plugin: MongoosePlugin | null = null;
 
+    /** MongoDB collection used by this builder. */
     readonly collection: string;
+    /** Mongoose schema configured before the first model access. */
     readonly schema: BuilderSchema<Def, Opts>;
     private compiledModel: BuilderModel<Def, Opts> | null = null;
     private readonly cacheEntries = new Map<string, { value: unknown; expiresAt: number }>();
@@ -358,7 +359,6 @@ export class MongoSchemaBuilder<
     // --- CRUD Methods ---
     /**
      * Counts the number of documents that match a filter.
-     *
      * @param filter The filter used to match documents
      * @param options The options to pass to MongoDB and Mongoose
      */
@@ -372,7 +372,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Checks whether at least one document exists for a filter.
-     *
      * @param filter The filter used to match documents
      */
     async exists(filter: QueryFilter<LeanDoc<Def, Opts>>, options?: QueryOptions<LeanDoc<Def, Opts>>): Promise<boolean> {
@@ -382,14 +381,13 @@ export class MongoSchemaBuilder<
 
     /**
      * Creates one or more documents.
-     *
-     * This always returns hydrated Mongoose documents because `Model.create` has no lean option.
-     *
      * @param docs The documents to create
      * @param options The options to pass to Mongoose
      */
     async create(doc: CreateDocInput<Def, Opts>, options?: CreateOptions): Promise<HydDoc<Def, Opts>>;
+    /** Creates hydrated Mongoose documents with validation and save middleware. */
     async create(docs: CreateDocInput<Def, Opts>[], options?: CreateOptions): Promise<HydDoc<Def, Opts>[]>;
+    /** Creates hydrated Mongoose documents with validation and save middleware. */
     async create(
         docOrDocs: CreateDocInput<Def, Opts> | CreateDocInput<Def, Opts>[],
         options?: CreateOptions
@@ -423,12 +421,11 @@ export class MongoSchemaBuilder<
     }
 
     /**
-     * Generates and creates a document, retrying collisions on a single-field unique index at `path`.
-     * Uses create(), preserving validation and save middleware. Other duplicate indexes and errors propagate.
+     * Generates and creates a document, retrying collisions on a single-field unique index at `path`. Uses create(), preserving validation and save middleware. Other duplicate indexes and errors propagate.
      * @param path Indexed schema path
      * @param doc Document to create
      * @param fn Candidate generator
-     * @param maxRetries Collision retries after the initial attempt
+     * @param maxRetries Collision retries after the initial attempt. Defaults to `10`.
      */
     async createUnique<Path extends keyof LeanDoc<Def, Opts> & string>(
         path: Path,
@@ -456,10 +453,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Updates one document and returns write counts, using updateOne query middleware.
-     *
-     * Pass an aggregation pipeline as `update` to compute the new values from the stored document. Pipeline stages are
-     * not cast to the schema.
-     *
      * @param filter Document filter
      * @param update Update object or aggregation pipeline to apply
      * @param options Update options, including opt-in runValidators
@@ -482,9 +475,7 @@ export class MongoSchemaBuilder<
     }
 
     /**
-     * Updates the first matching document, or creates it when no document matches.
-     * Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
-     *
+     * Updates the first matching document, or creates it when no document matches. Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
      * @param filter The filter used to match the document
      * @param update The update to apply when a document exists, or create from when it does not
      * @param options The query options to pass to Mongoose
@@ -513,7 +504,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Deletes the first document that matches a filter.
-     *
      * @param filter The filter used to match the document
      * @param options The options to pass to MongoDB and Mongoose
      */
@@ -532,7 +522,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Deletes every document that matches a filter.
-     *
      * @param filter The filter used to match documents
      * @param options The options to pass to MongoDB and Mongoose
      */
@@ -551,7 +540,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Gets the unique values for a schema path across matching documents.
-     *
      * @param path The schema path to read distinct values from, including dotted paths
      * @param filter The filter used to limit documents
      * @param options The query options to pass to Mongoose
@@ -561,11 +549,13 @@ export class MongoSchemaBuilder<
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         options?: QueryOptions<LeanDoc<Def, Opts>>
     ): Promise<DistinctValue<LeanDoc<Def, Opts>[Path]>[]>;
+    /** Reads distinct values from a schema path across matching documents. */
     async distinct<Path extends string>(
         path: Path & DistinctPath<LeanDoc<Def, Opts>, Path>,
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         options?: QueryOptions<LeanDoc<Def, Opts>>
     ): Promise<DistinctValue<DistinctPathValue<LeanDoc<Def, Opts>, Path>>[]>;
+    /** Reads distinct values from a schema path across matching documents. */
     async distinct(
         path: string,
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
@@ -579,11 +569,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Fetches the first document that matches a filter.
-     *
-     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
-     * Lean reads skip virtuals, getters, defaults, and `toJSON` and `toObject` transforms.
-     * Passing `{ required: true }` throws when no document is found and removes `null` from the return type.
-     *
      * @param filter The filter used to match the document
      * @param projection The fields to include or exclude
      * @param options The query options to pass to Mongoose
@@ -591,21 +576,26 @@ export class MongoSchemaBuilder<
     async fetch<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         projection?: ProjectionType<LeanDoc<Def, Opts>>,
-        options?: Options & { required?: false }
+        options?: Options & {
+            /** Throws when no matching document exists. @default false */
+            required?: false;
+        }
     ): Promise<ResolvedDoc<Def, Opts, Options> | null>;
-    async fetch<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
-        filter?: QueryFilter<LeanDoc<Def, Opts>>,
-        projection?: ProjectionType<LeanDoc<Def, Opts>>,
-        options?: Options & { required: true }
-    ): Promise<ResolvedDoc<Def, Opts, Options>>;
+    /** Fetches one matching lean document, or null when none exists. */
     async fetch<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
         filter?: QueryFilter<LeanDoc<Def, Opts>>,
         projection?: ProjectionType<LeanDoc<Def, Opts>>,
         options?: Options & {
-            /**
-             * Throws when no document is found and removes `null` from the return type
-             * @default false
-             */
+            /** Throws when no matching document exists. @default false */
+            required: true;
+        }
+    ): Promise<ResolvedDoc<Def, Opts, Options>>;
+    /** Fetches one matching lean document, or null when none exists. */
+    async fetch<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
+        filter?: QueryFilter<LeanDoc<Def, Opts>>,
+        projection?: ProjectionType<LeanDoc<Def, Opts>>,
+        options?: Options & {
+            /** Throws when no document is found and removes `null` from the return type @default false */
             required?: boolean;
         }
     ): Promise<ResolvedDoc<Def, Opts, Options> | null> {
@@ -640,10 +630,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Fetches every document that matches a filter.
-     *
-     * Queries return plain objects by default. Pass `{ lean: false }` for hydrated Mongoose documents.
-     * Lean reads skip virtuals, getters, defaults, and `toJSON` and `toObject` transforms.
-     *
      * @param filter The filter used to match documents
      * @param projection The fields to include or exclude
      * @param options The query options to pass to Mongoose
@@ -665,9 +651,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Fetches the latest document that matches a filter.
-     *
-     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
-     *
      * @param filter The filter used to match the document
      * @param projection The fields to include or exclude
      * @param options The query options to pass to Mongoose
@@ -696,14 +679,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Updates the first document that matches a filter and returns the updated document.
-     *
-     * Pass an aggregation pipeline as `update` to compute the new values from the stored document in one atomic
-     * operation. Pipeline stages are not cast to the schema.
-     * Pass `{ returnDocument: "before" }` to get the document as it was before the update. With `upsert`, that is `null`
-     * when the document was inserted.
-     * Queries return plain objects by default. Pass `{ lean: false }` for a hydrated Mongoose document.
-     * Object projections with `_id: 0` or `_id: false` also omit `_id` from the inferred return type.
-     *
      * @param filter The filter used to match the document
      * @param update The update object or aggregation pipeline to apply
      * @param options The query options to pass to Mongoose
@@ -732,10 +707,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Updates every document that matches a filter.
-     *
-     * Pass an aggregation pipeline as `update` to compute the new values from each stored document. Pipeline stages
-     * are not cast to the schema.
-     *
      * @param filter The filter used to match documents
      * @param update The update object or aggregation pipeline to apply
      * @param options The options to pass to MongoDB and Mongoose
@@ -760,7 +731,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Runs an aggregation pipeline against the collection.
-     *
      * @param pipeline The aggregation pipeline stages to run
      * @param options The aggregation options to pass to Mongoose
      */
@@ -776,7 +746,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Runs multiple write operations in a single MongoDB command.
-     *
      * @param ops The write operations to run
      * @param options The bulk write options to pass to Mongoose
      */
@@ -794,7 +763,6 @@ export class MongoSchemaBuilder<
 
     /**
      * Saves multiple hydrated documents in a single bulk write.
-     *
      * @param docs The hydrated documents to save
      * @param options The bulk write options to pass to Mongoose
      */

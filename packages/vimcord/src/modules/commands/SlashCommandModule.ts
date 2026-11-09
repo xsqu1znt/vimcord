@@ -38,10 +38,7 @@ function getBuilderSubcommandPaths(builder: SlashCommandBuilderResolvable): stri
     return paths;
 }
 
-/**
- * Normalizes and validates subcommand configuration once, at construction, so a misconfigured command
- * fails before it can ever be registered instead of on its first invocation.
- */
+/** Normalizes and validates subcommand configuration once, at construction, so a misconfigured command fails before it can ever be registered instead of on its first invocation. */
 function buildSubcommands(
     commandName: string,
     builder: SlashCommandBuilderResolvable,
@@ -85,14 +82,22 @@ function createRoutePath(interaction: ChatInputCommandInteraction | Autocomplete
     return (group ? `${group}:${subcommand}` : subcommand).trim().toLowerCase();
 }
 
+/** Defines a slash command with typed handlers and autocomplete. */
 export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.Slash> {
+    /** Command kind used for dispatch. */
     override type: CommandModuleType.Slash = CommandModuleType.Slash;
+    /** Module kind displayed in logs. */
     override moduleType: string = "Command:Slash";
 
+    /** Discord.js builder or callback configuring the application command. */
     readonly builder: SlashCommandBuilderResolvable;
+    /** Defers the interaction before the handler runs. */
     override readonly deferReply: SlashCommandModuleOptions["deferReply"];
+    /** Guild and global application command registration scopes. */
     readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
+    /** Handlers keyed by subcommand name or slash group:subcommand path. */
     readonly subcommands: Map<string, ResolvedSlashSubcommand>;
+    /** Handler returning choices for the focused slash option. */
     readonly autocomplete: SlashCommandAutocompleteHandler | undefined;
 
     private readonly configuredExecute: ((ctx: CommandModuleContext<CommandModuleType.Slash>) => unknown) | undefined;
@@ -118,8 +123,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     }
 
     /**
-     * Answers an autocomplete interaction with the matching subcommand handler, falling back to the module handler.
-     * Skips the module pipeline because Discord allows 3 seconds and the interaction cannot report an error.
+     * Answers an autocomplete interaction with the matching subcommand handler, falling back to the module handler. Skips the module pipeline because Discord allows 3 seconds and the interaction cannot report an error.
      * @param interaction The autocomplete interaction to answer
      * @returns Whether a handler was found
      */

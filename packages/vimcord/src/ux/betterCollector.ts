@@ -10,7 +10,9 @@ type ClickListener = (interaction: MessageComponentInteraction) => unknown;
 
 /** Collector completion passed to onResolve. */
 export interface CollectorResolveContext {
+    /** Discord message associated with the operation. */
     message: Message;
+    /** Why the operation stopped or the check failed. */
     reason: string;
 }
 
@@ -18,9 +20,9 @@ export type CollectorTimingOptions = TimingOptions;
 
 /** Options for configuring the BetterCollector behavior. */
 interface BetterCollectorBaseOptions {
-    /** Users allowed to click. Defaults to whoever triggered the message. An empty list lets nobody click; `"anyone"` leaves it open. */
+    /** Users allowed to click; [] permits nobody and "anyone" permits everyone. @default inferred from message trigger */
     participants?: ParticipantsOption;
-    /** Rejects a user's clicks while their previous click is still being handled. */
+    /** Rejects a user's clicks while their previous handler is running. @default false */
     clickLock?: boolean;
     /** Ends the collector after this many accepted clicks. */
     max?: number;
@@ -28,16 +30,14 @@ interface BetterCollectorBaseOptions {
     interaction?: InteractionBasedSendHandler;
     /** Cleanup action or awaited final payload, applied once after the collector ends. @default "disable" */
     onResolve?: OnResolve<CollectorResolveContext>;
-    /** Shown to users who aren't participants. `null` acknowledges silently; omitted uses the UX config's message. */
+    /** Rejection message; null acknowledges silently. @default UX config's collector.notAParticipantMessage */
     notAParticipantMessage?: string | null;
 }
 
+/** Participant checks, timing, and cleanup for a component collector. */
 export type BetterCollectorOptions = BetterCollectorBaseOptions & TimingOptions;
 
-/**
- * Runs one handler per click, on top of participant filtering, a per-user click lock, and cleanup once it ends.
- * Each click runs the handler for its custom ID, otherwise the wildcard, otherwise an automatic `deferUpdate()`.
- */
+/** Runs one handler per click, on top of participant filtering, a per-user click lock, and cleanup once it ends. Each click runs the handler for its custom ID, otherwise the wildcard, otherwise an automatic `deferUpdate()`. */
 export class BetterCollector {
     private readonly message: Message;
     private readonly options: BetterCollectorOptions;
@@ -52,15 +52,23 @@ export class BetterCollector {
     private readonly activeUsers = new Set<string>();
 
     /**
-     * A message from Vimcord's own sends knows its trigger, so `participants` can be inferred. A raw
-     * `channel.send()` or `message.reply()` result has the same type as any other message, so it has to say.
+     * A message from Vimcord's own sends knows its trigger, so `participants` can be inferred. A raw `channel.send()` or `message.reply()` result has the same type as any other message, so it has to say.
      * @throws When `participants` is omitted and the message has no trigger, outside of a DM
      */
     constructor(message: TriggeredMessage, options?: BetterCollectorOptions);
     constructor(
         message: Message,
         options: BetterCollectorOptions &
-            ({ participants: ParticipantsOption } | { interaction: InteractionBasedSendHandler })
+            (
+                | {
+                      /** Users permitted to click; an empty list permits nobody. */
+                      participants: ParticipantsOption;
+                  }
+                | {
+                      /** Discord interaction that triggered the handler. */
+                      interaction: InteractionBasedSendHandler;
+                  }
+            )
     );
     constructor(message: Message, options: BetterCollectorOptions = {}) {
         this.message = message;
@@ -89,10 +97,7 @@ export class BetterCollector {
         });
     }
 
-    /**
-     * Discord.js-level filter. Rejecting here keeps a click from being collected,
-     * so it doesn't count toward `max` or reset the idle timer.
-     */
+    /** Discord.js-level filter. Rejecting here keeps a click from being collected, so it doesn't count toward `max` or reset the idle timer. */
     private filterClick(interaction: CollectedMessageInteraction): boolean | Promise<boolean> {
         const userId = interaction.user.id;
         if (this.participantIds && !this.participantIds.has(userId)) {
@@ -162,6 +167,7 @@ export class BetterCollector {
      */
     on(fn: ClickListener): this;
 
+    /** Registers a listener for the selected event or component. */
     on(customIdOrFn: string | ClickListener, fn?: ClickListener): this {
         if (typeof customIdOrFn === "function") {
             if (this.wildcard) throw new Error("[BetterCollector] A wildcard handler is already registered");
@@ -177,8 +183,7 @@ export class BetterCollector {
     }
 
     /**
-     * Observes every accepted click, awaited in registration order before the click's handler.
-     * It can't block the handler: its return value is ignored and errors are only logged.
+     * Observes every accepted click, awaited in registration order before the click's handler. It can't block the handler: its return value is ignored and errors are only logged.
      * @param fn The function to run on each accepted click
      */
     onCollect(fn: ClickListener): this {
@@ -203,7 +208,7 @@ export class BetterCollector {
 
     /**
      * Stop the collector manually.
-     * @param reason - Reason for stopping the collector
+     * @param reason Reason reported to end listeners. Defaults to `"manual"`.
      */
     stop(reason: string = "manual"): void {
         this.collector.stop(reason);

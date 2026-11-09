@@ -48,17 +48,27 @@ export type PaginatorTimingOptions = TimingOptions;
 export type PaginatorAction = NavButtonId | "chapter" | "set";
 export type PaginatorNav = "short" | "long";
 
+/** A page with ordinary message content, embeds, or attachments. */
 export interface OrdinaryPaginatorPage {
+    /** Text sent in the message. */
     content?: string;
+    /** Embeds attached to the message. */
     embeds?: (EmbedResolvable | BetterEmbed)[];
+    /** Attachments included with the message. */
     files?: PageFile[];
+    /** Not accepted for this page or chapter source. */
     containers?: never;
 }
 
+/** A page made from Components V2 containers and optional attachments. */
 export interface ComponentsV2PaginatorPage {
+    /** Components V2 containers forming this page. */
     containers: (BetterContainer | ContainerBuilder)[];
+    /** Attachments included with the message. */
     files?: PageFile[];
+    /** Not accepted for this page or chapter source. */
     content?: never;
+    /** Not accepted for this page or chapter source. */
     embeds?: never;
 }
 
@@ -66,39 +76,62 @@ export type PageResolvable =
     SinglePageResolvable | (EmbedResolvable | BetterEmbed)[] | OrdinaryPaginatorPage | ComponentsV2PaginatorPage;
 export type Chapter = PageResolvable[];
 
+/** Zero-based chapter and page coordinates. */
 export interface PageIndex {
+    /** Zero-based chapter index. */
     chapter: number;
+    /** Zero-based page index within the chapter. */
     nested: number;
 }
+/** Chapter select menu appearance and optional stable value. */
 export interface ChapterData extends Omit<SelectMenuComponentOptionData, "value"> {
+    /** Stable select value preserved across chapter replacement. @default generated chapter ID */
     value?: string;
 }
 /** Static chapter; value preserves selection across reordering in replaceChapters. */
 export interface PaginatorStaticChapter extends ChapterData {
+    /** Static pages belonging to this chapter. */
     pages: Chapter;
+    /** Not accepted for this page or chapter source. */
     load?: never;
+    /** Not accepted for this page or chapter source. */
     pageCount?: never;
+    /** Not accepted for this page or chapter source. */
     page?: never;
 }
 /** Chapter loaded once, the first time it's opened. */
 export interface PaginatorLoadedChapter extends ChapterData {
+    /** Loads all pages when this chapter is first opened. */
     load: PaginatorChapterLoader;
+    /** Not accepted for this page or chapter source. */
     pages?: never;
+    /** Not accepted for this page or chapter source. */
     pageCount?: never;
+    /** Not accepted for this page or chapter source. */
     page?: never;
 }
 /** Chapter that loads each page as it's opened. */
 export interface PaginatorPagedChapter extends ChapterData {
+    /** Number of pages available from the page loader. */
     pageCount: number;
+    /** Loads one zero-based page from this chapter. */
     page: PaginatorPageLoader;
+    /** Not accepted for this page or chapter source. */
     pages?: never;
+    /** Not accepted for this page or chapter source. */
     load?: never;
 }
+/** A chapter's menu label with static pages, a chapter loader, or a page loader. */
 export type PaginatorChapterInput = PaginatorStaticChapter | PaginatorLoadedChapter | PaginatorPagedChapter;
+/** Completed navigation with its previous index, destination, action, and page. */
 export interface PaginateEvent {
+    /** Index displayed before navigation. */
     previous: PageIndex;
+    /** Index displayed after navigation. */
     destination: PageIndex;
+    /** Navigation action that selected the destination. */
     action: PaginatorAction;
+    /** Page displayed at the navigation destination. */
     page: PageResolvable;
 }
 
@@ -125,24 +158,29 @@ export type PaginatorLoadingHook = (
 
 /** Paginator completion passed to onResolve after pending navigation finishes. */
 export interface PaginatorResolveContext {
+    /** Discord message associated with the operation. */
     message: Message;
+    /** Why the operation stopped or the check failed. */
     reason: string;
 }
 
+/** Paginator content and navigation settings shared by both timing modes. */
 export interface PaginatorBaseOptions {
     /** Navigation layout. `"long"` adds first and last buttons. @default "short" */
     nav?: PaginatorNav;
+    /** Initial pages added as the Default chapter. @default [] */
     pages?: PageResolvable[];
-    /** Cleanup action or awaited final payload, applied once after the paginator ends. @default "disable" */
+    /** Cleanup action or final payload applied after pending navigation finishes. @default UX config's paginator.onResolve */
     onResolve?: OnResolve<PaginatorResolveContext>;
-    /** Adds Jump to the selected navigation layout. */
+    /** Adds a page-jump button and modal. @default false */
     jump?: boolean;
-    /** Places the chapter select before or after send components. Defaults to `afterComponents`; navigation stays last. */
+    /** Where the chapter select goes relative to send components. @default "afterComponents" */
     chapterSelectPosition?: "beforeComponents" | "afterComponents";
     /** Returns a placeholder only while a lazy destination loads. */
     onLoading?: PaginatorLoadingHook;
 }
 
+/** Paginator pages, navigation, timing, and cleanup. */
 export type PaginatorOptions = PaginatorBaseOptions & PaginatorTimingOptions;
 
 interface StaticChapterSource {
@@ -186,7 +224,9 @@ interface ExtraButton {
     index: number;
     component: ButtonBuilder;
 }
+/** Acknowledgement behavior for a custom paginator component. */
 export interface PaginatorComponentHandlerOptions {
+    /** Acknowledges the interaction before calling the handler. @default false */
     deferUpdate?: boolean;
 }
 type PaginatorListener<K extends keyof PaginationEventMap> = {
@@ -268,7 +308,9 @@ function isNavigationInteraction(customId: string): boolean {
     return customId !== NAV_CUSTOM_IDS.jump && Object.values(NAV_CUSTOM_IDS).some(id => id === customId);
 }
 
+/** Sends chapter-based pages with navigation and participant checks. */
 export class Paginator {
+    /** Registered chapters in select menu order. */
     chapters: PaginatorChapter[] = [];
     private readonly options: ResolvedPaginatorOptions;
     private readonly extraButtons: ExtraButton[] = [];
@@ -799,16 +841,19 @@ export class Paginator {
         await this.emit("postTimeout", this.state.message ?? message);
     }
 
+    /** Registers a listener for the selected event or component. */
     on<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this {
         this.listeners[event].push({ fn: listener, once: false });
         return this;
     }
 
+    /** Registers a listener removed after its first event. */
     once<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this {
         this.listeners[event].push({ fn: listener, once: true });
         return this;
     }
 
+    /** Registers a handler for a custom paginator component. */
     onComponent(
         customId: string,
         listener: (interaction: MessageComponentInteraction) => unknown,
@@ -819,8 +864,7 @@ export class Paginator {
     }
 
     /**
-     * Adds a chapter from static `pages`, a `load` function that runs once when it's first opened,
-     * or a `page` function that runs per page with a known `pageCount`.
+     * Adds a chapter with static pages, a once-loaded chapter, or individually loaded pages.
      * @param chapter The chapter's source and its select menu data
      */
     addChapter(chapter: PaginatorChapterInput): this {
@@ -840,6 +884,7 @@ export class Paginator {
         return this;
     }
 
+    /** Removes chapters and resets the current page within the remaining chapters. */
     spliceChapters(index: number, deleteCount: number): this {
         this.chapters.splice(index, deleteCount);
         this.state.index.chapter = wrapIndex(this.state.index.chapter, this.chapters.length - 1);
@@ -848,8 +893,7 @@ export class Paginator {
     }
 
     /**
-     * Replaces static chapters and re-renders, preserving the chapter value and clamping its page.
-     * Chapters without values preserve their position; a removed chapter returns to the first page.
+     * Replaces static chapters and re-renders, preserving the chapter value and clamping its page. Chapters without values preserve their position; a removed chapter returns to the first page.
      * @param chapters Replacement pages and chapter menu data
      */
     async replaceChapters(chapters: PaginatorStaticChapter[]): Promise<void> {
@@ -883,6 +927,7 @@ export class Paginator {
         else await this.runExclusive(replace);
     }
 
+    /** Selects short or long navigation buttons. */
     setNav(nav: PaginatorNav): this {
         this.options.nav = nav;
         return this;
@@ -901,6 +946,7 @@ export class Paginator {
         return this;
     }
 
+    /** Loads and displays a zero-based chapter and page. */
     async setPage(chapterIndex = this.state.index.chapter, nestedIndex = this.state.index.nested): Promise<void> {
         if (!this.state.message) {
             const { page, index } = await this.loadPage(await this.resolveDestination(chapterIndex, nestedIndex));
@@ -955,22 +1001,37 @@ export class Paginator {
     /**
      * Sends the paginator and starts collecting navigation clicks.
      * @param handler Discord target to send through
-     * @param options dynaSend options, plus `participants`: who may navigate. Defaults to whoever triggered the
-     * paginator, and required for guild channels, message edits, and replies to a bot's message, where nothing
-     * says who that is. An empty list lets nobody navigate; `"anyone"` opts out.
+     * @param options Message payload and participants allowed to navigate.
      * @throws Before sending, when replying to a bot's message outside of a DM without `participants`
      */
     send<T extends SendHandler>(
         handler: T,
         ...args: ParticipantSendArgs<
             T,
-            [options?: InferredSendOptions<T> & { participants?: ParticipantsOption }],
-            [options: DynaSendOptions & { participants: ParticipantsOption }]
+            [
+                options?: InferredSendOptions<T> & {
+                    /** Users permitted to click; an empty list permits nobody. */
+                    participants?: ParticipantsOption;
+                }
+            ],
+            [
+                options: DynaSendOptions & {
+                    /** Users permitted to click; an empty list permits nobody. */
+                    participants: ParticipantsOption;
+                }
+            ]
         >
     ): Promise<Message>;
+    /** Sends through a Discord target using inferred delivery. */
     async send(
         handler: SendHandler,
-        { participants, ...options }: DynaSendOptions & { participants?: ParticipantsOption } = {}
+        {
+            participants,
+            ...options
+        }: DynaSendOptions & {
+            /** Users permitted to click; an empty list permits nobody. */
+            participants?: ParticipantsOption;
+        } = {}
     ): Promise<Message> {
         assertTargetHasTrigger(handler, participants, options.method);
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
@@ -996,6 +1057,7 @@ export class Paginator {
         }
     }
 
+    /** Ends collection and applies the configured cleanup. */
     stop(reason = "manual"): void {
         this.collector?.stop(reason);
     }

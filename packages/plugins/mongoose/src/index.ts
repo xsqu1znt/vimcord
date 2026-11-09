@@ -16,15 +16,11 @@ interface MigrationRecord {
     ranAt?: Date;
 }
 
+/** Connection URI and options for the plugin-owned Mongoose instance. */
 export interface MongooseOptions {
-    /**
-     * The MongoDB connection URI.
-     * @default process.env.MONGO_URI | process.env.MONGO_URI_DEV
-     */
+    /** MongoDB URI used by the plugin-owned connection. @default MONGO_URI_DEV in dev mode, otherwise MONGO_URI */
     uri?: string;
-    /**
-     * Options passed to `mongoose.connect()`, such as `dbName` and `maxPoolSize`.
-     */
+    /** Options passed directly to mongoose.connect(). */
     connectOptions?: ConnectOptions;
 }
 
@@ -45,12 +41,18 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, attempts: number): Prom
     }
 }
 
+/** Owns a Mongoose connection and runs registered startup migrations. */
 export class MongoosePlugin extends VimcordPlugin {
+    /** Name displayed in logs or command discovery. */
     override name = PLUGIN_NAME;
+    /** Short description displayed to users or in discovery. */
     override description = PLUGIN_DESCRIPTION;
+    /** Version displayed in logs and plugin discovery. */
     override version = PLUGIN_VERSION;
 
+    /** Client that owns or runs this operation. */
     readonly client: Vimcord | null = null;
+    /** Isolated Mongoose instance owned by this plugin. */
     readonly mongoose: mongoose.Mongoose;
 
     private readonly uri: string | undefined;
@@ -73,6 +75,7 @@ export class MongoosePlugin extends VimcordPlugin {
         this.mongoose = new mongoose.Mongoose();
     }
 
+    /** Acquires plugin resources during client login. */
     override async install({ client, health }: VimcordPluginContext): Promise<void> {
         (this as { client: Vimcord | null }).client = client;
         this.mongoose.connection.on("disconnected", this.onDisconnected);
@@ -85,6 +88,7 @@ export class MongoosePlugin extends VimcordPlugin {
         });
     }
 
+    /** Releases resources acquired by the plugin. */
     override async uninstall(): Promise<void> {
         this.mongoose.connection.off("disconnected", this.onDisconnected);
         this.mongoose.connection.off("reconnected", this.onReconnected);
@@ -143,8 +147,7 @@ export class MongoosePlugin extends VimcordPlugin {
     }
 
     /**
-     * Registers a migration on this plugin instance, preserving registration order.
-     * Migrations run during `login()` before the gateway connects, so register them before calling it.
+     * Registers a migration on this plugin instance, preserving registration order. Migrations run during `login()` before the gateway connects, so register them before calling it.
      * @param id Stable unique migration identifier
      * @param run Migration callback receiving this connected plugin
      */

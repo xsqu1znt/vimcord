@@ -10,7 +10,7 @@ export interface UxCustomEmojiConfig {
     name: string;
     /** Discord emoji ID. */
     id?: string;
-    /** Whether the custom emoji is animated. */
+    /** Whether the custom emoji is animated. @default false */
     animated?: boolean;
 }
 
@@ -29,49 +29,52 @@ export interface UxPaginatorButtonConfig {
 
 /** Global content and timing for the paginator page-jump modal. */
 export interface UxPaginatorJumpModalConfig {
-    /** Modal title. */
+    /** Page-jump modal title. @default "Jump to Page" */
     title: string;
-    /** Page input label. */
+    /** Page input label. @default "Page number" */
     label: string;
-    /** Page input description. Supports `$CURRENT_PAGE` and `$MAX_PAGE`. */
+    /** Input description supporting $CURRENT_PAGE and $MAX_PAGE. @default "Enter a page number between 1 and $MAX_PAGE." */
     description: string;
-    /** Page input placeholder. */
+    /** Page input placeholder. @default "Page number" */
     placeholder: string;
-    /** Time in milliseconds to wait for a page submission. */
+    /** Milliseconds to wait for a page submission. @default 60_000 */
     timeout: number;
-    /** Ephemeral response shown when the submitted page is invalid. Supports `$MAX_PAGE`. */
+    /** Ephemeral rejection supporting $MAX_PAGE. @default "Enter a page number between 1 and $MAX_PAGE." */
     invalidPageMessage: string;
 }
 
 /** Global defaults shared by Vimcord UX helpers. */
 export interface UxConfig {
-    /** Selects development-mode embed colors. */
+    /** Selects development-mode embed colors. @default false */
     devMode: boolean;
-    /** Default production embed color or random color pool. */
+    /** Production embed color or random color pool. @default null */
     embedColor: ColorResolvable | ColorResolvable[] | null;
-    /** Default development embed color or random color pool. */
+    /** Development embed color or pool; null uses the production color. @default null */
     embedColorDev: ColorResolvable | ColorResolvable[] | null;
-    /** Idle time in milliseconds for paginators, prompts, and collectors given no timing. */
+    /** Idle time in milliseconds when a collector, prompt, or paginator supplies no timing. @default 60_000 */
     defaultIdle: number;
     /** Collector behavior and access messages. */
     collector: {
-        /** Ephemeral message shown to a user who clicks during `clickLock` while their prior click is running. */
+        /** Rejection while a prior click is still running. @default "Please wait, your previous action is still processing." */
         clickLockMessage: string;
-        /** Message shown to users who are not collector participants. `null` acknowledges silently. */
+        /** Rejection for non-participants; null acknowledges silently. @default "You are not allowed to use this." */
         notAParticipantMessage: string | null;
     };
     /** Paginator navigation, timeout, and message defaults. */
     paginator: {
-        /** Default timeout resolution action. */
+        /** Cleanup when a paginator ends. @default "disable" */
         onResolve: ResolveAction;
-        /** Message shown to users who are not paginator participants. `null` acknowledges silently. */
+        /** Rejection for non-participants; null acknowledges silently. @default "You are not allowed to use this." */
         notAParticipantMessage: string | null;
         /** Page-jump modal defaults. */
         jumpModal: UxPaginatorJumpModalConfig;
         /** Optional paginator status responses. `null` acknowledges silently. */
         messages: {
+            /** Response when loading a destination fails; null acknowledges silently. @default null */
             loadFailed: string | null;
+            /** Response when a jump modal outlives the paginator; null acknowledges silently. @default null */
             expired: string | null;
+            /** Response when the chapter changes while a jump modal is open; null acknowledges silently. @default null */
             chapterChanged: string | null;
         };
         /** Appearance defaults keyed by paginator button ID. */
@@ -79,22 +82,22 @@ export interface UxConfig {
     };
     /** Modal defaults. */
     modal: {
-        /** Time in milliseconds to wait for a submission. */
+        /** Milliseconds to wait for a modal submission. @default 60_000 */
         timeout: number;
     };
     /** Confirmation prompt content and button defaults. */
     prompt: {
-        /** Default prompt title. */
+        /** Title for the default confirmation embed. @default "Confirmation Required" */
         defaultTitle: string;
-        /** Default prompt description. */
+        /** Body for the default confirmation embed. @default "Please confirm or reject this action." */
         defaultDescription: string;
-        /** Whether the selected prompt button is visually highlighted. */
+        /** Highlights the chosen prompt button during disable cleanup. @default false */
         highlightSelectedButton: boolean;
         /** Default confirm and reject buttons. */
         buttons: {
-            /** Default confirmation button. */
+            /** Default confirm button. @default green button labeled "Confirm" */
             confirm: ButtonBuilder;
-            /** Default rejection button. */
+            /** Default reject button. @default red button labeled "Reject" */
             reject: ButtonBuilder;
         };
     };
@@ -180,9 +183,7 @@ export function defineGlobalUxConfig(config: PartialDeep<UxConfig>): UxConfig {
     return globalUxConfig;
 }
 
-/**
- * Returns the current global UX configuration.
- */
+/** Returns the current global UX configuration. */
 export function getGlobalUxConfig(): UxConfig {
     return globalUxConfig;
 }

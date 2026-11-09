@@ -11,6 +11,7 @@ import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/in
 
 import { PermissionsBitField } from "discord.js";
 
+/** Reason a command's permission check failed. */
 export enum MissingPermissionReason {
     User = "User",
     UserNotAllowed = "UserNotAllowed",
@@ -28,40 +29,41 @@ export enum MissingPermissionReason {
 
 /** Who may use a command. Meeting any one grants access; an empty or omitted object lets everyone through. */
 export interface CommandAccess {
-    /** User permissions in the invoking channel.
-     * @remarks If this is a slash command, use the builder's `setDefaultMemberPermissions` option instead.
-     */
+    /** User permissions in the invoking channel. */
     permissions?: PermissionResolvable[];
     /** Specific users. */
     users?: UserResolvable[];
     /** Holders of these roles in the invoking server or the configured staff server. */
     roles?: RoleResolvable[];
-    /** The owner of the invoking guild. */
+    /** Grants access to the invoking guild owner. @default false */
     guildOwner?: boolean;
-    /** Configured bot staff. */
+    /** Grants access to configured bot staff. @default false */
     staff?: boolean;
 }
 
 /** Restrictions on who can run a command or subcommand. Everything except `access` must pass. */
 export interface CommandRestrictions {
-    /** Only allow this command inside a guild.
-     * @remarks For slash commands, use the builder's `setContexts()` option instead.
-     */
+    /** Requires invocation in a guild. @default false */
     guildOnly?: boolean;
     /** Permissions the bot must have in the invoking channel. Checked in guilds. */
     botPermissions?: PermissionResolvable[];
-    /** Allow other bots to use this command. */
+    /** Allows other bots to invoke this command. @default false */
     allowBots?: boolean;
-    /** Who may use this command. */
+    /** Grants access when any configured entry matches; an empty object permits everyone. @default {} */
     access?: CommandAccess;
 }
 
+/** Whether access passed, with missing permissions or roles on failure. */
 export type PermissionTestResult =
     | ModuleTestResult<true>
     | (ModuleTestResult<false> & {
+          /** Why the operation stopped or the check failed. */
           reason: MissingPermissionReason;
+          /** Permissions the user lacks in the invoking channel. */
           missingUserPermissions?: PermissionResolvable[];
+          /** Permissions the bot lacks in the invoking channel. */
           missingClientPermissions?: PermissionResolvable[];
+          /** Configured roles the user does not hold. */
           missingRoles?: RoleResolvable[];
       });
 
@@ -144,8 +146,7 @@ function hasConfiguredGrants(access: CommandAccess): boolean {
 }
 
 /**
- * Returns the restrictions a command or subcommand actually sets, or `undefined` when it sets none.
- * `allowBots` isn't one: it only matters for bots, which skip the fast path on their own.
+ * Returns the restrictions a command or subcommand actually sets, or `undefined` when it sets none. `allowBots` isn't one: it only matters for bots, which skip the fast path on their own.
  * @param options The command or subcommand options
  */
 export function pickRestrictions(options: CommandRestrictions): CommandRestrictions | undefined {
@@ -155,12 +156,10 @@ export function pickRestrictions(options: CommandRestrictions): CommandRestricti
 }
 
 /**
- * Tests hard restrictions before checking whether any configured access grant applies.
- * `guildOnly`, `botPermissions`, and the bot check all must pass; any one `access` entry grants access.
- *
+ * Tests hard restrictions before checking whether any configured access grant applies. `guildOnly`, `botPermissions`, and the bot check all must pass; any one `access` entry grants access.
  * @param ctx The command invocation.
  * @param restrictions The command's restrictions.
- * @param allowBots Whether bots may run this; defaults to `restrictions.allowBots`.
+ * @param allowBots Whether bots may run the command. Defaults to `restrictions.allowBots`.
  */
 export function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleHookContext<K>,

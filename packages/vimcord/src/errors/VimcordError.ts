@@ -1,3 +1,4 @@
+/** Framework error with a machine-readable category and optional cause. */
 export class VimcordError extends Error {
     /** Creates a framework error with a stable machine-readable code. */
     constructor(

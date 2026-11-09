@@ -16,19 +16,12 @@ export type Participant = GuildMember | User | string;
 /** Who may click. An empty list lets nobody click. `"anyone"` is the only way to open a message to everyone. */
 export type ParticipantsOption = Participant[] | "anyone";
 
-/**
- * Send options for a target whose `participants` are left to be inferred. Editing a message rules that
- * out, because it might be the bot's own message, which says nothing about who triggered it.
- */
+/** Send options for a target whose `participants` are left to be inferred. Editing a message rules that out, because it might be the bot's own message, which says nothing about who triggered it. */
 export type InferredSendOptions<T> = [Extract<T, Message>] extends [never]
     ? DynaSendOptions
     : DynaSendOptions & { method?: Exclude<SendMethod, "edit"> };
 
-/**
- * The trailing arguments of a send that starts a collector. `Explicit` always works, while `Inferred`, which
- * leaves out `participants`, only works when the target has a trigger. The `[T]` wrapper stops a union from
- * distributing, so a union containing a guild channel needs `Explicit` too.
- */
+/** The trailing arguments of a send that starts a collector. `Explicit` always works, while `Inferred`, which leaves out `participants`, only works when the target has a trigger. The `[T]` wrapper stops a union from distributing, so a union containing a guild channel needs `Explicit` too. */
 export type ParticipantSendArgs<T, Inferred extends unknown[], Explicit extends unknown[]> = [T] extends [
     TriggeredSendHandler
 ]
@@ -36,10 +29,7 @@ export type ParticipantSendArgs<T, Inferred extends unknown[], Explicit extends 
     : Explicit;
 
 /**
- * The one rule for who may click a collector, paginator, or prompt: the explicit option, otherwise whoever
- * triggered the bot's message. Throws when nothing says who that is, rather than silently opening the buttons.
- * Resolves to user IDs so each click is a cheap lookup. An empty list resolves to an empty set, so nobody can click.
- * `null` means clicks aren't filtered: `"anyone"`, or a DM with no trigger, where only the recipient can click.
+ * The one rule for who may click a collector, paginator, or prompt: the explicit option, otherwise whoever triggered the bot's message. Throws when nothing says who that is, rather than silently opening the buttons. Resolves to user IDs so each click is a cheap lookup. An empty list resolves to an empty set, so nobody can click. `null` means clicks aren't filtered: `"anyone"`, or a DM with no trigger, where only the recipient can click.
  * @param participants The explicit option, if any
  * @param message The bot's message
  * @param interaction The interaction that sent the message, if known
@@ -65,8 +55,7 @@ export function resolveParticipantIds(
 }
 
 /**
- * Fails a paginator or prompt before it sends anything, when its reply to a bot's message would have no trigger
- * and post buttons nobody can use. Bots can't click. A DM stays open to the recipient, so it's let through.
+ * Fails a paginator or prompt before it sends anything, when its reply to a bot's message would have no trigger and post buttons nobody can use. Bots can't click. A DM stays open to the recipient, so it's let through.
  * @param target The send target
  * @param participants The explicit option, if any
  * @param method The send's explicit method, if any
@@ -83,7 +72,19 @@ export function assertTargetHasTrigger(
 
 // --- Timing ---
 /** Idle or absolute timeout, never both. With neither, the UX config's `defaultIdle` applies. */
-export type TimingOptions = { idle?: number; timeout?: never } | { timeout?: number; idle?: never };
+export type TimingOptions =
+    | {
+          /** Milliseconds without an accepted click before ending. @default UX config's defaultIdle */
+          idle?: number;
+          /** Not accepted when idle timing is configured. */
+          timeout?: never;
+      }
+    | {
+          /** Absolute duration in milliseconds before ending. */
+          timeout?: number;
+          /** Not accepted when an absolute timeout is configured. */
+          idle?: never;
+      };
 
 export interface ResolvedTiming {
     idle: number | null;
@@ -105,9 +106,11 @@ export type ResolveAction = "disable" | "clear" | "delete" | "keep";
 
 /** Message edit returned by a resolution callback; the action is applied to its components in the same edit. */
 export interface ResolvePayload extends MessageEditOptions {
+    /** Cleanup action applied to the message components. */
     action: ResolveAction;
 }
 
+/** Cleanup action or final message payload returned by a resolution callback. */
 export type ResolveResult = ResolveAction | ResolvePayload;
 /** A fixed cleanup action or an awaited callback returning the final message payload. */
 export type OnResolve<Context> = ResolveAction | ((context: Context) => ResolveResult | Promise<ResolveResult>);
@@ -155,11 +158,7 @@ function disableComponent(component: ComponentLike): ComponentLike {
     return component;
 }
 
-/**
- * Removes interactive components anywhere in the tree while preserving noninteractive content.
- * A section's accessory is required by Discord's API and cannot be deleted outright, so a button
- * accessory is disabled instead of removed to keep the section valid.
- */
+/** Removes interactive components anywhere in the tree while preserving noninteractive content. A section's accessory is required by Discord's API and cannot be deleted outright, so a button accessory is disabled instead of removed to keep the section valid. */
 function clearComponent(component: ComponentLike): ComponentLike | null {
     if (component.type === ComponentType.ActionRow || INTERACTIVE_COMPONENT_TYPES.has(component.type)) {
         return null;

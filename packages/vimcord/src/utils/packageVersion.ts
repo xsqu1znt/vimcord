@@ -33,11 +33,7 @@ function findWorkspacePackageVersion(packageName: string, packagePath: string, c
 }
 
 /**
- * Resolves the installed version of a package, including monorepo development environments.
- *
- * The package is resolved from the consuming app first. When that fails, which happens while working inside this
- * monorepo, the workspace path is walked upwards from the current directory instead.
- *
+ * Resolves a package version from the consuming app or workspace fallback.
  * @param packageName The package name to read the version from
  * @param workspacePath The path to the package inside this monorepo, relative to the workspace root
  */

@@ -4,6 +4,7 @@ import type { LoaderHandle } from "@/utils/Logger.js";
 import ansis from "ansis";
 import { Logger, stripAnsi } from "@/utils/Logger.js";
 
+/** Property, heading, and alignment for one CLI table column. */
 export interface CLITableColumn {
     /** Row property rendered in this column. */
     key: string;

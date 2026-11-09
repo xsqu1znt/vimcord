@@ -44,14 +44,20 @@ import { dynaSend } from "./dynaSend.js";
 import { awaitRoutedModal } from "./interactionRouter.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
+/** Label and description displayed above a modal input. */
 interface LabelComponentOptions {
+    /** Text displayed above the input or in the select menu. */
     label: string;
+    /** Short description displayed to users or in discovery. */
     description?: string;
 }
 
 /** A modal input: its Discord data, its label, and the `customId` its value is read back under. */
 type ModalInput<Data, Id extends string> = Omit<Partial<Data>, "customId" | "custom_id" | "type"> &
-    LabelComponentOptions & { customId: Id };
+    LabelComponentOptions & {
+        /** Identifier used to route the component or read its value. */
+        customId: Id;
+    };
 
 export type BetterTextInputComponent<Id extends string = string> = ModalInput<TextInputComponentData, Id>;
 export type BetterCheckboxComponent<Id extends string = string> = ModalInput<APICheckboxComponent, Id>;
@@ -70,14 +76,19 @@ export type BetterTextDisplayComponent = Pick<APITextDisplayComponent, "content"
 
 export type ModalShowableInteraction = CommandInteraction | MessageComponentInteraction;
 
+/** Modal identity and title supplied before showing it. */
 export interface BetterModalOptions {
+    /** Modal identifier used to route submissions. @default generated random ID */
     customId?: string;
+    /** Modal title, required before showing it. */
     title?: string;
 }
 
+/** Submission timeout and acknowledgement behavior. */
 export interface AwaitModalSubmitOptions {
-    /** Time in milliseconds to wait for a submission. Defaults to the UX config's `modal.timeout`. */
+    /** Milliseconds to wait for submission. @default UX config's modal.timeout */
     timeout?: number;
+    /** Defers the submitted interaction before returning its fields. @default false */
     deferUpdate?: boolean;
 }
 
@@ -128,11 +139,9 @@ function rawComponentData<T extends LabelComponentOptions & { customId: string }
     return { ...component, custom_id: customId };
 }
 
-/**
- * A modal whose submitted values are typed by the inputs added to it.
- * Chain the `add*` calls so `result.fields` picks up each input; every input needs a `customId`.
- */
+/** A modal whose submitted values are typed by the inputs added to it. Chain the `add*` calls so `result.fields` picks up each input; every input needs a `customId`. */
 export class BetterModal<Fields extends object = Record<never, never>> {
+    /** Identifier used to route the component or read its value. */
     readonly customId: string;
 
     private readonly added: { method: AddMethod; data: unknown }[] = [];
@@ -178,12 +187,14 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         return this.modal;
     }
 
+    /** Copies this builder and its current input definitions. */
     clone(): BetterModal<Fields> {
         const clone = new BetterModal({ customId: this.customId, title: this.modal.data.title });
         for (const { method, data } of this.added) (clone[method] as (data: unknown) => unknown)(data);
         return clone as unknown as BetterModal<Fields>;
     }
 
+    /** Serializes the builder into Discord API data. */
     toJSON(): APIModalInteractionResponseCallbackData {
         return this.build().toJSON();
     }
@@ -197,6 +208,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         return this;
     }
 
+    /** Adds a text input whose custom ID becomes a string field. */
     addTextInput<const Id extends string>(data: BetterTextInputComponent<Id>): BetterModal<Fields & Record<Id, string>> {
         return this.addField(
             "addTextInput",
@@ -210,6 +222,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         );
     }
 
+    /** Adds static modal text without a submitted field. */
     addTextDisplay(data: BetterTextDisplayComponent): this {
         this.validateComponentLength();
         this.modal.addTextDisplayComponents(new TextDisplayBuilder(data));
@@ -217,6 +230,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         return this;
     }
 
+    /** Adds a string select whose custom ID becomes an array field. */
     addStringSelect<const Id extends string>(
         data: BetterStringSelectComponent<Id>
     ): BetterModal<Fields & Record<Id, readonly string[]>> {
@@ -230,6 +244,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         );
     }
 
+    /** Adds a checkbox whose custom ID becomes a boolean field. */
     addCheckbox<const Id extends string>(data: BetterCheckboxComponent<Id>): BetterModal<Fields & Record<Id, boolean>> {
         return this.addField(
             "addCheckbox",
@@ -241,6 +256,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         );
     }
 
+    /** Adds checkboxes whose custom ID becomes an array field. */
     addCheckboxGroup<const Id extends string>(
         data: BetterCheckboxGroupComponent<Id>
     ): BetterModal<Fields & Record<Id, readonly string[]>> {
@@ -254,6 +270,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         );
     }
 
+    /** Adds radio options whose custom ID becomes a string or null field. */
     addRadioGroup<const Id extends string>(
         data: BetterRadioGroupComponent<Id>
     ): BetterModal<Fields & Record<Id, string | null>> {
@@ -267,6 +284,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         );
     }
 
+    /** Adds a channel select whose custom ID becomes a channel collection field. */
     addChannelSelect<const Id extends string>(
         data: BetterChannelSelectComponent<Id>
     ): BetterModal<Fields & Record<Id, SelectedChannels>> {
@@ -276,6 +294,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         });
     }
 
+    /** Adds a user select whose custom ID becomes a user collection field. */
     addUserSelect<const Id extends string>(
         data: BetterUserSelectComponent<Id>
     ): BetterModal<Fields & Record<Id, SelectedUsers>> {
@@ -285,6 +304,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         });
     }
 
+    /** Adds a role select whose custom ID becomes a role collection field. */
     addRoleSelect<const Id extends string>(
         data: BetterRoleSelectComponent<Id>
     ): BetterModal<Fields & Record<Id, SelectedRoles>> {
@@ -294,6 +314,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         });
     }
 
+    /** Adds a mentionable select whose custom ID becomes resolved collections. */
     addMentionableSelect<const Id extends string>(
         data: BetterMentionableSelectComponent<Id>
     ): BetterModal<Fields & Record<Id, SelectedMentionables>> {
@@ -308,6 +329,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         });
     }
 
+    /** Adds an upload input whose custom ID becomes an attachment collection field. */
     addFileUpload<const Id extends string>(
         data: BetterFileUploadComponent<Id>
     ): BetterModal<Fields & Record<Id, UploadedFiles>> {
@@ -320,7 +342,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
     /**
      * Shows the modal to the user via interaction.
      * @param interaction The command interaction to show the modal with.
-     * @param options Modal options.
+     * @param options Response acknowledgement settings passed to Discord.js.
      */
     async show(
         interaction: ModalShowableInteraction | null | undefined,
@@ -334,7 +356,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
     /**
      * Shows the modal and waits for it to be submitted.
      * @param interaction The interaction to show the modal with.
-     * @param options Modal submission options.
+     * @param options Submission deadline and deferred acknowledgement settings.
      */
     async showAndAwait(
         interaction: ModalShowableInteraction | null | undefined,
@@ -347,7 +369,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
     /**
      * Waits for this modal to be submitted, resolving to `null` when it times out.
      * @param interaction The interaction that showed the modal.
-     * @param options Modal submission options.
+     * @param options Submission deadline and deferred acknowledgement settings.
      */
     async awaitSubmit(
         interaction: ModalShowableInteraction | null | undefined,

@@ -36,7 +36,7 @@ export interface CLICommand {
     description: string;
     /** Usage text displayed by `/help`. */
     usage?: string;
-    /** Additional lowercase command triggers. */
+    /** Additional lowercase command triggers. @default [] */
     aliases?: readonly string[];
     /** Whether the attached client is required. @default true */
     requiresClient?: boolean;

@@ -41,10 +41,15 @@ function buildSubcommands(options: PrefixCommandModuleOptions) {
     return { subcommands, names };
 }
 
+/** Routes text commands and subcommands from configured prefixes. */
 export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType.Prefix> {
+    /** Command kind used for dispatch. */
     override type: CommandModuleType.Prefix = CommandModuleType.Prefix;
+    /** Module kind displayed in logs. */
     override moduleType: string = "Command:Prefix";
+    /** Additional triggers that resolve to this command. */
     readonly aliases: string[];
+    /** Handlers keyed by subcommand name or slash group:subcommand path. */
     readonly subcommands: Map<string, ResolvedPrefixSubcommand>;
 
     private readonly subcommandNames: Map<string, string>;

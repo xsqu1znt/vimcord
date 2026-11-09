@@ -31,33 +31,37 @@ import {
 import { addMessageFlag, dynaSend } from "./dynaSend.js";
 import { resolveGlobalEmbedColor, resolveUxColor } from "./uxConfig.js";
 
+/** Initial appearance of a Components V2 container. */
 export interface BetterContainerOptions {
-    /** Accent color, random color choices, or null to clear it. */
+    /** Accent color, random pool, or null for no accent. @default UX config's environment embed color */
     color?: ColorResolvable | ColorResolvable[] | null;
 }
 
+/** Media URLs with optional description and spoiler display. */
 export interface BetterContainerMediaItem {
     /** Media URL or URLs to add. */
     url: string | string[];
-    /** Whether the media should be marked as a spoiler. */
+    /** Marks the media as a spoiler. @default false */
     spoiler?: boolean;
     /** Media description. */
     description?: string;
 }
 
+/** Section text and its button or thumbnail accessory. */
 export interface BetterContainerSectionOptions {
     /** Text content or lines for the section body. */
     text?: BetterEmbedDescriptionLine | BetterEmbedDescriptionLine[];
-    /** Button accessory. Data objects default to the Secondary style. */
+    /** Button accessory as a builder or data object. */
     button?: ButtonBuilder | Partial<ButtonComponentData>;
     /** Thumbnail accessory, as a URL or thumbnail data. */
     thumbnail?: string | Partial<APIThumbnailComponent>;
 }
 
+/** Separator visibility and vertical spacing. */
 export interface BetterContainerSeparatorOptions {
-    /** Whether to render the separator divider. */
+    /** Displays a visible separator line. @default true */
     divider?: boolean;
-    /** Separator spacing size. */
+    /** Vertical spacing around the separator. @default 1 */
     spacing?: number;
 }
 
@@ -69,6 +73,7 @@ function normalizeText(text: BetterEmbedDescriptionLine | BetterEmbedDescription
     return lines.filter(line => typeof line === "string").join("\n");
 }
 
+/** Builds Components V2 containers and sends them through Discord targets. */
 export class BetterContainer {
     private readonly container = new ContainerBuilder();
 
@@ -98,8 +103,8 @@ export class BetterContainer {
     }
 
     /**
-     * Adds a separator component, with Discord's visible divider by default.
-     * @param options Separator options
+     * Adds a separator component with an optional visible divider.
+     * @param options Divider visibility and vertical spacing. Defaults to `{}`.
      */
     addSeparator(options: BetterContainerSeparatorOptions = {}): this {
         this.container.addSeparatorComponents(separator => {
@@ -148,7 +153,7 @@ export class BetterContainer {
 
     /**
      * Adds a section with optional text and accessory.
-     * @param options Section options
+     * @param options Text and button or thumbnail accessory.
      */
     addSection(options: BetterContainerSectionOptions): this {
         this.container.addSectionComponents(section => {
@@ -178,8 +183,7 @@ export class BetterContainer {
     }
 
     /**
-     * Adds components in an action row, splitting buttons into rows of 5.
-     * Discord doesn't allow buttons and a select in one row, or more than one select, so both throw.
+     * Adds components in an action row, splitting buttons into rows of 5. Discord doesn't allow buttons and a select in one row, or more than one select, so both throw.
      * @param components Buttons, or a single select menu
      */
     addRow(...components: MessageActionRowComponentBuilder[]): this {
@@ -208,15 +212,24 @@ export class BetterContainer {
     }
 
     /**
-     * Sends this container through dynaSend.
-     * A fresh interaction reply resolves to `null` unless `withResponse` is set.
+     * Sends this container through dynaSend. A fresh interaction reply resolves to `null` unless `withResponse` is set.
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      */
-    send(handler: Message, options: DynaSendOptions & { method: "edit" }): Promise<Message>;
+    send(
+        handler: Message,
+        options: DynaSendOptions & {
+            /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+            method: "edit";
+        }
+    ): Promise<Message>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends MessageSendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends SendHandler>(handler: T, options: DynaSendOptions & MessageReturningSendOptions): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
     send<T extends SendHandler>(handler: T, options?: DynaSendOptions): Promise<SentMessage<T> | null>;
+    /** Sends through a Discord target using inferred delivery. */
     send(handler: SendHandler, options: DynaSendOptions = {}): Promise<Message | null> {
         return dynaSend(handler, this.toSendOptions(options));
     }

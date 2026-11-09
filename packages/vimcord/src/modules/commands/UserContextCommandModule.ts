@@ -5,12 +5,18 @@ import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 
 type UserContextCommandModuleOptions = ContextCommandModuleOptions<CommandModuleType.UserContext>;
 
+/** Defines a context menu command targeting a user. */
 export class UserContextCommandModule extends AbstractCommandModule<CommandModuleType.UserContext> {
+    /** Command kind used for dispatch. */
     override type: CommandModuleType.UserContext = CommandModuleType.UserContext;
+    /** Module kind displayed in logs. */
     override moduleType: string = "Command:Context";
 
+    /** Discord.js builder or callback configuring the application command. */
     readonly builder: ContextMenuCommandBuilder;
+    /** Defers the interaction before the handler runs. */
     override readonly deferReply: UserContextCommandModuleOptions["deferReply"];
+    /** Guild and global application command registration scopes. */
     readonly registration: NonNullable<UserContextCommandModuleOptions["registration"]>;
 
     constructor(options: UserContextCommandModuleOptions) {

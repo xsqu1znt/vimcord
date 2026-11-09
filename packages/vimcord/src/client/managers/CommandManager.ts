@@ -30,9 +30,7 @@ interface PreparedCommand {
 
 type CommandPrefixResult = string | string[] | null;
 
-/**
- * Message prefixes to listen for. A function runs once per message, sync or async; returning `null` ignores the message.
- */
+/** Message prefixes to listen for. A function runs once per message, sync or async; returning `null` ignores the message. */
 export type CommandPrefix = string | string[] | ((message: Message) => CommandPrefixResult | Promise<CommandPrefixResult>);
 
 export interface CommandRoutingOptions extends DispatchMessageOptions {
@@ -41,8 +39,7 @@ export interface CommandRoutingOptions extends DispatchMessageOptions {
 }
 
 export interface DispatchMessageOptions {
-    /** Treat a mention of the bot as a prefix.
-     * @default false */
+    /** Treat a mention of the bot as a prefix. @default false */
     allowMention?: boolean;
 }
 

@@ -34,8 +34,7 @@ function walkFiles(dir: string, base = ""): string[] {
 }
 
 /**
- * Recursively imports matching modules from a directory relative to the entry file.
- * Throws naming the directory when it is missing or has no matches, and naming every file that fails to import.
+ * Recursively imports matching modules from a directory relative to the entry file. Throws naming the directory when it is missing or has no matches, and naming every file that fails to import.
  * @param dir Directory to search
  * @param suffix Filename suffixes to import; `null` imports every module
  */

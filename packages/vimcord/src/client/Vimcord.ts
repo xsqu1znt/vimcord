@@ -31,7 +31,7 @@ export type VimcordEvents = {
 export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals> {
     /** Bot staff, read back through `client.globals.staff`. */
     staff?: StaffOptions;
-    /** Plugins installed by `login()`, dependencies first. */
+    /** Plugins installed by login in dependency order. @default [] */
     plugins?: VimcordPlugin[];
     /** Module directories imported by `login()`. */
     modules?: AppModuleImports;
@@ -45,6 +45,7 @@ export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals>
     hooks?: GlobalCommandHooks;
 }
 
+/** Discord.js client with modules, plugins, command routing, and shared bot settings. */
 export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     /** The one live Vimcord client for this process. */
     private static instance: Vimcord | undefined;
@@ -56,12 +57,17 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         return Vimcord.instance;
     }
 
+    /** Logger for this client's lifecycle and commands. */
     readonly logger: VimcordLogger;
 
+    /** Mutable application, staff, and command hook settings. */
     readonly globals: VimcordGlobals;
 
+    /** Plugin registration and lifecycle manager. */
     readonly plugins: PluginManager;
+    /** Loaded commands, events, and their managers. */
     readonly modules: ModuleManager;
+    /** Presence profile and rotation manager. */
     readonly status: StatusManager;
 
     private readonly awaitReadyWaiters = new Set<(ready: boolean) => void>();
@@ -192,10 +198,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     /**
-     * Starts the bot: plugins, the plugin `onPluginsInstalled` step, modules, command listeners, then the gateway.
-     * Application commands sync once the client is ready unless `syncCommands` is `false`.
-     * @param token The token to log in with.
-     * @default process.env.TOKEN | process.env.TOKEN_DEV
+     * Starts plugins, startup hooks, modules, routing, and the Discord gateway.
+     * @param token Discord bot token. Defaults to `TOKEN_DEV` in dev mode, otherwise `TOKEN`.
      */
     override async login(token?: string): Promise<string> {
         if (this.loginStarted) throw new VimcordError("login() was already called on this client", "CLIENT_ERROR");
@@ -268,7 +272,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     /**
      * Waits for the client to be ready.
-     * @param timeout `60_000` by default.
+     * @param timeout Maximum wait in milliseconds. Defaults to `60_000`.
      */
     async awaitReady(timeout: number = 60_000): Promise<boolean> {
         if (this.isReady()) return true;
@@ -298,9 +302,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     /**
      * Fetches a guild, first checking if the guild is cached.
-     *
-     * *Alias for {@link fetchGuild}.*
-     *
      * @param options The ID or options to fetch
      */
     async fetchGuild(options: string | FetchGuildOptions | null | undefined): Promise<Guild | null> {
@@ -309,9 +310,6 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
 
     /**
      * Fetches a user, first checking if the user is cached.
-     *
-     * *Alias for {@link fetchUser}.*
-     *
      * @param user The ID or user to fetch
      */
     async fetchUser(user: UserResolvable | null | undefined): Promise<User | null> {
@@ -319,8 +317,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     /**
-     * Fetches the role IDs a user holds in the configured staff guild, regardless of the guild
-     * a command is invoked in.
+     * Fetches the role IDs a user holds in the configured staff guild, regardless of the guild a command is invoked in.
      * @param userId The ID of the user to check
      */
     async getStaffGuildRoleIds(userId: string): Promise<string[]> {

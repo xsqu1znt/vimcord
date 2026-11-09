@@ -1,17 +1,19 @@
 import type { ActivityOptions, PresenceStatusData } from "discord.js";
 import type { Vimcord } from "./Vimcord.js";
 
+/** Discord activity with a fixed or dynamically resolved name. */
 export interface VimcordStatusActivity extends Omit<ActivityOptions, "name"> {
-    /** Presence status to use while this activity is active. */
+    /** Presence status applied with this activity. @default "online" */
     status?: PresenceStatusData;
     /** Resolved each time the activity is applied. */
     name: string | ((client: Vimcord<true>) => string | Promise<string>);
 }
 
+/** Activities and rotation settings for a presence profile. */
 export interface VimcordStatusProfile {
     /** Milliseconds between rotations or function-name refreshes. Omit to apply once. */
     interval?: number;
-    /** Pick a random activity each rotation instead of stepping through the list. */
+    /** Picks a different activity at random on each rotation. @default false */
     randomize?: boolean;
     /** Activity or activities to apply for this profile. */
     activity: VimcordStatusActivity | VimcordStatusActivity[];
@@ -28,7 +30,17 @@ export interface VimcordEnvironmentStatusConfig {
 /** A shared status profile or one or more environment-specific profiles. */
 export type VimcordStatusConfig =
     | VimcordStatusProfile
-    | (VimcordEnvironmentStatusConfig & ({ production: VimcordStatusProfile } | { development: VimcordStatusProfile }));
+    | (VimcordEnvironmentStatusConfig &
+          (
+              | {
+                    /** Profile selected when development mode is disabled. */
+                    production: VimcordStatusProfile;
+                }
+              | {
+                    /** Profile selected when development mode is enabled. */
+                    development: VimcordStatusProfile;
+                }
+          ));
 
 /** Manages Discord presence profiles and activity rotation for a Vimcord client. */
 export class StatusManager {

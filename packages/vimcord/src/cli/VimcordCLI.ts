@@ -82,7 +82,8 @@ export class VimcordCLI {
         return this.client;
     }
 
-    /** Registers a command whose name and aliases are unique across the CLI.
+    /**
+     * Registers a command whose name and aliases are unique across the CLI.
      * @param command Command to make available through stdin and `/help`.
      */
     addCommand(command: CLICommand): this {

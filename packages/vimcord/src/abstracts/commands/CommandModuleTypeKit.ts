@@ -25,6 +25,7 @@ import type {
 } from "../AbstractModule.js";
 import type { AbstractCommandModule } from "./AbstractCommandModule.js";
 
+/** Command module kinds supported by Vimcord. */
 export enum CommandModuleType {
     Slash = "Slash",
     Prefix = "Prefix",
@@ -35,8 +36,11 @@ export enum CommandModuleType {
 export type SlashCommandBuilderResolvable =
     SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder;
 
+/** Client, interaction, and focused option supplied to autocomplete. */
 export interface SlashCommandAutocompleteContext {
+    /** Client that owns or runs this operation. */
     client: Vimcord<true>;
+    /** Discord interaction that triggered the handler. */
     interaction: AutocompleteInteraction;
     /** The option the user is currently typing in. */
     focused: AutocompleteFocusedOption;
@@ -47,25 +51,39 @@ export type SlashCommandAutocompleteHandler = (
     ctx: SlashCommandAutocompleteContext
 ) => Promise<ApplicationCommandOptionChoiceData[] | void> | ApplicationCommandOptionChoiceData[] | void;
 
+/** Invocation arguments and context fields for each command kind. */
 interface CommandTypeMap {
     // Slash Command
+    /** Slash invocation arguments and context. */
     [CommandModuleType.Slash]: {
+        /** Positional arguments supplied to the handler. */
         args: [interaction: ChatInputCommandInteraction];
+        /** Invocation fields specific to this command kind. */
         contextExtras: {
+            /** Discord interaction that triggered the handler. */
             interaction: ChatInputCommandInteraction;
             /** Matched `subcommands` key, or null when the parent handler runs. */
             subcommand: string | null;
         };
         /** What `guildOnly: true` guarantees. */
-        guildExtras: { interaction: ChatInputCommandInteraction<"raw" | "cached"> };
+        guildExtras: {
+            /** Discord interaction that triggered the handler. */
+            interaction: ChatInputCommandInteraction<"raw" | "cached">;
+        };
     };
 
     // Prefix Command
+    /** Prefix invocation arguments and context. */
     [CommandModuleType.Prefix]: {
+        /** Positional arguments supplied to the handler. */
         args: [message: Message, prefix: string, trigger: string];
+        /** Invocation fields specific to this command kind. */
         contextExtras: {
+            /** Discord message associated with the operation. */
             message: Message;
+            /** Prefix matched at the start of the command message. */
             prefix: string;
+            /** Command name or alias matched in the message. */
             trigger: string;
             /** Matched canonical subcommand name, or null when using the parent handler. */
             subcommand: string | null;
@@ -76,29 +94,54 @@ interface CommandTypeMap {
             /** `args` in lowercase. Computed on first read. */
             readonly lowerArgs: string[];
         };
-        guildExtras: { message: Message<true> };
+        /** Fields narrowed when the command requires a guild. */
+        guildExtras: {
+            /** Discord message associated with the operation. */
+            message: Message<true>;
+        };
     };
 
     // TODO: Verify internally if the correct context type is set on the builder
 
     // Message Context Menu Command
+    /** Message context menu arguments and context. */
     [CommandModuleType.MessageContext]: {
+        /** Positional arguments supplied to the handler. */
         args: [interaction: MessageContextMenuCommandInteraction];
-        contextExtras: { interaction: MessageContextMenuCommandInteraction };
-        guildExtras: { interaction: MessageContextMenuCommandInteraction<"raw" | "cached"> };
+        /** Invocation fields specific to this command kind. */
+        contextExtras: {
+            /** Discord interaction that triggered the handler. */
+            interaction: MessageContextMenuCommandInteraction;
+        };
+        /** Fields narrowed when the command requires a guild. */
+        guildExtras: {
+            /** Discord interaction that triggered the handler. */
+            interaction: MessageContextMenuCommandInteraction<"raw" | "cached">;
+        };
     };
 
     // User Context Menu Command
+    /** User context menu arguments and context. */
     [CommandModuleType.UserContext]: {
+        /** Positional arguments supplied to the handler. */
         args: [interaction: UserContextMenuCommandInteraction];
-        contextExtras: { interaction: UserContextMenuCommandInteraction };
-        guildExtras: { interaction: UserContextMenuCommandInteraction<"raw" | "cached"> };
+        /** Invocation fields specific to this command kind. */
+        contextExtras: {
+            /** Discord interaction that triggered the handler. */
+            interaction: UserContextMenuCommandInteraction;
+        };
+        /** Fields narrowed when the command requires a guild. */
+        guildExtras: {
+            /** Discord interaction that triggered the handler. */
+            interaction: UserContextMenuCommandInteraction<"raw" | "cached">;
+        };
     };
 }
 
 export type CommandModuleArgs<T extends CommandModuleType> = CommandTypeMap[T]["args"];
 
 // --- Contexts ---
+/** Invocation data for the selected command kind. */
 export type CommandModuleContext<T extends CommandModuleType> = ModuleContext & {
     /** The user who invoked the command. */
     user: User;
@@ -123,13 +166,27 @@ export type CommandModuleHookContext<T extends CommandModuleType> = CommandModul
 /** Why a command invocation stopped before reaching its handler. */
 export type CommandBlock =
     | ModuleBlock
-    | ({ kind: "permission" } & Omit<Extract<PermissionTestResult, { passed: false }>, "passed">)
+    | ({
+          /** Discriminator identifying the blocked invocation. */
+          kind: "permission";
+      } & Omit<
+          Extract<
+              PermissionTestResult,
+              {
+                  /** Whether the check passed. */
+                  passed: false;
+              }
+          >,
+          "passed"
+      >)
     | {
+          /** Discriminator identifying the blocked invocation. */
           kind: "unknownRoute";
           /** The subcommand path that matched nothing. Empty when a prefix command got no subcommand token. */
           path: string;
       };
 
+/** Callbacks that gate commands and receive command blocks or errors. */
 export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
     CommandModuleArgs<T>,
     CommandModuleHookContext<T>,
@@ -143,32 +200,37 @@ export type CommandModuleBaseOptions<T extends CommandModuleType> = Omit<
     "singleInvocation" | "execute"
 > &
     Omit<CommandRestrictions, "guildOnly"> & {
+        /** Project-defined display and categorization fields. */
         metadata?: CommandModuleMetadata;
+        /** Callbacks for invocation gates, blocks, and errors. */
         hooks?: CommandModuleHooks<T>;
-        /**
-         * Skip a new invocation while a matching one is still running. Off by default.
-         * `true` keys on the module and the invoking user. Pass a `key` function for custom scoping.
-         */
-        singleInvocation?: boolean | { key(ctx: CommandModuleHookContext<T>): string };
+        /** Skips a new invocation while one with the same process-local key is running. @default false */
+        singleInvocation?:
+            | boolean
+            | {
+                  /** Returns the identity used to group matching invocations. */
+                  key(ctx: CommandModuleHookContext<T>): string;
+              };
     };
 
 /** Splits options on `guildOnly`, so handlers only see the guild context when it's guaranteed. */
 export type GuildOnlyOptions<InGuild, Anywhere> =
     | ({
-          /** Blocks the command outside guilds and narrows the handler context to guarantee a guild. */
+          /** Whether to require invocation in a guild. @default false */
           guildOnly: true;
       } & InGuild)
-    | ({ guildOnly?: false } & Anywhere);
+    | ({
+          /** Whether to require invocation in a guild. @default false */
+          guildOnly?: false;
+      } & Anywhere);
 
+/** Command presentation metadata and project-defined fields. */
 export interface CommandModuleMetadata extends ModuleMetadata {
     /** Command emoji. */
     emoji?: string;
     /** Command usage examples. */
     examples?: string[];
-    /**
-     * Hide this command.
-     * @default false
-     */
+    /** Hide this command. @default false */
     hidden?: boolean;
 }
 
@@ -180,21 +242,40 @@ type ScopedSubcommand<T extends CommandModuleType, Fields, InGuild extends boole
 > &
     Fields &
     (InGuild extends true
-        ? { guildOnly?: boolean; handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown }
-        : | { guildOnly: true; handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown }
-          | { guildOnly?: false; handler(ctx: CommandModuleContext<T>): Promise<unknown> | unknown });
+        ? {
+              /** Whether to require invocation in a guild. @default false */
+              guildOnly?: boolean;
+              /** Runs the matched subcommand after its restrictions pass. */
+              handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
+          }
+        : | {
+                /** Whether to require invocation in a guild. @default false */
+                guildOnly: true;
+                /** Runs the matched subcommand after its restrictions pass. */
+                handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
+            }
+          | {
+                /** Whether to require invocation in a guild. @default false */
+                guildOnly?: false;
+                /** Runs the matched subcommand after its restrictions pass. */
+                handler(ctx: CommandModuleContext<T>): Promise<unknown> | unknown;
+            });
 
 /** A subcommand as stored on its module, with its handler no longer split by `guildOnly`. */
 export type ResolvedSubcommand<T extends CommandModuleType, Fields> = CommandRestrictions &
     Fields & { handler(ctx: CommandModuleContext<T>): Promise<unknown> | unknown };
 
+/** Aliases and description for a prefix subcommand. */
 interface PrefixSubcommandFields {
+    /** Additional lowercase triggers for the prefix command. @default [] */
     aliases?: string[];
+    /** Short description displayed to users or in discovery. */
     description?: string;
 }
 
+/** Deferral and autocomplete overrides for a slash subcommand. */
 interface SlashSubcommandFields {
-    /** Defer this subcommand's reply. Falls back to the command's `deferReply`; `false` turns it off for this subcommand. */
+    /** Defers before the handler; "ephemeral" defers privately. @default false */
     deferReply?: CommandDeferReply;
     /** Autocomplete handler for this subcommand's options. */
     autocomplete?: SlashCommandAutocompleteHandler;
@@ -220,21 +301,18 @@ export type ResolvedSlashSubcommand = ResolvedSubcommand<CommandModuleType.Slash
 type RoutedHandlers<T extends CommandModuleType, Subcommand, InGuild extends boolean> = {
     /** Runs when no subcommand matches. Required when `subcommands` is omitted. */
     execute?(ctx: ScopedContext<T, InGuild>): unknown;
+    /** Handlers keyed by subcommand name or slash group:subcommand path. */
     subcommands?: Record<string, Subcommand>;
 };
 
 // --- App Command Module Types ---
 export type CommandDeferReply = boolean | "ephemeral";
 
+/** Scopes used when registering an application command. */
 interface AppCommandRegistrationRules {
-    /** Only register this command to these guilds.
-     * @remarks This only applies when registering locally.
-     */
+    /** Only register this command to these guilds. */
     guilds?: GuildResolvable[];
-    /**
-     * Allow registering globally.
-     * @default true
-     */
+    /** Allow registering globally. @default true */
     global?: boolean;
 }
 
@@ -243,32 +321,45 @@ export type AppCommandModuleBaseOptions<T extends CommandModuleType> = Omit<
     CommandModuleBaseOptions<T>,
     "name" | "description"
 > & {
-    /** Defer the reply. */
+    /** Defers before the handler; "ephemeral" defers privately. @default false */
     deferReply?: CommandDeferReply;
-    /** Client command registration rules. Global is `true` by default. */
+    /** Guild and global application command registration scopes. */
     registration?: AppCommandRegistrationRules;
 };
 
 // --- Concrete Module Options ---
+/** Prefix triggers, restrictions, hooks, and routed handlers. */
 export type PrefixCommandModuleOptions = CommandModuleBaseOptions<CommandModuleType.Prefix> & {
+    /** Additional lowercase triggers for the prefix command. @default [] */
     aliases?: string[];
 } & GuildOnlyOptions<
         RoutedHandlers<CommandModuleType.Prefix, PrefixCommandModuleSubcommand<true>, true>,
         RoutedHandlers<CommandModuleType.Prefix, PrefixCommandModuleSubcommand, false>
     >;
 
+/** Slash builder, restrictions, autocomplete, and routed handlers. */
 export type SlashCommandModuleOptions = AppCommandModuleBaseOptions<CommandModuleType.Slash> & {
+    /** Discord.js builder or callback configuring the application command. */
     builder: SlashCommandBuilderResolvable | ((builder: SlashCommandBuilder) => SlashCommandBuilderResolvable);
+    /** Handler returning choices for the focused slash option. */
     autocomplete?: SlashCommandAutocompleteHandler;
 } & GuildOnlyOptions<
         RoutedHandlers<CommandModuleType.Slash, SlashCommandModuleSubcommand<true>, true>,
         RoutedHandlers<CommandModuleType.Slash, SlashCommandModuleSubcommand, false>
     >;
 
+/** Context menu builder, restrictions, and target handler. */
 export type ContextCommandModuleOptions<T extends CommandModuleType.MessageContext | CommandModuleType.UserContext> =
     AppCommandModuleBaseOptions<T> & {
+        /** Discord.js builder or callback configuring the application command. */
         builder: ContextMenuCommandBuilder | ((builder: ContextMenuCommandBuilder) => ContextMenuCommandBuilder);
     } & GuildOnlyOptions<
-            { execute(ctx: GuildCommandModuleContext<T>): unknown },
-            { execute(ctx: CommandModuleContext<T>): unknown }
+            {
+                /** Runs the module or command handler. */
+                execute(ctx: GuildCommandModuleContext<T>): unknown;
+            },
+            {
+                /** Runs the module or command handler. */
+                execute(ctx: CommandModuleContext<T>): unknown;
+            }
         >;

@@ -12,29 +12,25 @@ import { importModulesFromDir } from "@/utils/import.js";
 import { CommandManager } from "./CommandManager.js";
 import { EventManager } from "./EventManager.js";
 
+/** Module directory entries loaded during login. */
 export interface AppModuleImports {
+    /** Directories containing default-exported slash command modules. */
     slashCommands?: AppModuleImportOptions;
+    /** Directories containing default-exported message context command modules. */
     messageContextCommands?: AppModuleImportOptions;
+    /** Directories containing default-exported user context command modules. */
     userContextCommands?: AppModuleImportOptions;
+    /** Directories containing default-exported prefix command modules. */
     prefixCommands?: AppModuleImportOptions;
+    /** Directories containing default-exported event modules. */
     events?: AppModuleImportOptions;
 }
 
+/** Directories and filename suffixes for one module kind. */
 export interface AppModuleImportOptions {
     /** The directories the modules can be found in, relative to the entry file. */
     dir: string | string[];
-    /**
-     * Imports only files ending with these suffixes; other files are skipped silently.
-     * `null` imports every file, and each one must then default-export a module of this entry's type.
-     *
-     * @example
-     * // Example module filenames using suffixes:
-     * "ping.slash.ts" // .slash suffix
-     * "help.prefix.ts" // .prefix suffix
-     * "userInfo.mctx.ts" // .mctx suffix
-     * "avatar.uctx.ts" // .uctx suffix
-     * "ready.event.ts" // .event suffix
-     */
+    /** Imports only files ending with these suffixes; other files are skipped silently. `null` imports every file, and each one must then default-export a module of this entry's type. */
     suffix: string | string[] | null;
 }
 

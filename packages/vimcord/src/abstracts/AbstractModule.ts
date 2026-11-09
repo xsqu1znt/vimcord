@@ -3,16 +3,38 @@ import type { Vimcord } from "@/client/Vimcord.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { createHumanId } from "@/utils/str.js";
 
+/** Whether a module check passed, with failure details when it did not. */
 export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends true
-    ? { passed: true }
-    : { passed: false; reason: string; error?: Error };
+    ? {
+          /** Whether the check passed. */
+          passed: true;
+      }
+    : {
+          /** Whether the check passed. */
+          passed: false;
+          /** Why the operation stopped or the check failed. */
+          reason: string;
+          /** Error raised while handling the invocation. */
+          error?: Error;
+      };
 
 /** The environment a module may run in, tested against the client's `$devMode`. */
 export type ModuleEnvironment = "development" | "production" | "both";
 
 /** Why an invocation stopped before reaching its handler. */
-export type ModuleBlock = { kind: "environment"; reason: string } | { kind: "running" };
+export type ModuleBlock =
+    | {
+          /** Discriminator identifying the blocked invocation. */
+          kind: "environment";
+          /** Why the operation stopped or the check failed. */
+          reason: string;
+      }
+    | {
+          /** Discriminator identifying the blocked invocation. */
+          kind: "running";
+      };
 
+/** Handler timestamps used by command usage logging. */
 export interface ModuleExecutionTiming {
     /** Monotonic handler start timestamp. */
     startedAt: number;
@@ -20,6 +42,7 @@ export interface ModuleExecutionTiming {
     durationMs: number;
 }
 
+/** Outcome of a module invocation, including handler errors and measured timing. */
 export interface ModuleRunResult {
     /** Whether the module's main execute function was reached. */
     executed: boolean;
@@ -33,63 +56,58 @@ export interface ModuleRunResult {
 
 // - - - - - - - - - - - - - - -
 
+/** Client supplied to a module handler. */
 export interface ModuleContext<Ready extends boolean = true> {
+    /** Client that owns or runs this operation. */
     client: Vimcord<Ready>;
 }
 
+/** Module, client, and error supplied to lifecycle hooks. */
 export interface ModuleHookContext<
     Args extends unknown[] = unknown[],
     Ready extends boolean = true,
     Module = AbstractModule<Args, any, any, any, any>
 > {
+    /** Module whose invocation the hook observes. */
     module: Module;
+    /** Client that owns or runs this operation. */
     client: Vimcord<Ready>;
+    /** Error raised while handling the invocation. */
     error?: Error;
 }
 
 // --- Module Options ---
+/** Shared module identity, invocation rules, hooks, and handler. */
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
     ModuleCTX extends ModuleContext<boolean> = ModuleContext,
     HookCTX extends ModuleHookContext<Args, boolean, unknown> = ModuleHookContext<Args>,
     Hooks extends ModuleHooks<Args, HookCTX, any> = ModuleHooks<Args, HookCTX>
 > {
-    /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
+    /** Stable module identifier. @default generated human-readable ID */
     customId?: string;
     /** The name of the module. */
     name: string;
     /** Optional description of the module. */
     description?: string;
-    /** Optional metadata of the module. */
+    /** Project-defined categorization and display fields. @default {} */
     metadata?: ModuleMetadata;
 
     // --- Tests & Rules ---
-    /**
-     * Whether this module is enabled.
-     * @default true
-     */
+    /** Whether this module is enabled. @default true */
     enabled?: boolean;
-    /**
-     * Whether this module should wait for the client to be ready before being runnable.
-     * @default true
-     */
+    /** Whether this module should wait for the client to be ready before being runnable. @default true */
     requiresReady?: boolean;
-    /**
-     * The environment this module is allowed to run in.
-     * @default "both"
-     */
+    /** The environment this module is allowed to run in. @default "both" */
     environment?: ModuleEnvironment;
-    /**
-     * Skip a new invocation while a matching one (same key) is still running. Off by default.
-     * @remarks Coordinates work in-memory, within this process only.
-     */
+    /** Skips overlapping invocations with the same process-local key. @default undefined */
     singleInvocation?: {
         /** Returns the identity key for an invocation. Invocations sharing a key never run concurrently. */
         key(ctx: HookCTX): string;
     };
 
     // --- Hooks ---
-    /** Optional hooks of the module. */
+    /** Callbacks for invocation gates and failures. @default {} */
     hooks?: Hooks;
 
     // --- Main ---
@@ -97,6 +115,7 @@ export interface ModuleOptions<
     execute(ctx: ModuleCTX): unknown;
 }
 
+/** Project-defined categorization attached to a module. */
 export interface ModuleMetadata {
     /** Category for categorizing modules. */
     category?: string[];
@@ -104,6 +123,7 @@ export interface ModuleMetadata {
     tags?: string[];
 }
 
+/** Callbacks that gate invocations and handle blocks or failures. */
 export interface ModuleHooks<
     Args extends unknown[] = unknown[],
     HookCTX extends ModuleHookContext<Args, boolean, unknown> = ModuleHookContext<Args>,
@@ -111,13 +131,14 @@ export interface ModuleHooks<
 > {
     /** Gates the handler. Anything but `true` stops the invocation; respond to the user here when you do. */
     before?(ctx: HookCTX): Promise<boolean> | boolean;
-    /** Runs when an invocation is blocked. @defaultBehavior Blocks with a `reason` set `ctx.error` and run `onError`; a `running` block does nothing. */
+    /** Handles a blocked invocation; without a hook, reasoned blocks call onError and running blocks do nothing. */
     onBlocked?(ctx: HookCTX, block: Block): Promise<void> | void;
-    /** @defaultBehavior Does nothing for blocks; logs errors thrown by the handler. */
+    /** Handles invocation failures; without a hook, handler errors are logged and blocks are ignored. */
     onError?(ctx: HookCTX): Promise<void> | void;
 }
 
 // --- Abstract Module ---
+/** Base for modules with lifecycle hooks and invocation guards. */
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
     ModuleCTX extends ModuleContext<boolean> = ModuleContext,
@@ -125,17 +146,32 @@ export abstract class AbstractModule<
     Hooks extends ModuleHooks<Args, HookCTX, any> = ModuleHooks<Args, HookCTX>,
     Block = ModuleBlock
 > {
+    /** Client that owns or runs this operation. */
     readonly client: Vimcord | null = null;
 
+    /** Module kind displayed in logs. */
     abstract readonly moduleType: string;
+    /** Stable identifier assigned to this instance. */
     readonly id: string;
+    /** Name displayed in logs or command discovery. */
     readonly name: string;
+    /** Project-defined display and categorization fields. */
     readonly metadata: ModuleMetadata;
 
+    /** Whether this module may run. */
     readonly enabled: boolean;
+    /** Whether invocation waits for the client to become ready. */
     readonly requiresReady: boolean;
+    /** Environment in which this module may run. */
     readonly environment: ModuleEnvironment;
-    readonly singleInvocation: { key(ctx: HookCTX): string } | undefined;
+    /** Scope used to skip overlapping invocations. */
+    readonly singleInvocation:
+        | {
+              /** Returns the identity used to group matching invocations. */
+              key(ctx: HookCTX): string;
+          }
+        | undefined;
+    /** Callbacks for invocation gates, blocks, and errors. */
     readonly hooks: Hooks;
 
     /** Keys of invocations currently running, when `singleInvocation` is configured. */
@@ -159,6 +195,7 @@ export abstract class AbstractModule<
         this.execute = execute;
     }
 
+    /** Attaches the owning client before the module can run. */
     inject(client: Vimcord): void {
         if (!this.client) {
             (this as { client: Vimcord | null }).client = client;
@@ -280,13 +317,7 @@ export abstract class AbstractModule<
         }
     }
 
-    /**
-     * Execute order:
-     *
-     * try:`performTests` -> `hook:before` -> `singleInvocation` check -> `execute`
-     *
-     * catch:`hook:onError`
-     */
+    /** Execute order: */
     run(...args: Args): Promise<unknown> {
         return this.invoke(args, result => result.response);
     }

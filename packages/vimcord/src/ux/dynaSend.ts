@@ -71,7 +71,10 @@ export type TriggeredSendHandler = Exclude<SendHandler, GuildTextBasedChannel>;
 
 declare const triggered: unique symbol;
 /** A message known to have a trigger, so `BetterCollector` can infer `participants`. A type-only marker. */
-export type TriggeredMessage = Message & { readonly [triggered]: true };
+export type TriggeredMessage = Message & {
+    /** Marks a message whose invoking user can be inferred. */
+    readonly [triggered]: true;
+};
 
 /** The message a send to `T` hands back. */
 export type SentMessage<T> = [T] extends [TriggeredSendHandler] ? TriggeredMessage : Message;
@@ -85,20 +88,35 @@ export type SendableTextChannel = DMChannel | TextChannel | NewsChannel | Thread
 export type SendableComponent = BetterContainer | ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
 export type RequiredDynaSendOptions = AtLeastOne<DynaSendOptions, SendableContentKeys>;
 
+/** Message content, delivery overrides, and optional delayed deletion. */
 export interface DynaSendOptions {
+    /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
     method?: SendMethod;
+    /** Text sent in the message. */
     content?: string;
+    /** Embeds attached to the message. */
     embeds?: EmbedResolvable[];
+    /** Action rows or Components V2 containers attached to the message. */
     components?: SendableComponent[];
+    /** Attachments included with the message. */
     files?: Mutable<BaseMessageOptions["files"]>;
+    /** Stickers included with the message. */
     stickers?: StickerResolvable[];
+    /** Poll included with the message. */
     poll?: PollData;
+    /** Discord message flags supported by the selected delivery method. */
     flags?: InteractionReplyOptions["flags"];
+    /** Requests the message from a fresh interaction reply. @default false */
     withResponse?: boolean;
+    /** Controls which mentions Discord may notify. */
     allowedMentions?: MessageMentionOptions;
+    /** Message reference used for a channel reply. */
     reply?: ReplyOptions;
+    /** Message forwarded by this send. */
     forward?: ForwardOptions;
+    /** Whether Discord reads the message aloud. @default false */
     tts?: boolean;
+    /** Milliseconds before deleting the sent message. */
     deleteAfter?: number;
 }
 
@@ -230,25 +248,33 @@ function scheduleDelete(message: Message, delay: number): void {
 }
 
 /**
- * Intelligently detects and sends a message to a variety of Discord targets using a unified API.
- * A fresh interaction reply resolves to `null` unless `withResponse` is set.
- * Resolves to a `TriggeredMessage` unless the target is a guild channel or the edit of a message that may be the bot's own.
+ * Sends through an inferred Discord transport, returning null for fresh interaction replies without withResponse.
  * @param handler The Discord.js object to send the message through
  * @param options Message options (content, embeds, flags, etc.). At least one content-bearing field is required.
  */
-export function dynaSend(handler: Message, options: RequiredDynaSendOptions & { method: "edit" }): Promise<Message>;
+export function dynaSend(
+    handler: Message,
+    options: RequiredDynaSendOptions & {
+        /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+        method: "edit";
+    }
+): Promise<Message>;
+/** Sends message content through an interaction, message, channel, member, or user. */
 export function dynaSend<T extends MessageSendHandler>(
     handler: T,
     options: RequiredDynaSendOptions
 ): Promise<SentMessage<T>>;
+/** Sends message content through an interaction, message, channel, member, or user. */
 export function dynaSend<T extends SendHandler>(
     handler: T,
     options: RequiredDynaSendOptions & MessageReturningSendOptions
 ): Promise<SentMessage<T>>;
+/** Sends message content through an interaction, message, channel, member, or user. */
 export function dynaSend<T extends SendHandler>(
     handler: T,
     options: RequiredDynaSendOptions
 ): Promise<SentMessage<T> | null>;
+/** Sends message content through an interaction, message, channel, member, or user. */
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
     const { method: requested, deleteAfter, ...data } = options;
     const sendMethod = resolveSendMethod(handler, requested);
