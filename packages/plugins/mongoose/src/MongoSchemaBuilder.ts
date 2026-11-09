@@ -25,7 +25,8 @@ import type {
 
 import mongoose, { Schema } from "mongoose";
 import { Vimcord } from "vimcord";
-import { MongoosePlugin, PLUGIN_NAME } from "./index.js";
+import { PLUGIN_NAME } from "./constants.js";
+import { MongoosePlugin } from "./index.js";
 import { isDuplicateKeyError } from "./isDuplicateKeyError.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 import { sessionContext } from "./sessionContext.js";

@@ -3,6 +3,7 @@ import type { HealthProbeResult, VimcordPluginContext } from "vimcord";
 
 import mongoose from "mongoose";
 import { getPackageVersion, Vimcord, VimcordPlugin } from "vimcord";
+import { PLUGIN_NAME } from "./constants.js";
 import { isDuplicateKeyError } from "./isDuplicateKeyError.js";
 import { MongoosePluginError } from "./MongoosePluginError.js";
 
@@ -27,9 +28,8 @@ export interface MongooseOptions {
     connectOptions?: ConnectOptions;
 }
 
-export const PLUGIN_NAME = "mongoose";
-export const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
-export const PLUGIN_VERSION = getPackageVersion("@vimcord/plugin-mongoose", "packages/plugins/mongoose") ?? "unknown";
+const PLUGIN_DESCRIPTION = "Provides an opinionated wrapper over Mongoose for interacting with MongoDB.";
+const PLUGIN_VERSION = getPackageVersion("@vimcord/plugin-mongoose", "packages/plugins/mongoose") ?? "unknown";
 
 /** Retries `fn` with exponential backoff and jitter until `attempts` retries are exhausted. */
 async function retryWithBackoff<T>(fn: () => Promise<T>, attempts: number): Promise<T> {
