@@ -16,24 +16,16 @@ interface MigrationRecord {
     ranAt?: Date;
 }
 
-export interface MongooseOptions extends mongoose.MongooseOptions {
+export interface MongooseOptions {
     /**
      * The MongoDB connection URI.
      * @default process.env.MONGO_URI | process.env.MONGO_URI_DEV
      */
     uri?: string;
     /**
-     * The maximum number of attempts to connect to MongoDB.
-     * @default `3`
-     */
-    maxRetries?: number;
-    /**
      * Options passed to `mongoose.connect()`, such as `dbName` and `maxPoolSize`.
-     * For keys present in both option groups, the connect option wins over the global option.
      */
     connectOptions?: ConnectOptions;
-    /** Throw during install when the initial connection fails, instead of starting without a database. @default true */
-    requireConnection?: boolean;
 }
 
 export const PLUGIN_NAME = "mongoose";
@@ -63,10 +55,7 @@ export class MongoosePlugin extends VimcordPlugin {
     readonly mongoose: mongoose.Mongoose;
 
     private readonly uri: string | undefined;
-    private readonly maxRetries: number;
     private readonly connectOptions: ConnectOptions | undefined;
-    private readonly requireConnection: boolean;
-    private connectingPromise: Promise<boolean> | null = null;
     private readonly migrations = new Map<string, (ctx: MongoosePlugin) => Promise<void>>();
     private migrationsFinished = false;
     private readonly onDisconnected = (): void => {
@@ -79,22 +68,17 @@ export class MongoosePlugin extends VimcordPlugin {
     constructor(config: MongooseOptions = {}) {
         super();
 
-        const { uri, maxRetries = 3, connectOptions, requireConnection = true, ...mongooseOptions } = config;
+        const { uri, connectOptions } = config;
         this.uri = uri;
-        this.maxRetries = maxRetries;
         this.connectOptions = connectOptions;
-        this.requireConnection = requireConnection;
-        this.mongoose = new mongoose.Mongoose(mongooseOptions);
+        this.mongoose = new mongoose.Mongoose();
     }
 
     override async install({ client, health }: VimcordPluginContext): Promise<void> {
         (this as { client: Vimcord | null }).client = client;
         this.mongoose.connection.on("disconnected", this.onDisconnected);
         this.mongoose.connection.on("reconnected", this.onReconnected);
-        const connected = await this.connectInternal();
-        if (!connected && this.requireConnection) {
-            throw new MongoosePluginError("MongoDB connection is required but the initial connection failed");
-        }
+        await this.connect();
         health.register({
             id: "mongodb",
             label: "MongoDB",
@@ -109,44 +93,29 @@ export class MongoosePlugin extends VimcordPlugin {
         await this.disconnect();
     }
 
-    private async connectInternal(): Promise<boolean> {
-        if (this.connectingPromise) {
-            return this.connectingPromise;
+    private async connect(): Promise<void> {
+        if (!this.client) {
+            throw new MongoosePluginError("Cannot connect to MongoDB: Plugin has not been installed yet");
         }
 
-        this.connectingPromise = (async () => {
-            if (!this.client) {
-                throw new MongoosePluginError("Cannot connect to MongoDB: Plugin has not been installed yet");
-            }
+        const devMode = this.client.$devMode;
+        const connectionUri = this.uri ?? (devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI);
+        if (!connectionUri) {
+            throw new MongoosePluginError(
+                `MONGO_URI Missing: ${devMode ? "DEV MODE is enabled, but MONGO_URI_DEV is not set" : "MONGO_URI not set"}`
+            );
+        }
 
-            const devMode = this.client.$devMode;
-            const connectionUri = this.uri ?? (devMode ? process.env.MONGO_URI_DEV : process.env.MONGO_URI);
-            if (!connectionUri) {
-                throw new MongoosePluginError(
-                    `MONGO_URI Missing: ${devMode ? "DEV MODE is enabled, but MONGO_URI_DEV is not set" : "MONGO_URI not set"}`
-                );
-            }
+        this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
 
-            this.client.logger.plugin.log(this.name, "Connecting to MongoDB...");
-
-            try {
-                await retryWithBackoff(() => this.mongoose.connect(connectionUri, this.connectOptions), this.maxRetries);
-
-                this.client.logger.plugin.success(this.name, "Connected to MongoDB");
-                return true;
-            } catch (err) {
-                this.client.logger.plugin.error(
-                    this.name,
-                    `Failed to connect: max attempt${this.maxRetries === 1 ? "" : "s"} (${this.maxRetries}) reached`,
-                    err as Error
-                );
-                return false;
-            } finally {
-                this.connectingPromise = null;
-            }
-        })();
-
-        return await this.connectingPromise;
+        const MAX_RETRIES = 3;
+        try {
+            await retryWithBackoff(() => this.mongoose.connect(connectionUri, this.connectOptions), MAX_RETRIES);
+            this.client.logger.plugin.success(this.name, "Connected to MongoDB");
+        } catch (err) {
+            this.client.logger.plugin.error(this.name, `Failed to connect after ${MAX_RETRIES} retries`, err as Error);
+            throw new MongoosePluginError("MongoDB initial connection failed");
+        }
     }
 
     private async checkMongoHealth(signal?: AbortSignal): Promise<HealthProbeResult> {
@@ -170,11 +139,7 @@ export class MongoosePlugin extends VimcordPlugin {
         }
     }
 
-    async connect(): Promise<void> {
-        await this.connectInternal();
-    }
-
-    async disconnect(): Promise<void> {
+    private async disconnect(): Promise<void> {
         await this.mongoose.disconnect();
     }
 

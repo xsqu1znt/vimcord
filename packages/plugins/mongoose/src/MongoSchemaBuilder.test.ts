@@ -50,7 +50,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-    await plugin.disconnect();
+    await plugin.mongoose.disconnect();
     await replSet.stop();
 });
 

@@ -30,8 +30,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
     vi.restoreAllMocks();
-    await firstPlugin.disconnect();
-    await secondPlugin.disconnect();
+    await firstPlugin.mongoose.disconnect();
+    await secondPlugin.mongoose.disconnect();
 });
 
 afterAll(async () => {
@@ -149,7 +149,7 @@ describe("run-once migrations", () => {
         expect(await records().findOne({ _id: "cleanup" })).toEqual({ _id: "cleanup" });
     });
 
-    it("skips the connection check when no migrations are registered, for requireConnection: false", async () => {
+    it("skips the connection check when no migrations are registered", async () => {
         await expect(new MongoosePlugin().onPluginsInstalled()).resolves.toBeUndefined();
     });
 

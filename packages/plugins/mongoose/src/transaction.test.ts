@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-    await plugin.disconnect();
+    await plugin.mongoose.disconnect();
     await replSet.stop();
 });
 
