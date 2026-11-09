@@ -1,10 +1,16 @@
 import type { CommandModuleHookContext } from "@/abstracts/commands/CommandModuleTypeKit.js";
 import type { StaffGlobals } from "@/client/globals.js";
+import type { CommandAccess } from "./commandPermissions.js";
 
 import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandModuleType } from "@/abstracts/commands/CommandModuleTypeKit.js";
-import { MissingPermissionReason, testCommandPermissions } from "./commandPermissions.js";
+import { MessageContextCommandModule } from "@/modules/commands/MessageContextCommandModule.js";
+import { PrefixCommandModule } from "@/modules/commands/PrefixCommandModule.js";
+import { SlashCommandModule } from "@/modules/commands/SlashCommandModule.js";
+import { UserContextCommandModule } from "@/modules/commands/UserContextCommandModule.js";
+import { Logger } from "@/utils/Logger.js";
+import { MissingPermissionReason, pickRestrictions, testCommandPermissions } from "./commandPermissions.js";
 
 const STAFF_DEFAULTS: StaffGlobals = { users: [], roles: [], guildId: null };
 
@@ -225,5 +231,143 @@ describe("testCommandPermissions", () => {
                 access: { staff: true }
             })
         ).toMatchObject({ passed: false, reason: MissingPermissionReason.Client });
+    });
+});
+
+describe("command access warnings", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each([
+        {
+            kind: "prefix",
+            create: (access: CommandAccess) => new PrefixCommandModule({ name: "manage", access, execute() {} })
+        },
+        {
+            kind: "slash",
+            create: (access: CommandAccess) =>
+                new SlashCommandModule({
+                    builder: b => b.setName("manage").setDescription("Manages records."),
+                    access,
+                    execute() {}
+                })
+        },
+        {
+            kind: "message context",
+            create: (access: CommandAccess) =>
+                new MessageContextCommandModule({ builder: b => b.setName("manage"), access, execute() {} })
+        },
+        {
+            kind: "user context",
+            create: (access: CommandAccess) =>
+                new UserContextCommandModule({ builder: b => b.setName("manage"), access, execute() {} })
+        }
+    ])("warns once with the $kind command name and all unknown keys", ({ create }) => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        const access = { botOwner: true, typo: true, users: undefined };
+        create(access);
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        for (const text of [
+            "Command 'manage'",
+            "unrecognized access keys: botOwner, typo",
+            "open to everyone",
+            "access: { users: [...] }"
+        ]) {
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(text));
+        }
+        expect(access).toEqual({ botOwner: true, typo: true, users: undefined });
+    });
+
+    it.each([
+        {
+            subcommand: "prune",
+            create: (access: CommandAccess) =>
+                new PrefixCommandModule({
+                    name: "manage",
+                    subcommands: { prune: { aliases: ["clear"], access, handler() {} } }
+                })
+        },
+        {
+            subcommand: "admin:prune",
+            create: (access: CommandAccess) =>
+                new SlashCommandModule({
+                    builder: b =>
+                        b
+                            .setName("manage")
+                            .setDescription("Manages records.")
+                            .addSubcommandGroup(g =>
+                                g
+                                    .setName("admin")
+                                    .setDescription("Admin tools")
+                                    .addSubcommand(s => s.setName("prune").setDescription("Prunes records."))
+                            ),
+                    subcommands: { "admin:prune": { access, handler() {} } }
+                })
+        }
+    ])("warns once for subcommand $subcommand without counting aliases", ({ subcommand, create }) => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        const access = { typo: true, users: undefined };
+        create(access);
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(`Command 'manage' subcommand '${subcommand}'`));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("typo"));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("open to everyone"));
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("access: { users: [...] }"));
+    });
+
+    it.each([
+        { permissions: ["ManageGuild"] },
+        { users: ["owner"] },
+        { roles: ["moderator"] },
+        { guildOwner: true },
+        { staff: true }
+    ] satisfies CommandAccess[])("does not call access open when a recognized grant is configured: %j", grant => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        const access = { ...grant, typo: true };
+        new PrefixCommandModule({ name: "manage", access, execute() {} });
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("open to everyone"));
+    });
+
+    it("treats empty arrays and false flags as no grants and never warns during permission checks", async () => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        const access = { botOwner: true, permissions: [], users: [], roles: [], guildOwner: false, staff: false };
+        new PrefixCommandModule({ name: "manage", access, execute() {} });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("open to everyone"));
+
+        const ctx = createInteractionContext();
+        for (let i = 0; i < 2; i++) {
+            const restrictions = pickRestrictions({ access });
+            expect(restrictions).toBeDefined();
+            expect(await testCommandPermissions(ctx, restrictions!)).toEqual({ passed: true });
+        }
+        expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        undefined,
+        {},
+        { permissions: [], users: [], roles: [], guildOwner: false, staff: false },
+        { permissions: ["ManageGuild"], users: ["owner"], roles: ["moderator"], guildOwner: true, staff: true }
+    ] satisfies (CommandAccess | undefined)[])("does not warn for valid access: %j", access => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        new PrefixCommandModule({ name: "manage", access, subcommands: { prune: { access, handler() {} } }, execute() {} });
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("logs one warning for each offending command or subcommand", () => {
+        const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
+        const access = { typo: true, users: ["owner"] };
+        new PrefixCommandModule({
+            name: "manage",
+            access,
+            subcommands: { prune: { access, handler() {} }, valid: { access: { staff: true }, handler() {} } }
+        });
+
+        expect(warn).toHaveBeenCalledTimes(2);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Command 'manage' has unrecognized"));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Command 'manage' subcommand 'prune' has unrecognized"));
     });
 });

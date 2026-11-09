@@ -15,6 +15,7 @@ import type { CommandRestrictions } from "@/commands/commandPermissions.js";
 import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
+import { warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 import { dynaSend } from "@/ux/index.js";
 
@@ -55,6 +56,7 @@ function buildSubcommands(
         if (subcommands.has(path)) {
             throw new ModuleError(`Slash command '${commandName}' has a duplicate subcommand '${path}'`);
         }
+        warnUnrecognizedAccessKeys(commandName, subcommand.access, path);
         subcommands.set(path, subcommand);
     }
 

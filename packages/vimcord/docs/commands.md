@@ -123,6 +123,8 @@ export default new PrefixCommandModule({
 
 Hard restrictions (`guildOnly`, bot permissions, and bot filtering) must all pass. Any configured `access` grant is sufficient. An omitted access object, an empty object, or empty grant arrays permit everyone after hard restrictions. Staff are only granted access where `staff: true` is present. Role IDs match either the invoking guild or the configured staff guild, including in DMs when a staff guild is available.
 
+Unrecognized `access` keys log one warning per command or subcommand at construction. The warning names the command, any subcommand, and the ignored keys. When no recognized grant is configured, it says access is open to everyone passing the remaining restrictions. For `botOwner`, it recommends `access: { users: [...] }`. Warnings do not change access checks or run during invocation.
+
 Use Discord.js builder contexts and default member permissions for Discord-side availability. `testCommandPermissions(ctx, restrictions)` provides the same runtime check and may return a promise. Its failed result has `reason: MissingPermissionReason` and optional missing permission or role arrays.
 
 ## Hooks

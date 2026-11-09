@@ -10,6 +10,7 @@ import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
 import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
 
 import { PermissionsBitField } from "discord.js";
+import { Logger } from "@/utils/Logger.js";
 
 /** Reason a command's permission check failed. */
 export enum MissingPermissionReason {
@@ -69,6 +70,9 @@ export type PermissionTestResult =
 
 type CommandMember = GuildMember | APIInteractionGuildMember | null;
 type FailedPermissionTest = Extract<PermissionTestResult, { passed: false }>;
+
+const ACCESS_KEYS = new Set(["permissions", "users", "roles", "guildOwner", "staff"]);
+const ACCESS_WARNING_LOGGER = new Logger({ prefix: "Command" });
 
 function resolveUserId(user: UserResolvable): string {
     if (typeof user === "string") return user;
@@ -143,6 +147,27 @@ function hasConfiguredGrants(access: CommandAccess): boolean {
     return Boolean(
         access.permissions?.length || access.users?.length || access.roles?.length || access.guildOwner || access.staff
     );
+}
+
+/** Warns about ignored access keys once during command or subcommand construction. */
+export function warnUnrecognizedAccessKeys(
+    commandName: string,
+    access: CommandAccess | undefined,
+    subcommand?: string
+): void {
+    if (!access) return;
+    const keys = Object.keys(access).filter(key => !ACCESS_KEYS.has(key));
+    if (!keys.length) return;
+
+    const target = `Command '${commandName}'${subcommand ? ` subcommand '${subcommand}'` : ""}`;
+    let message = `${target} has unrecognized access keys: ${keys.join(", ")}.`;
+    if (!hasConfiguredGrants(access)) {
+        message += subcommand
+            ? " No recognized access grant is configured; this subcommand is open to everyone who passes the parent command's restrictions and its own hard restrictions."
+            : " No recognized access grant is configured; this command is open to everyone who passes its hard restrictions.";
+    }
+    if (keys.includes("botOwner")) message += " Replace botOwner with access: { users: [...] }.";
+    ACCESS_WARNING_LOGGER.warn(message);
 }
 
 /**

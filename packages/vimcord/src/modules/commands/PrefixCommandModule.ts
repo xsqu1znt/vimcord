@@ -9,7 +9,7 @@ import type { Vimcord } from "@/client/index.js";
 import type { CommandRestrictions } from "@/commands/commandPermissions.js";
 
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import { pickRestrictions } from "@/commands/commandPermissions.js";
+import { pickRestrictions, warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 
 const WHITESPACE = /\s+/;
@@ -32,6 +32,7 @@ function buildSubcommands(options: PrefixCommandModuleOptions) {
             }
             names.set(trigger, name);
         }
+        warnUnrecognizedAccessKeys(options.name, subcommand.access, name);
         subcommands.set(name, subcommand);
     }
 

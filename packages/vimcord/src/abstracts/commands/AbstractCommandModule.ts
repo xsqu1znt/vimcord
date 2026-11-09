@@ -15,7 +15,7 @@ import type {
 } from "./CommandModuleTypeKit.js";
 
 import { applyDeferReply } from "@/commands/commandDeferral.js";
-import { pickRestrictions, testCommandPermissions } from "@/commands/commandPermissions.js";
+import { pickRestrictions, testCommandPermissions, warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
@@ -68,6 +68,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
                     : options.singleInvocation || undefined
         });
 
+        warnUnrecognizedAccessKeys(this.name, options.access);
         this.description = options.description;
         this.restrictions = pickRestrictions(options);
         this.allowBots = options.allowBots;
