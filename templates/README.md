@@ -1,1 +1,1 @@
-Official templates will be added soon!
+- [basic](basic): a TypeScript bot with slash and prefix ping commands, a ready event, and dotenv.

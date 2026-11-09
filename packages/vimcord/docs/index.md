@@ -1,5 +1,6 @@
 # Vimcord docs
 
+- [basic starter template](https://github.com/xsqu1znt/vimcord/tree/main/templates/basic): a copyable bot with slash and prefix commands, a ready event, and dotenv.
 - [client.md](client.md): client options, module loading, staff, status, logging, and CLI commands.
 - [commands.md](commands.md): slash, prefix, context menus, autocomplete, permissions, and hooks.
 - [events.md](events.md): Discord event modules.
@@ -15,6 +16,7 @@
 
 | I want to | Use |
 | --- | --- |
+| Copy a working starter bot | [Basic template](https://github.com/xsqu1znt/vimcord/tree/main/templates/basic) |
 | Start a bot or register a terminal command | [Client and CLI](client.md) |
 | Restrict a command or gate all commands | [Permissions and hooks](commands.md) |
 | React to a Discord event | [EventModule](events.md) |

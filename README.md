@@ -11,7 +11,7 @@ A PNPM workspace.
 - [`packages/vimcord`](packages/vimcord) — the `vimcord` package. Holds all the framework code.
 - [`packages/plugins/dotenv`](packages/plugins/dotenv) — `@vimcord/plugin-dotenv`, loads env files through the plugin lifecycle.
 - [`packages/plugins/mongoose`](packages/plugins/mongoose) — `@vimcord/plugin-mongoose`, the Mongoose connection and `MongoSchemaBuilder`.
-- [`templates`](templates) — placeholder for future starter templates.
+- [`templates`](templates) — copyable starter bots, beginning with the [basic template](templates/basic).
 
 ## Development
 

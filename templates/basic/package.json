@@ -1,0 +1,25 @@
+{
+    "name": "@vimcord/template-basic",
+    "private": true,
+    "type": "module",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "start": "tsx src/index.ts",
+        "check": "tsc --noEmit",
+        "format": "prettier --write \"./**/*.{ts,json}\""
+    },
+    "dependencies": {
+        "@vimcord/plugin-dotenv": "workspace:*",
+        "discord.js": "^14.26.4",
+        "vimcord": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^25.8.0",
+        "prettier": "^3.8.3",
+        "tsx": "^4.22.4",
+        "typescript": "^6.0.3"
+    }
+}

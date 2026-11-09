@@ -13,7 +13,7 @@ A PNPM workspace. `packages/*`, `packages/plugins/*`, and `templates/*`.
 - `vimcord` in `packages/vimcord` holds everything and is the public name users install; its topic docs live in `packages/vimcord/docs/`.
 - `@vimcord/plugin-dotenv` in `packages/plugins/dotenv` loads env files through the plugin lifecycle.
 - `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`; its guide lives in `packages/plugins/mongoose/docs/mongoose.md`.
-- `templates/*` is a placeholder for starter bot templates. Today it's a single README that says templates are coming; there's no template code to update yet.
+- `templates/basic` is a copyable TypeScript bot with slash and prefix commands, a ready event, and dotenv; `templates/README.md` lists the templates.
 
 Inside `packages/vimcord/src`:
 

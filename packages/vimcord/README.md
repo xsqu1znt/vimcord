@@ -41,6 +41,8 @@ Vimcord is an opinionated Discord.js framework with typed command and event modu
 
 ## Quickstart
 
+Start from the [basic bot template](https://github.com/xsqu1znt/vimcord/tree/main/templates/basic), or create the files below.
+
 ```sh
 pnpm add vimcord discord.js
 ```
