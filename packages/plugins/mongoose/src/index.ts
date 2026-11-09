@@ -264,7 +264,7 @@ export class MongoosePlugin extends VimcordPlugin {
     async useSession<T>(fn: (session: mongoose.ClientSession) => Promise<T>, options?: ClientSessionOptions): Promise<T> {
         const session = await this.startSession(options);
         try {
-            return await sessionContext.run(session, () => fn(session));
+            return await sessionContext.run({ session, writtenCaches: new Set() }, () => fn(session));
         } finally {
             await session.endSession();
         }
@@ -274,17 +274,5 @@ export class MongoosePlugin extends VimcordPlugin {
         const session = await this.startSession();
         session.startTransaction(options);
         return session;
-    }
-
-    async useTransaction<T>(
-        fn: (session: mongoose.ClientSession) => Promise<T>,
-        options?: mongoose.mongo.TransactionOptions
-    ): Promise<T> {
-        const session = await this.startSession();
-        try {
-            return await session.withTransaction(() => sessionContext.run(session, () => fn(session)), options);
-        } finally {
-            await session.endSession();
-        }
     }
 }

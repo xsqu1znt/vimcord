@@ -1,11 +1,11 @@
 import type { mongo, QueryOptions, Types, UpdateQuery, UpdateWithAggregationPipeline } from "mongoose";
-import type { Vimcord } from "vimcord";
 import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { Document } from "mongoose";
-import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { MongoosePlugin } from "./index.js";
+import { Vimcord } from "vimcord";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { MongoosePlugin, useTransaction } from "./index.js";
 import { createMongoSchema } from "./MongoSchemaBuilder.js";
 
 const stubClient = { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord;
@@ -55,8 +55,13 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+    vi.spyOn(Vimcord, "getInstance").mockReturnValue({ plugins: { get: () => plugin } } as unknown as Vimcord);
     await Cooldowns.deleteAll({});
     await CachedCooldowns.deleteAll({});
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
 });
 
 describe("hydrated timestamp inference", () => {
@@ -564,7 +569,7 @@ describe("update() with an update object", () => {
 describe("update() inside a transaction", () => {
     it("rolls back a pipeline upsert when the transaction throws", async () => {
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 const previous = await Cooldowns.update({ key: "a" }, bump, { upsert: true, returnDocument: "before" });
                 expect(previous).toBeNull();
                 expect(await Cooldowns.count({ key: "a" })).toBe(1); // Visible to the session that wrote it
@@ -579,7 +584,7 @@ describe("update() inside a transaction", () => {
         await Cooldowns.create({ key: "a", hits: 4 });
 
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 await Cooldowns.update({ key: "a" }, bump);
                 throw new Error("abort");
             })
@@ -589,7 +594,7 @@ describe("update() inside a transaction", () => {
     });
 
     it("commits sequential pipeline updates that see each other's writes", async () => {
-        const previous = await Cooldowns.useTransaction(async () => {
+        const previous = await useTransaction(async () => {
             await Cooldowns.update({ key: "a" }, bump, { upsert: true });
             return await Cooldowns.update({ key: "a" }, bump, { returnDocument: "before" });
         });
@@ -600,7 +605,7 @@ describe("update() inside a transaction", () => {
 
     it("skips the transaction for `session: null`, so that write survives a rollback", async () => {
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 await Cooldowns.update({ key: "in" }, bump, { upsert: true });
                 await Cooldowns.update({ key: "out" }, bump, { upsert: true, session: null });
                 throw new Error("abort");

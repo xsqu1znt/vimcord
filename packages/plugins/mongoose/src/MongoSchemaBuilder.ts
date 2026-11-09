@@ -278,7 +278,7 @@ export class MongoSchemaBuilder<
     private resolveOptions<Options extends object>(options?: Options): Options {
         if (options && Object.hasOwn(options, "session")) return options;
 
-        const session = sessionContext.getStore();
+        const session = sessionContext.getStore()?.session;
         return (session ? { ...options, session } : (options ?? {})) as Options;
     }
 
@@ -293,7 +293,9 @@ export class MongoSchemaBuilder<
         return isCacheKeyValue(value) ? String(value) : undefined;
     }
 
-    private invalidateCache(filter?: QueryFilter<LeanDoc<Def, Opts>>): void {
+    private readonly invalidateCache = (filter?: QueryFilter<LeanDoc<Def, Opts>>): void => {
+        if (!this.options.cache) return;
+        sessionContext.getStore()?.writtenCaches.add(this.invalidateCache);
         const cacheKey = this.getCacheKey(filter);
         if (cacheKey === undefined) {
             this.cacheEntries.clear();
@@ -305,7 +307,7 @@ export class MongoSchemaBuilder<
 
         this.cacheEntries.delete(cacheKey);
         this.inFlight.delete(cacheKey);
-    }
+    };
 
     private invalidateUpdateCache(
         filter: QueryFilter<LeanDoc<Def, Opts>>,
@@ -399,26 +401,6 @@ export class MongoSchemaBuilder<
      */
     async startTransaction(options?: mongoose.mongo.TransactionOptions): Promise<mongoose.ClientSession> {
         return await this.getPlugin().startTransaction(options);
-    }
-
-    /**
-     * Starts and uses a new transaction.
-     *
-     * Builder calls inside the callback use this session automatically. Pass `{ session: null }` to run one call
-     * outside it. Await all work started in the callback, because unawaited work keeps the session after the
-     * transaction ends and fails.
-     * @param fn The function to use inside of the transaction
-     * @param options The options for the transaction
-     */
-    async useTransaction<T>(
-        fn: (session: mongoose.ClientSession) => Promise<T>,
-        options?: mongoose.mongo.TransactionOptions
-    ): Promise<T> {
-        try {
-            return await this.getPlugin().useTransaction(fn, options);
-        } finally {
-            this.invalidateCache();
-        }
     }
 
     // --- CRUD Methods ---
