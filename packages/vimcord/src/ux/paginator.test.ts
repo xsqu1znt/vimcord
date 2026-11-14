@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
 import { dynaSend } from "./dynaSend.js";
 import { Paginator } from "./paginator.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -124,8 +124,8 @@ function getRowIds(components: DynaSendOptions["components"] = []) {
 afterEach(() => {
     vi.restoreAllMocks();
     vi.mocked(dynaSend).mockReset();
-    getGlobalUxConfig().paginator.notAParticipantMessage = "You are not allowed to use this.";
-    const messages = getGlobalUxConfig().paginator.messages;
+    uxConfig.paginator.notAParticipantMessage = "You are not allowed to use this.";
+    const messages = uxConfig.paginator.messages;
     messages.loadFailed = null;
     messages.expired = null;
     messages.chapterChanged = null;
@@ -605,7 +605,7 @@ describe("Paginator collection and navigation", () => {
         expect(stale.reply).not.toHaveBeenCalled();
         expect(stale.followUp).not.toHaveBeenCalled();
 
-        getGlobalUxConfig().paginator.messages.expired = "This paginator expired.";
+        uxConfig.paginator.messages.expired = "This paginator expired.";
         const secondModal = deferred<Awaited<ReturnType<BetterModal["showAndAwait"]>>>();
         vi.mocked(BetterModal.prototype.showAndAwait).mockReturnValue(secondModal.promise);
         const expiring = new Paginator({ pages: ["0", "1"], jump: true, timeout: 1000 });
@@ -1186,7 +1186,7 @@ describe("Paginator defaults", () => {
     });
 
     it("acknowledges silently when its not-a-participant message is configured off", async () => {
-        getGlobalUxConfig().paginator.notAParticipantMessage = null;
+        uxConfig.paginator.notAParticipantMessage = null;
         const { message } = createMessage();
         vi.mocked(dynaSend).mockResolvedValue(message as never);
         await new Paginator({ pages: ["A", "B"] }).send({} as never, { participants: ["chosen"] });

@@ -4,7 +4,7 @@ import EventEmitter from "node:events";
 import { Collection, ComponentType } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
-import { defineGlobalUxConfig } from "./uxConfig.js";
+import { applyUxConfig } from "./uxConfig.js";
 
 vi.mock("./interactionRouter.js", () => ({
     createRoutedMessageCollector: (
@@ -44,7 +44,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
 afterEach(() => {
     vi.restoreAllMocks();
-    defineGlobalUxConfig({ collector: { notAParticipantMessage: "You are not allowed to use this." } });
+    applyUxConfig({ collector: { notAParticipantMessage: "You are not allowed to use this." } });
 });
 
 describe("BetterCollector handlers", () => {
@@ -188,7 +188,7 @@ describe("BetterCollector rejection", () => {
     });
 
     it("acknowledges silently on an explicit null, even with a message configured", async () => {
-        defineGlobalUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        applyUxConfig({ collector: { notAParticipantMessage: "Configured" } });
         const { message, getFilter } = createMessage();
         new BetterCollector(message, { participants: ["a"], notAParticipantMessage: null });
         const outsider = createInteraction("c", "btn");
@@ -198,7 +198,7 @@ describe("BetterCollector rejection", () => {
     });
 
     it("falls back to the configured message only when the option is omitted", async () => {
-        defineGlobalUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        applyUxConfig({ collector: { notAParticipantMessage: "Configured" } });
         const { message, getFilter } = createMessage();
         new BetterCollector(message, { participants: ["a"], notAParticipantMessage: undefined });
         const outsider = createInteraction("c", "btn");
@@ -207,7 +207,7 @@ describe("BetterCollector rejection", () => {
     });
 
     it("acknowledges silently when the not-a-participant message is configured off", async () => {
-        defineGlobalUxConfig({ collector: { notAParticipantMessage: null } });
+        applyUxConfig({ collector: { notAParticipantMessage: null } });
         const { message, getFilter } = createMessage();
         new BetterCollector(message, { participants: ["a"] });
         const outsider = createInteraction("c", "btn");

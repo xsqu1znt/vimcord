@@ -6,7 +6,7 @@ import type {
 
 import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
-import { resolveRegistration } from "@/commands/commandRegistration.js";
+import { applyGuildOnlyContexts, resolveRegistration } from "@/commands/commandRegistration.js";
 
 type UserContextCommandModuleOptions = ContextCommandModuleOptions<CommandModuleType.UserContext>;
 
@@ -28,6 +28,7 @@ export class UserContextCommandModule extends AbstractCommandModule<CommandModul
         const builder =
             typeof options.builder === "function" ? options.builder(new ContextMenuCommandBuilder()) : options.builder;
         builder.setType(ApplicationCommandType.User);
+        applyGuildOnlyContexts(builder, options.guildOnly);
 
         super({
             name: builder.name,

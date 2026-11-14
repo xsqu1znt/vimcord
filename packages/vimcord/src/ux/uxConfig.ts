@@ -197,21 +197,17 @@ function createDefaultUxConfig(): UxConfig {
     };
 }
 
-/** Mutable global UX defaults used by Vimcord helpers. */
-export const globalUxConfig = createDefaultUxConfig();
+/** The live UX defaults every helper reads. Owned by the client: its `ux` option fills it and `destroy()` resets it. */
+export const uxConfig = createDefaultUxConfig();
 
-/**
- * Updates the global UX configuration.
- * @param config Partial config to merge into the current global config
- */
-export function defineGlobalUxConfig(config: PartialDeep<UxConfig>): UxConfig {
-    mergeConfig(globalUxConfig as unknown as Record<string, unknown>, config as Record<string, unknown>);
-    return globalUxConfig;
+/** Deep-merges the client's `ux` option into the live config; arrays and builders are replaced whole. */
+export function applyUxConfig(config: PartialDeep<UxConfig>): void {
+    mergeConfig(uxConfig as unknown as Record<string, unknown>, config as Record<string, unknown>);
 }
 
-/** Returns the current global UX configuration. */
-export function getGlobalUxConfig(): UxConfig {
-    return globalUxConfig;
+/** Restores the defaults in place, so a destroyed client's `ux` option doesn't carry into the next client. */
+export function resetUxConfig(): void {
+    Object.assign(uxConfig, createDefaultUxConfig());
 }
 
 /** Resolves a fixed UX color or randomly selects one from a color pool. */
@@ -222,7 +218,6 @@ export function resolveUxColor(color: ColorResolvable | ColorResolvable[] | null
 }
 
 /** Resolves the embed color for the configured UX environment. */
-export function resolveGlobalEmbedColor(): ColorResolvable | null {
-    const config = getGlobalUxConfig();
-    return resolveUxColor(config.devMode ? (config.embedColorDev ?? config.embedColor) : config.embedColor);
+export function resolveEmbedColor(): ColorResolvable | null {
+    return resolveUxColor(uxConfig.devMode ? (uxConfig.embedColorDev ?? uxConfig.embedColor) : uxConfig.embedColor);
 }

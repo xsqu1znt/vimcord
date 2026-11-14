@@ -118,7 +118,7 @@ export default new PrefixCommandModule({
 
 | Restriction | Rule | Default |
 | --- | --- | --- |
-| `guildOnly` | Must run in a guild; true also narrows context | `false` |
+| `guildOnly` | Must run in a guild; true also narrows context, and limits app command builders to the guild context | `false` |
 | `botPermissions` | Bot must hold all permissions in the invoking channel | None |
 | `allowBots` | Other bots may invoke it | `false` |
 | `access.permissions` | User holds all listed channel permissions | None |
@@ -131,20 +131,18 @@ Hard restrictions (`guildOnly`, bot permissions, and bot filtering) must all pas
 
 Unrecognized `access` keys log one warning per command or subcommand at construction. The warning names the command, any subcommand, and the ignored keys. When no recognized grant is configured, it says access is open to everyone passing the remaining restrictions. For `botOwner`, it recommends `access: { users: [...] }`. Warnings do not change access checks or run during invocation.
 
-Use Discord.js builder contexts and default member permissions for Discord-side availability. `testCommandPermissions(ctx, restrictions)` provides the same runtime check and may return a promise. Its failed result has `reason: MissingPermissionReason` and optional missing permission or role arrays.
+`guildOnly: true` on a slash or context command sets the builder's contexts to `InteractionContextType.Guild`, so Discord hides it in DMs; contexts set on the builder win. Use default member permissions for other Discord-side availability. `testCommandPermissions(ctx, restrictions)` provides the same runtime check and may return a promise. Its failed result has `reason: MissingPermissionReason` and optional missing permission or role arrays.
 
 ## Hooks
 
-Set shared hooks on the client's `hooks: { all, prefix, slash, context }`, and local hooks on each module. `all` covers every command kind; its context always has `client`, `user`, and `module`, and `"interaction" in ctx` or `"message" in ctx` narrows it.
+Set client hooks on `hooks`, and local hooks on each module. Top-level `before`, `onBlocked`, and `onError` cover every command kind; their context always has `client`, `user`, and `module`, and `"interaction" in ctx` or `"message" in ctx` narrows it. `prefix`, `slash`, and `context` add hooks for one kind.
 
 ```ts
 import type { GlobalCommandHooks } from "vimcord";
 
 const hooks: GlobalCommandHooks = {
-    all: {
-        before: async ({ user }) => !user.bot,
-        onError({ client }, error) { client.logger.error("Command failed", error); }
-    },
+    before: async ({ user }) => !user.bot,
+    onError({ client }, error) { client.logger.error("Command failed", error); },
     prefix: {
         async onBlocked({ message }, block) {
             if (block.kind === "running") return;
@@ -154,18 +152,16 @@ const hooks: GlobalCommandHooks = {
 };
 ```
 
-`before` runs `all`, then the kind's global hook, then the local one; each must return exactly true. Respond inside a gate when denying access. `onBlocked` and `onError` use the local callback, else the kind's global callback, else `all`, else the default reply.
+`before` runs the top-level hook, then the kind's, then the local one; each must return exactly true. Respond inside a gate when denying access. `onBlocked` and `onError` use the local callback, else the kind's, else the top-level one, else the default reply.
 
 `onBlocked(ctx, block)` receives `environment`, `permission`, `running`, or `unknownRoute`. Permission blocks carry the failure reason and missing fields; unknown routes carry `path`. A present `onBlocked` owns every block; blocks never reach `onError`. Handler, gate, and preparation errors go to `onError(ctx, error)`; without one they are logged and get the default error reply. Hook errors are logged.
 
 ## Default replies
 
-When no hook takes a block or error, the command answers from the global UX config. A string is sent; `null` stays silent. Interactions get an ephemeral reply, an edit of a pending deferral, or a follow-up once answered. Prefix commands reply to the message without pings. Blocks from a bot invoker are always silent, and a failed send is only logged in verbose mode.
+When no hook takes a block or error, the command answers from the client's `ux.command` config. A string is sent; `null` stays silent. Interactions get an ephemeral reply, an edit of a pending deferral, or a follow-up once answered. Prefix commands reply to the message without pings. Blocks from a bot invoker are always silent, and a failed send is only logged in verbose mode.
 
 ```ts
-import { defineGlobalUxConfig } from "vimcord";
-
-defineGlobalUxConfig({ command: { noAccess: "Staff only.", running: "Still working on your last one." } });
+const client = new Vimcord({ intents, ux: { command: { noAccess: "Staff only.", running: "Still working on your last one." } } });
 ```
 
 | Key | Sent for | Default |

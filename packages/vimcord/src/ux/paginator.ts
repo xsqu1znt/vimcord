@@ -37,7 +37,7 @@ import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
 import { addMessageFlag, dynaSend, toSendableComponents } from "./dynaSend.js";
 import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 type NavButtonId = "first" | "back" | "jump" | "next" | "last";
 type PageFormat = "ordinary" | "componentsV2";
@@ -267,7 +267,7 @@ function cloneButton(button: ButtonBuilder, disabled = false): ButtonBuilder {
 }
 
 function createNavButton(id: NavButtonId): ButtonBuilder {
-    const data = getGlobalUxConfig().paginator.buttons[id];
+    const data = uxConfig.paginator.buttons[id];
     const button = new ButtonBuilder({ customId: NAV_CUSTOM_IDS[id], style: ButtonStyle.Secondary });
     if (data.label) button.setLabel(data.label);
     if (data.emoji) button.setEmoji(data.emoji);
@@ -371,7 +371,7 @@ export class Paginator {
     };
 
     constructor(options: PaginatorOptions = {}) {
-        const config = getGlobalUxConfig().paginator;
+        const config = uxConfig.paginator;
         const timing = resolveTiming(options);
         this.options = {
             nav: options.nav ?? "short",
@@ -706,7 +706,7 @@ export class Paginator {
         } catch (error) {
             console.error("[Paginator] Navigation failed:", error);
             if (placeholderShown && this.state.active) await this.editPage(previousPage).catch(() => {});
-            if (interaction) await this.respond(interaction, getGlobalUxConfig().paginator.messages.loadFailed);
+            if (interaction) await this.respond(interaction, uxConfig.paginator.messages.loadFailed);
         }
     }
 
@@ -771,7 +771,7 @@ export class Paginator {
             interaction: this.state.interaction,
             ...createCollectorTiming(this.options),
             onResolve: "keep",
-            notAParticipantMessage: getGlobalUxConfig().paginator.notAParticipantMessage
+            notAParticipantMessage: uxConfig.paginator.notAParticipantMessage
         });
         this.collector = collector;
         collector.on(i => this.handleClick(i));
@@ -785,7 +785,7 @@ export class Paginator {
     private async showJumpModal(interaction: MessageComponentInteraction): Promise<void> {
         const openedChapter = this.state.index.chapter;
         const pageCount = this.getPageCount(this.getChapter()) ?? (await this.loadChapter(this.getChapter())).length;
-        const config = getGlobalUxConfig().paginator.jumpModal;
+        const config = uxConfig.paginator.jumpModal;
         const formatText = (text: string): string =>
             text.replaceAll("$CURRENT_PAGE", String(this.state.index.nested + 1)).replaceAll("$MAX_PAGE", String(pageCount));
         const modal = new BetterModal({ title: formatText(config.title) }).addTextInput({
@@ -801,11 +801,11 @@ export class Paginator {
         const result = await modal.showAndAwait(interaction, { timeout: config.timeout });
         if (!result) return;
         if (!this.state.active) {
-            await this.respond(result.interaction, getGlobalUxConfig().paginator.messages.expired);
+            await this.respond(result.interaction, uxConfig.paginator.messages.expired);
             return;
         }
         if (this.state.index.chapter !== openedChapter) {
-            await this.respond(result.interaction, getGlobalUxConfig().paginator.messages.chapterChanged);
+            await this.respond(result.interaction, uxConfig.paginator.messages.chapterChanged);
             return;
         }
         const submitted = Number(result.fields[JUMP_PAGE_CUSTOM_ID].trim());

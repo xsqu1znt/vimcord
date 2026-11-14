@@ -16,7 +16,7 @@ import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
 import { warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
-import { resolveRegistration } from "@/commands/commandRegistration.js";
+import { applyGuildOnlyContexts, resolveRegistration } from "@/commands/commandRegistration.js";
 import { ModuleError } from "@/errors/ModuleError.js";
 
 /** Discord's cap on the number of autocomplete choices returned in one response. */
@@ -107,6 +107,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     constructor(options: SlashCommandModuleOptions) {
         const builder = typeof options.builder === "function" ? options.builder(new SlashCommandBuilder()) : options.builder;
         const subcommands = buildSubcommands(builder.name, builder, options);
+        applyGuildOnlyContexts(builder, options.guildOnly);
 
         super({
             ...options,

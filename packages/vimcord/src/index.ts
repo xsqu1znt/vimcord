@@ -59,7 +59,6 @@ export { promptMessage } from "./ux/prompt.js";
 export type { PromptStatus, PromptMessageOptions, PromptMessageResult, PromptResolveContext } from "./ux/prompt.js";
 export type { ResolveAction, ResolvePayload, OnResolve } from "./ux/shared.js";
 export { fetchRole, fetchMember } from "./ux/tools.js";
-export { defineGlobalUxConfig, getGlobalUxConfig } from "./ux/uxConfig.js";
 export type { UxConfig } from "./ux/uxConfig.js";
 export { stripAnsi, DEFAULT_COLORS, Logger } from "./utils/Logger.js";
 export type { LoggerOptions, LoaderOptions, LoaderHandle } from "./utils/Logger.js";

@@ -29,7 +29,7 @@ import {
     ThumbnailBuilder
 } from "discord.js";
 import { addMessageFlag, chunkIntoRows, dynaSend, toSendableComponents } from "./dynaSend.js";
-import { resolveGlobalEmbedColor, resolveUxColor } from "./uxConfig.js";
+import { resolveEmbedColor, resolveUxColor } from "./uxConfig.js";
 
 /** Initial appearance of a Components V2 container. */
 export interface BetterContainerOptions {
@@ -76,7 +76,7 @@ export class BetterContainer {
     private readonly container = new ContainerBuilder();
 
     constructor(options: BetterContainerOptions = {}) {
-        this.setColor(options.color === undefined ? resolveGlobalEmbedColor() : options.color);
+        this.setColor(options.color === undefined ? resolveEmbedColor() : options.color);
     }
 
     /** Converts the container into Discord API container JSON, which also lets Discord.js accept it as a component. */

@@ -1,12 +1,12 @@
 import type { CommandBlock, CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
 
 import { MessageFlags } from "discord.js";
-import { getGlobalUxConfig } from "@/ux/uxConfig.js";
+import { uxConfig } from "@/ux/uxConfig.js";
 import { MissingPermissionReason } from "./commandPermissions.js";
 
 /** Picks the configured default reply for a block no `onBlocked` hook took, or `null` to stay silent. Callers skip bot invokers. */
 export function resolveBlockReply(block: CommandBlock): string | null {
-    const messages = getGlobalUxConfig().command;
+    const messages = uxConfig.command;
     switch (block.kind) {
         case "environment":
             return messages.environment;

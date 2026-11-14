@@ -1,12 +1,10 @@
 import type { AnyCommandModuleHooks, CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
 
 /**
- * Hooks shared by every module of a command type, set through the client's `hooks` option.
- * `before` runs `all`, then the type's hook, then the module's. `onBlocked` and `onError` use the module's, else the type's, else `all`.
+ * Command hooks set through the client's `hooks` option. The top-level hooks cover every command type; a type key adds its own.
+ * `before` runs the shared hook, then the type's, then the module's. `onBlocked` and `onError` use the module's, else the type's, else the shared one.
  */
-export interface GlobalCommandHooks {
-    /** Hooks for every command kind. */
-    all?: AnyCommandModuleHooks;
+export interface GlobalCommandHooks extends AnyCommandModuleHooks {
     /** Hooks for prefix commands. */
     prefix?: CommandModuleHooks<CommandModuleType.Prefix>;
     /** Hooks for slash commands. */

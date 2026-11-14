@@ -6,7 +6,7 @@ import { Client } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { VimcordPlugin } from "@/plugins/Plugin.js";
-import { getGlobalUxConfig, resolveGlobalEmbedColor } from "@/ux/uxConfig.js";
+import { resolveEmbedColor, uxConfig } from "@/ux/uxConfig.js";
 import { Vimcord } from "./Vimcord.js";
 
 let client: Vimcord | undefined;
@@ -274,22 +274,22 @@ describe("Vimcord command sync", () => {
     });
 });
 
-describe("Vimcord dev mode", () => {
-    afterEach(() => {
-        getGlobalUxConfig().devMode = false;
-        getGlobalUxConfig().embedColor = null;
-        getGlobalUxConfig().embedColorDev = null;
-    });
-
+describe("Vimcord ux option", () => {
     it("applies embedColorDev from the constructor option and the $devMode setter", () => {
-        getGlobalUxConfig().embedColor = "#111111";
-        getGlobalUxConfig().embedColorDev = "#222222";
-
-        const client = createClient({ devMode: true });
-        expect(resolveGlobalEmbedColor()).toBe("#222222");
+        const client = createClient({ devMode: true, ux: { embedColor: "#111111", embedColorDev: "#222222" } });
+        expect(resolveEmbedColor()).toBe("#222222");
 
         client.$devMode = false;
-        expect(resolveGlobalEmbedColor()).toBe("#111111");
+        expect(resolveEmbedColor()).toBe("#111111");
+    });
+
+    it("merges nested sections over the defaults and restores them on destroy", async () => {
+        const defaults = structuredClone(uxConfig.command);
+        const client = createClient({ ux: { command: { error: null } } });
+        expect(uxConfig.command).toEqual({ ...defaults, error: null });
+
+        await client.destroy();
+        expect(uxConfig.command).toEqual(defaults);
     });
 });
 

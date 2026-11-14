@@ -1,6 +1,8 @@
 import type { ClientOptions, FetchGuildOptions, Guild, User, UserResolvable } from "discord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
+import type { PartialDeep } from "@/types/helpers.js";
+import type { UxConfig } from "@/ux/uxConfig.js";
 import type { AppGlobals, StaffOptions, VimcordGlobals } from "./globals.js";
 import type { CommandPrefix, CommandRoutingOptions } from "./managers/CommandManager.js";
 import type { AppModules } from "./managers/ModuleManager.js";
@@ -13,7 +15,7 @@ import { VimcordError } from "@/errors/VimcordError.js";
 import { PluginManager } from "@/plugins/index.js";
 import { fetchGuild, fetchUser } from "@/utils/clientUtils.js";
 import { mergeDeep } from "@/utils/obj.js";
-import { defineGlobalUxConfig } from "@/ux/uxConfig.js";
+import { applyUxConfig, resetUxConfig, uxConfig } from "@/ux/uxConfig.js";
 import { defaultAppGlobals, defaultStaffGlobals } from "./globals.js";
 import { StatusManager } from "./StatusManager.js";
 import { VimcordLogger } from "./VimcordLogger.js";
@@ -41,8 +43,10 @@ export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals>
     allowMention?: boolean;
     /** Sync application commands once the client is ready: global commands, plus guild commands in the guilds modules name. Stale remote commands in those scopes are deleted. A failure is logged and the bot keeps running. @default true */
     syncCommands?: boolean;
-    /** Command hooks shared by every command (`all`) or every module of a command type. */
+    /** Command hooks: top-level ones run for every command, `prefix`, `slash`, and `context` for one command type. */
     hooks?: GlobalCommandHooks;
+    /** UX defaults for embeds, prompts, paginators, and command replies, merged over the built-in ones. `devMode` follows the client's. */
+    ux?: PartialDeep<Omit<UxConfig, "devMode">>;
 }
 
 /** Discord.js client with modules, plugins, command routing, and shared bot settings. */
@@ -96,6 +100,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             allowMention,
             syncCommands = true,
             hooks,
+            ux,
             ...clientOptions
         } = options;
 
@@ -116,7 +121,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         };
         this.moduleImports = modules;
         this.commandRouting = { prefix, allowMention };
-        defineGlobalUxConfig({ devMode: this.globals.app.devMode });
+        applyUxConfig({ ...ux, devMode: this.globals.app.devMode });
 
         this.logger = new VimcordLogger({ verbose: this.globals.app.verbose });
 
@@ -158,7 +163,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
     set $devMode(mode: boolean) {
         this.globals.app.devMode = mode;
-        defineGlobalUxConfig({ devMode: mode });
+        uxConfig.devMode = mode;
     }
 
     /** Current verbose mode state. */
@@ -242,7 +247,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         }
     }
 
-    /** Unloads modules and plugins then destroys the client. */
+    /** Unloads modules and plugins, restores the default UX config, then destroys the client. */
     override async destroy(): Promise<void> {
         this.startupBannerHandle?.clear();
         this.startupBannerHandle = undefined;
@@ -271,7 +276,10 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             errors.push(error);
         }
 
-        if (Vimcord.instance === this) Vimcord.instance = undefined;
+        if (Vimcord.instance === this) {
+            Vimcord.instance = undefined;
+            resetUxConfig();
+        }
         Vimcord.$events.emit("destroy", this);
 
         if (errors.length) throw new AggregateError(errors, "Failed to destroy Vimcord cleanly");

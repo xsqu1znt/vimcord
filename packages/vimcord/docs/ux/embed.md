@@ -34,10 +34,7 @@ Setters mirror data fields: `setAuthor`, `setTitle`, `setDescription`, `setThumb
 ## Global colors
 
 ```ts
-import { defineGlobalUxConfig, getGlobalUxConfig } from "vimcord";
-
-defineGlobalUxConfig({ embedColor: "Blue", embedColorDev: "Orange", defaultIdle: 60_000 });
-const config = getGlobalUxConfig();
+const client = new Vimcord({ intents, ux: { embedColor: "Blue", embedColorDev: "Orange", defaultIdle: 60_000 } });
 ```
 
-Both colors default to null. Development color falls back to the production color when null. The client's dev mode updates the shared UX dev-mode flag. `defineGlobalUxConfig` merges nested object overrides; arrays and builders are replaced. `getGlobalUxConfig()` returns the live mutable config. Default command replies live under `command`; see [Default replies](../commands.md#default-replies).
+Both colors default to null. Development color falls back to the production color when null. The client's dev mode updates the shared UX dev-mode flag. The client's `ux` option sets every UX default at construction. It merges nested object overrides; arrays and builders are replaced. Default command replies live under `command`; see [Default replies](../commands.md#default-replies).

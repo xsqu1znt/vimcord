@@ -6,7 +6,8 @@ const client = new Vimcord({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     plugins: [new DotEnvPlugin()],
     prefix: "!",
-    modules: "./"
+    modules: "./",
+    ux: { embedColor: "Blurple" }
 });
 
 await client.login();

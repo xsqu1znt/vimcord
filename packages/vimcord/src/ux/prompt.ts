@@ -13,7 +13,7 @@ import { ActionRowBuilder, BaseInteraction, ButtonBuilder, ButtonStyle, Componen
 import { BetterCollector } from "./betterCollector.js";
 import { dynaSend } from "./dynaSend.js";
 import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 export type PromptButtonResolvable = ButtonBuilder | ((button: ButtonBuilder) => ButtonBuilder);
 export type PromptTimingOptions = TimingOptions;
@@ -142,7 +142,7 @@ export async function promptMessage(
 ): Promise<PromptMessageResult> {
     assertTargetHasTrigger(handler, options.participants, sendOptions?.method);
     resolveTiming(options);
-    const config = getGlobalUxConfig().prompt;
+    const config = uxConfig.prompt;
     const extraButtons = options.extraButtons ?? [];
 
     // --- Buttons ---

@@ -3,7 +3,7 @@ import type { InteractionBasedSendHandler } from "./dynaSend.js";
 import { ChannelType, ComponentType, Message } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { assertTargetHasTrigger, handleResolveAction, resolveParticipantIds, resolveTiming } from "./shared.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 function createMessage(componentsJSON: unknown[]) {
     const edit = vi.fn(async (opts: { components: unknown[] }) => {
@@ -226,7 +226,7 @@ describe("interaction resolution", () => {
 
 describe("resolveTiming", () => {
     it("defaults to the configured idle, and keeps whichever one is given", () => {
-        expect(resolveTiming({})).toEqual({ idle: getGlobalUxConfig().defaultIdle, timeout: null });
+        expect(resolveTiming({})).toEqual({ idle: uxConfig.defaultIdle, timeout: null });
         expect(resolveTiming({ idle: 5 })).toEqual({ idle: 5, timeout: null });
         expect(resolveTiming({ timeout: 5 })).toEqual({ idle: null, timeout: 5 });
     });

@@ -12,7 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dynaSend } from "./dynaSend.js";
 import { promptMessage } from "./prompt.js";
-import { defineGlobalUxConfig } from "./uxConfig.js";
+import { applyUxConfig } from "./uxConfig.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -45,7 +45,7 @@ function createFakeMessage() {
 }
 
 afterEach(() => {
-    defineGlobalUxConfig({ prompt: { highlightSelectedButton: false } });
+    applyUxConfig({ prompt: { highlightSelectedButton: false } });
 });
 
 describe("promptMessage", () => {
@@ -91,7 +91,7 @@ describe("prompt resolution payload", () => {
         ["voucher", "custom"],
         [null, "timeout"]
     ] as const)("combines %s with highlighted cleanup in one awaited edit", async (customId, status) => {
-        defineGlobalUxConfig({ prompt: { highlightSelectedButton: true } });
+        applyUxConfig({ prompt: { highlightSelectedButton: true } });
         const { message, collector } = createFakeMessage();
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId("prompt:confirm").setLabel("Yes").setStyle(ButtonStyle.Success),

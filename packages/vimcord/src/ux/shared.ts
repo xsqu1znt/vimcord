@@ -8,7 +8,7 @@ import type {
 } from "./dynaSend.js";
 
 import { ChannelType, ComponentType, Message } from "discord.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 // --- Participants ---
 export type Participant = GuildMember | User | string;
@@ -97,7 +97,7 @@ export function resolveTiming(options: TimingOptions): ResolvedTiming {
         throw new Error("Only one of idle or timeout can be provided");
     }
     if (options.timeout !== undefined) return { idle: null, timeout: options.timeout };
-    return { idle: options.idle ?? getGlobalUxConfig().defaultIdle, timeout: null };
+    return { idle: options.idle ?? uxConfig.defaultIdle, timeout: null };
 }
 
 // --- Resolve Actions ---

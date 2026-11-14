@@ -5,13 +5,13 @@ import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultAppGlobals, defaultStaffGlobals } from "@/client/globals.js";
-import { defineGlobalUxConfig, getGlobalUxConfig } from "@/ux/uxConfig.js";
+import { applyUxConfig, uxConfig } from "@/ux/uxConfig.js";
 import { PrefixCommandModule } from "./PrefixCommandModule.js";
 
-const DEFAULT_COMMAND_MESSAGES = { ...getGlobalUxConfig().command };
+const DEFAULT_COMMAND_MESSAGES = { ...uxConfig.command };
 
 afterEach(() => {
-    defineGlobalUxConfig({ command: DEFAULT_COMMAND_MESSAGES });
+    applyUxConfig({ command: DEFAULT_COMMAND_MESSAGES });
 });
 
 function createClient() {
@@ -271,7 +271,7 @@ describe("PrefixCommandModule subcommands", () => {
 });
 
 describe("PrefixCommandModule hook resolution", () => {
-    it("runs all, then prefix, then the module's before, stopping at the first denial", async () => {
+    it("runs shared, then prefix, then the module's before, stopping at the first denial", async () => {
         const calls: string[] = [];
         const gate =
             (name: string, result = true) =>
@@ -279,25 +279,25 @@ describe("PrefixCommandModule hook resolution", () => {
         const execute = vi.fn();
         const module = new PrefixCommandModule({ name: "buy", execute, hooks: { before: gate("module") } });
         const client = createClient();
-        client.globals.hooks = { all: { before: gate("all") }, prefix: { before: gate("prefix") } };
+        client.globals.hooks = { before: gate("shared"), prefix: { before: gate("prefix") } };
         module.inject(client);
 
         await module.run(createMessage("!buy"), "!", "buy");
-        expect(calls).toEqual(["all", "prefix", "module"]);
+        expect(calls).toEqual(["shared", "prefix", "module"]);
 
         calls.length = 0;
-        client.globals.hooks.all!.before = gate("all", false);
+        client.globals.hooks.before = gate("shared", false);
         await module.run(createMessage("!buy"), "!", "buy");
-        expect(calls).toEqual(["all"]);
+        expect(calls).toEqual(["shared"]);
         expect(execute).toHaveBeenCalledOnce();
     });
 
-    it("honours an all before on the direct dispatch path", async () => {
+    it("honours a shared before on the direct dispatch path", async () => {
         const execute = vi.fn();
         const module = new PrefixCommandModule({ name: "buy", execute });
         const client = createClient();
         client.globals.app.commandLogging = false;
-        client.globals.hooks = { all: { before: () => false } };
+        client.globals.hooks = { before: () => false };
         module.inject(client);
 
         await module.dispatch(createMessage("!buy"), "!", "buy");
@@ -305,16 +305,17 @@ describe("PrefixCommandModule hook resolution", () => {
     });
 
     it.each(["onBlocked", "onError"] as const)(
-        "resolves %s as module, then prefix, then all, then the default",
+        "resolves %s as module, then prefix, then shared, then the default",
         async hook => {
             const calls: string[] = [];
             const record = (name: string) => () => void calls.push(name);
-            const scopes = { module: {}, prefix: {}, all: {} } as Record<
-                "module" | "prefix" | "all",
+            const scopes = { module: {}, prefix: {}, shared: {} } as Record<
+                "module" | "prefix" | "shared",
                 Record<string, unknown>
             >;
             const client = createClient();
-            client.globals.hooks = { all: scopes.all, prefix: scopes.prefix } as GlobalCommandHooks;
+            client.globals.hooks = scopes.shared as GlobalCommandHooks;
+            scopes.shared.prefix = scopes.prefix;
             const message = createMessage("!buy");
 
             const run = async () => {
@@ -330,16 +331,16 @@ describe("PrefixCommandModule hook resolution", () => {
                 await module.run(message, "!", "buy");
             };
 
-            for (const scope of ["module", "prefix", "all"] as const) scopes[scope][hook] = record(scope);
+            for (const scope of ["module", "prefix", "shared"] as const) scopes[scope][hook] = record(scope);
             await run();
             delete scopes.module[hook];
             await run();
             delete scopes.prefix[hook];
             await run();
-            expect(calls).toEqual(["module", "prefix", "all"]);
+            expect(calls).toEqual(["module", "prefix", "shared"]);
             expect(message.reply).not.toHaveBeenCalled();
 
-            delete scopes.all[hook];
+            delete scopes.shared[hook];
             await run();
             expect(message.reply).toHaveBeenCalledOnce();
         }
@@ -381,7 +382,7 @@ describe("PrefixCommandModule default replies", () => {
         await module.run(bot, "!", "buy");
         expect(bot.reply).not.toHaveBeenCalled();
 
-        defineGlobalUxConfig({ command: { noAccess: null } });
+        applyUxConfig({ command: { noAccess: null } });
         const silenced = run({ access: { users: ["other"] } });
         await silenced.done;
         expect(silenced.message.reply).not.toHaveBeenCalled();
@@ -455,18 +456,16 @@ describe("guildOnly narrowing", () => {
     });
 });
 
-describe("all hook typing", () => {
+describe("shared hook typing", () => {
     it("exposes shared fields and narrows by source", () => {
         const hooks: GlobalCommandHooks = {
-            all: {
-                before(ctx) {
-                    const shared: [string, string, boolean] = [ctx.user.id, ctx.module.name, ctx.client.isReady()];
-                    if ("message" in ctx) return Boolean(ctx.message.content && shared);
-                    return ctx.interaction.isCommand();
-                }
+            before(ctx) {
+                const shared: [string, string, boolean] = [ctx.user.id, ctx.module.name, ctx.client.isReady()];
+                if ("message" in ctx) return Boolean(ctx.message.content && shared);
+                return ctx.interaction.isCommand();
             }
         };
-        expect(hooks.all).toBeDefined();
+        expect(hooks.before).toBeDefined();
     });
 });
 

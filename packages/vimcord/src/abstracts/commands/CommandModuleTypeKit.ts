@@ -196,7 +196,7 @@ export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
     CommandBlock
 >;
 
-/** Callbacks shared by every command kind, set through the client's `hooks.all`. */
+/** Callbacks shared by every command kind, set through the client's top-level `hooks`. */
 export type AnyCommandModuleHooks = ModuleHooks<CommandModuleArgs<CommandModuleType>, AnyCommandHookContext, CommandBlock>;
 
 // --- Command Module Options ---
@@ -222,11 +222,11 @@ export type CommandModuleBaseOptions<T extends CommandModuleType> = Omit<
 /** Splits options on `guildOnly`, so handlers only see the guild context when it's guaranteed. */
 export type GuildOnlyOptions<InGuild, Anywhere> =
     | ({
-          /** Whether to require invocation in a guild. @default false */
+          /** Whether to require invocation in a guild. Slash and context commands also default their builder's contexts to guild only. @default false */
           guildOnly: true;
       } & InGuild)
     | ({
-          /** Whether to require invocation in a guild. @default false */
+          /** Whether to require invocation in a guild. Slash and context commands also default their builder's contexts to guild only. @default false */
           guildOnly?: false;
       } & Anywhere);
 

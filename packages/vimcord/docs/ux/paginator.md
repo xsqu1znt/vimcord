@@ -106,13 +106,11 @@ Initial sends, unchanged positions, refreshes, placeholders, and cleanup do not 
 ## Jump and status messages
 
 ```ts
-import { defineGlobalUxConfig } from "vimcord";
-
-defineGlobalUxConfig({ paginator: { messages: {
+const client = new Vimcord({ intents, ux: { paginator: { messages: {
     loadFailed: "That page could not be loaded.",
     expired: "This paginator has expired.",
     chapterChanged: "The chapter changed. Open Jump again."
-} } });
+} } } });
 ```
 
 | Global setting | Default |

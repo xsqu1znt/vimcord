@@ -47,4 +47,4 @@ The result contains `message` in every case. `onResolve` may return `"disable"`,
 | `prompt.buttons.reject` | Red Reject button |
 | `prompt.highlightSelectedButton` | `false` |
 
-Configure these with `defineGlobalUxConfig`. Highlighting applies when the resolution action disables components. Use [BetterModal](modal.md) when the answer needs typed text or selections.
+Configure these with the client's `ux.prompt` option. Highlighting applies when the resolution action disables components. Use [BetterModal](modal.md) when the answer needs typed text or selections.

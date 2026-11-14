@@ -4,7 +4,7 @@ This bot runs on Vimcord, a Discord.js framework. Before writing code, read `nod
 
 ## Modules
 
-- `src/index.ts` creates the client. `modules: "./"` loads modules from every folder under `src` by file suffix.
+- `src/index.ts` creates the client. `modules: "./"` loads modules from every folder under `src` by file suffix. Shared command hooks go in its `hooks` option and UX defaults (embed colors, default command replies) in `ux`.
 - One module per file, as its default export. Any file without one of these suffixes is a helper and is never loaded.
 
 | Suffix | Default export |

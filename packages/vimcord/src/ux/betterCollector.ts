@@ -4,7 +4,7 @@ import type { OnResolve, ParticipantsOption, TimingOptions } from "./shared.js";
 
 import { createRoutedMessageCollector } from "./interactionRouter.js";
 import { handleResolveAction, isMessageGone, resolveParticipantIds, resolveTiming } from "./shared.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 type ClickListener = (interaction: MessageComponentInteraction) => unknown;
 
@@ -76,7 +76,7 @@ export class BetterCollector {
         this.participantIds = resolveParticipantIds(options.participants, message, options.interaction);
         this.notAParticipantMessage =
             options.notAParticipantMessage === undefined
-                ? getGlobalUxConfig().collector.notAParticipantMessage
+                ? uxConfig.collector.notAParticipantMessage
                 : options.notAParticipantMessage;
         const timing = resolveTiming(options);
 
@@ -106,7 +106,7 @@ export class BetterCollector {
         if (!this.options.clickLock) return true;
 
         if (this.activeUsers.has(userId)) {
-            return this.rejectClick(interaction, getGlobalUxConfig().collector.clickLockMessage);
+            return this.rejectClick(interaction, uxConfig.collector.clickLockMessage);
         }
         this.activeUsers.add(userId);
         return true;

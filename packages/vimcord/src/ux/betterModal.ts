@@ -42,7 +42,7 @@ import {
 import { createRandomId } from "@/utils/str.js";
 import { dynaSend } from "./dynaSend.js";
 import { awaitRoutedModal } from "./interactionRouter.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { uxConfig } from "./uxConfig.js";
 
 /** Label and description displayed above a modal input. */
 interface LabelComponentOptions {
@@ -380,7 +380,7 @@ export class BetterModal<Fields extends object = Record<never, never>> {
         let modalSubmit: ModalSubmitInteraction;
 
         try {
-            const timeout = options.timeout ?? getGlobalUxConfig().modal.timeout;
+            const timeout = options.timeout ?? uxConfig.modal.timeout;
             modalSubmit = await awaitRoutedModal(interaction.client, this.customId, timeout);
         } catch (error) {
             if (isModalTimeout(error)) return null;

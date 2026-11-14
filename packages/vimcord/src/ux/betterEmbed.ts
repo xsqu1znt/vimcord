@@ -12,7 +12,7 @@ import type {
 
 import { resolveColor } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
-import { resolveGlobalEmbedColor } from "./uxConfig.js";
+import { resolveEmbedColor } from "./uxConfig.js";
 
 /** Embed author text with an optional icon and link. */
 export interface BetterEmbedAuthor {
@@ -112,7 +112,7 @@ export class BetterEmbed {
             imageUrl: data.imageUrl ?? null,
             footer: data.footer ?? null,
             fields: data.fields ?? [],
-            color: data.color === undefined ? resolveGlobalEmbedColor() : data.color,
+            color: data.color === undefined ? resolveEmbedColor() : data.color,
             timestamp: data.timestamp ?? null
         };
     }

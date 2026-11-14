@@ -12,7 +12,8 @@ const client = new Vimcord({
     name: "Example Bot",
     plugins: [new DotEnvPlugin()],
     prefix: "!",
-    modules: "./"
+    modules: "./",
+    ux: { embedColor: "Blue", command: { error: null } }
 });
 await client.status.set({ activity: { type: ActivityType.Watching, name: c => `${c.guilds.cache.size} servers` }, interval: 60_000 });
 await client.login();
@@ -35,7 +36,8 @@ await client.login();
 | `prefix` | String, strings, or sync/async `(message) => string \| string[] \| null` | No prefix commands |
 | `allowMention` | Accept a bot mention as a prefix | `false` |
 | `syncCommands` | Sync application commands after readiness | `true` |
-| `hooks` | Shared `all`, `prefix`, `slash`, and `context` hooks | None |
+| `hooks` | Command hooks: top-level ones for every command, plus `prefix`, `slash`, and `context` | None |
+| `ux` | UX defaults for embeds, collectors, paginators, prompts, modals, and command replies; see [Embeds](ux/embed.md#global-colors) | Built-in defaults |
 | `staff` | Staff IDs and staff guild | No staff |
 
 `login(token?)` installs plugins, reads the token, runs `onPluginsInstalled`, loads modules, installs command listeners, then connects. It reads `TOKEN_DEV` in dev mode and `TOKEN` otherwise. Failed login unloads acquired resources so it can be retried. Missing dependencies or dependency cycles fail at construction. Plugin startup and module import failures abort login; a command sync failure after readiness is logged without stopping the bot.
@@ -46,7 +48,9 @@ With `syncCommands`, readiness syncs global commands, then guild commands in the
 
 `/register global` and `/register guild <guilds...|all>` sync the same way. Guild targets get every matching command except those registered to other guilds. With `--names`, `--category`, or `--tag`, the push only creates and patches; nothing outside the filter is deleted. `/unregister` clears a whole scope.
 
-`awaitReady(timeout = 60_000)` resolves to a boolean. Mutable accessors are `$name`, `$version`, `$devMode`, and `$verbose`. Changing `$devMode` also updates global UX colors; reapply status to select another environment profile.
+`awaitReady(timeout = 60_000)` resolves to a boolean. Mutable accessors are `$name`, `$version`, `$devMode`, and `$verbose`. Changing `$devMode` also updates UX colors; reapply status to select another environment profile.
+
+`ux` is merged over the built-in UX defaults at construction; its dev-mode flag follows `devMode`. `destroy()` restores the built-in UX defaults, so the next client starts from its own `ux`.
 
 ## Module directories
 

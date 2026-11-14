@@ -1,7 +1,7 @@
 import type { ClientEvents, Interaction, Message } from "discord.js";
 import type { CommandPrefix } from "./CommandManager.js";
 
-import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
+import { Collection, ContextMenuCommandBuilder, InteractionContextType, Routes, SlashCommandBuilder } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     MessageContextCommandModule,
@@ -551,6 +551,49 @@ describe("CommandManager registration preparation", () => {
             body: { name: "new", description: "d", type: 1 }
         });
         expect(client.rest.put).not.toHaveBeenCalled();
+    });
+
+    it("limits guildOnly app commands to the guild context unless the builder sets its own", () => {
+        const execute = () => {};
+        const slash = new SlashCommandBuilder().setName("ban").setDescription("d");
+        const modules = [
+            new SlashCommandModule({ builder: slash, guildOnly: true, execute }),
+            new MessageContextCommandModule({ builder: b => b.setName("report"), guildOnly: true, execute }),
+            new UserContextCommandModule({ builder: b => b.setName("warn"), guildOnly: true, execute })
+        ];
+        expect(modules.map(m => m.builder.toJSON().contexts)).toEqual([[0], [0], [0]]);
+
+        const own = new SlashCommandModule({
+            builder: b => b.setName("kick").setDescription("d").setContexts(InteractionContextType.PrivateChannel),
+            guildOnly: true,
+            execute
+        });
+        expect(own.builder.toJSON().contexts).toEqual([InteractionContextType.PrivateChannel]);
+        expect(
+            new SlashCommandModule({ builder: b => b.setName("ping").setDescription("d"), execute }).builder.contexts
+        ).toBe(undefined);
+    });
+
+    it("patches a guildOnly command published with default contexts once, then reports it unchanged", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        const module = new SlashCommandModule({
+            builder: b => b.setName("ban").setDescription("d"),
+            guildOnly: true,
+            execute() {}
+        });
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([module]);
+        const remote = { id: "ban-id", name: "ban", description: "d", type: 1, contexts: [0, 1, 2] };
+        client.rest.get.mockResolvedValue([remote]);
+
+        await manager.push();
+        expect(client.rest.patch).toHaveBeenCalledExactlyOnceWith(Routes.applicationCommand("app", "ban-id"), {
+            body: expect.objectContaining({ contexts: [0] })
+        });
+
+        remote.contexts = [0];
+        await manager.push();
+        expect(client.rest.patch).toHaveBeenCalledOnce();
     });
 });
 

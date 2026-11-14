@@ -17,7 +17,7 @@ import type {
 import { applyDeferReply } from "@/commands/commandDeferral.js";
 import { pickRestrictions, testCommandPermissions, warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
 import { resolveBlockReply, sendCommandReply } from "@/commands/commandReplies.js";
-import { getGlobalUxConfig } from "@/ux/uxConfig.js";
+import { uxConfig } from "@/ux/uxConfig.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
@@ -32,11 +32,11 @@ function getCommandHooks<T extends CommandModuleType>(
     return hooks?.[key] as CommandModuleHooks<T> | undefined;
 }
 
-/** The client's `all` hooks, typed for one command kind. */
-function getAllCommandHooks<T extends CommandModuleType>(
+/** The client's top-level hooks shared by every command kind, typed for one kind. */
+function getSharedCommandHooks<T extends CommandModuleType>(
     hooks: GlobalCommandHooks | undefined
 ): CommandModuleHooks<T> | undefined {
-    return hooks?.all as CommandModuleHooks<T> | undefined;
+    return hooks as CommandModuleHooks<T> | undefined;
 }
 
 /** Base for command modules with shared permissions, hooks, and routing. */
@@ -199,16 +199,16 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         return `${this.id}:${ctx.user.id}`;
     }
 
-    /** Returns the module's hook, else the client's hook for this command kind, else the client's `all` hook. */
+    /** Returns the module's hook, else the client's hook for this command kind, else the client's shared hook. */
     protected override getHook<K extends keyof CommandModuleHooks<T>>(hook: K): CommandModuleHooks<T>[K] | undefined {
         const globals = this.client?.globals.hooks;
-        return this.hooks[hook] ?? getCommandHooks(this.type, globals)?.[hook] ?? getAllCommandHooks<T>(globals)?.[hook];
+        return this.hooks[hook] ?? getCommandHooks(this.type, globals)?.[hook] ?? getSharedCommandHooks<T>(globals)?.[hook];
     }
 
-    /** Runs the client's `all` gate, then its gate for this kind, then the module's, so no narrower gate can skip a wider one. */
+    /** Runs the client's shared gate, then its gate for this kind, then the module's, so no narrower gate can skip a wider one. */
     protected override async runBefore(ctx: CommandModuleHookContext<T>): Promise<boolean> {
         const globals = this.client?.globals.hooks;
-        if (!(await this.callBefore(getAllCommandHooks<T>(globals)?.before, ctx))) return false;
+        if (!(await this.callBefore(getSharedCommandHooks<T>(globals)?.before, ctx))) return false;
         if (!(await this.callBefore(getCommandHooks(this.type, globals)?.before, ctx))) return false;
         return this.callBefore(this.hooks.before, ctx);
     }
@@ -223,7 +223,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     /** Logs the error, then sends the configured default error reply. */
     protected override handleUnobservedError(ctx: CommandModuleHookContext<T>, error: Error): Promise<void> | void {
         super.handleUnobservedError(ctx, error);
-        const content = getGlobalUxConfig().command.error;
+        const content = uxConfig.command.error;
         if (content !== null) return this.sendDefaultReply(ctx, content);
     }
 
