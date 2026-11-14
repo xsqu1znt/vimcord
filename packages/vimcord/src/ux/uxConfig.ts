@@ -80,6 +80,23 @@ export interface UxConfig {
         /** Appearance defaults keyed by paginator button ID. */
         buttons: Record<UxPaginatorButtonId, UxPaginatorButtonConfig>;
     };
+    /** Default command replies, sent when no `onBlocked` or `onError` hook takes the invocation. `null` stays silent. */
+    command: {
+        /** Reply when the user has no access grant. @default "You don't have permission to use this command." */
+        noAccess: string | null;
+        /** Reply when the bot lacks `botPermissions`. @default "I'm missing permissions needed to run this command." */
+        botMissingPermissions: string | null;
+        /** Reply when a guild is required outside one. @default "This command can only be used in a server." */
+        notInGuild: string | null;
+        /** Reply for an unmatched subcommand, supporting $PATH. @default "Subcommand '$PATH' was not found." */
+        unknownSubcommand: string | null;
+        /** Reply when the module's `environment` excludes the client's mode. @default null */
+        environment: string | null;
+        /** Reply when `singleInvocation` skips an overlapping run. @default null */
+        running: string | null;
+        /** Reply when the handler or a gate throws. Errors are still logged. @default "Something went wrong while running this command." */
+        error: string | null;
+    };
     /** Modal defaults. */
     modal: {
         /** Milliseconds to wait for a modal submission. @default 60_000 */
@@ -155,6 +172,15 @@ function createDefaultUxConfig(): UxConfig {
                 next: { label: ">" },
                 last: { label: ">>" }
             }
+        },
+        command: {
+            noAccess: "You don't have permission to use this command.",
+            botMissingPermissions: "I'm missing permissions needed to run this command.",
+            notInGuild: "This command can only be used in a server.",
+            unknownSubcommand: "Subcommand '$PATH' was not found.",
+            environment: null,
+            running: null,
+            error: "Something went wrong while running this command."
         },
         modal: {
             timeout: 60_000

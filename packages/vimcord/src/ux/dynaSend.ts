@@ -1,6 +1,6 @@
 import type {
-    ActionRowBuilder,
     BaseMessageOptions,
+    ButtonBuilder,
     CommandInteraction,
     ContainerBuilder,
     DMChannel,
@@ -26,8 +26,10 @@ import type {
 import type { BetterContainer } from "./BetterContainer.js";
 
 import {
+    ActionRowBuilder,
     BaseChannel,
     BaseInteraction,
+    ComponentType,
     GuildMember,
     InteractionCallbackResponse,
     Message,
@@ -96,8 +98,8 @@ export interface DynaSendOptions {
     content?: string;
     /** Embeds attached to the message. */
     embeds?: EmbedResolvable[];
-    /** Action rows or Components V2 containers attached to the message. */
-    components?: SendableComponent[];
+    /** Action rows or Components V2 containers, or a flat list of buttons split into rows of 5. */
+    components?: SendableComponent[] | ButtonBuilder[];
     /** Attachments included with the message. */
     files?: Mutable<BaseMessageOptions["files"]>;
     /** Stickers included with the message. */
@@ -121,9 +123,35 @@ export interface DynaSendOptions {
 }
 
 const EXCLUDE_EPHEMERAL = [MessageFlags.Ephemeral] as const;
+const MAX_BUTTONS_PER_ROW = 5;
 const EXCLUDE_EPHEMERAL_AND_SUPPRESS = [MessageFlags.Ephemeral, MessageFlags.SuppressNotifications] as const;
 
 // Checks if response is a deferred channel message with source
+/** Splits row components into action rows of 5. Callers check the components can share a row. */
+export function chunkIntoRows(
+    components: readonly MessageActionRowComponentBuilder[]
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+    for (let i = 0; i < components.length; i += MAX_BUTTONS_PER_ROW) {
+        rows.push(
+            new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(
+                components.slice(i, i + MAX_BUTTONS_PER_ROW)
+            )
+        );
+    }
+    return rows;
+}
+
+function isButton(component: unknown): component is ButtonBuilder {
+    return (component as { data?: { type?: unknown } }).data?.type === ComponentType.Button;
+}
+
+/** Splits a flat button list into action rows; rows and containers pass through untouched. */
+export function toSendableComponents(components: DynaSendOptions["components"]): SendableComponent[] {
+    if (!components?.length) return [];
+    return components.every(isButton) ? chunkIntoRows(components) : (components as SendableComponent[]);
+}
+
 function isInteractionCallback(obj: unknown): obj is InteractionCallbackResponse {
     return obj instanceof InteractionCallbackResponse;
 }
@@ -278,6 +306,7 @@ export function dynaSend<T extends SendHandler>(
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
     const { method: requested, deleteAfter, ...data } = options;
     const sendMethod = resolveSendMethod(handler, requested);
+    if (data.components) data.components = toSendableComponents(data.components);
 
     if (sendMethod === "editReply" || sendMethod === "messageEdit") {
         data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS);

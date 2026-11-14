@@ -170,7 +170,7 @@ describe("run-once migrations", () => {
             order.push("gateway");
             return "token";
         });
-        const client = new Vimcord({ intents: [], disableBanner: true, plugins: [plugin] });
+        const client = new Vimcord({ intents: [], banner: false, plugins: [plugin] });
         try {
             await client.login("token");
             expect(order).toEqual(["migration:true", "gateway"]);
@@ -180,7 +180,7 @@ describe("run-once migrations", () => {
             failing.defineMigration(`fails-${Date.now()}`, async () => {
                 throw new Error("backfill failed");
             });
-            const second = new Vimcord({ intents: [], disableBanner: true, plugins: [failing] });
+            const second = new Vimcord({ intents: [], banner: false, plugins: [failing] });
             gateway.mockClear();
             await expect(second.login("token")).rejects.toThrow(/backfill failed/);
             expect(gateway).not.toHaveBeenCalled();

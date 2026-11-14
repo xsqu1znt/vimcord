@@ -2,8 +2,11 @@ import type { ChatInputCommandInteraction } from "discord.js";
 import type { SendHandler } from "./dynaSend.js";
 
 import {
+    ActionRowBuilder,
     BaseChannel,
     BaseInteraction,
+    ButtonBuilder,
+    ButtonStyle,
     GuildMember,
     InteractionCallbackResponse,
     Message,
@@ -81,6 +84,20 @@ describe("dynaSend transport", () => {
         );
         await expect(dynaSend(handler, { content: "Response", method: "edit" })).rejects.toThrow(/interaction or a message/);
         expect(send).not.toHaveBeenCalled();
+    });
+
+    it("splits a flat button list into rows of 5 and passes built rows through untouched", async () => {
+        const { handler, send } = target(BaseChannel.prototype);
+        const buttons = Array.from({ length: 7 }, (_, i) =>
+            new ButtonBuilder().setCustomId(`b${i}`).setLabel(`${i}`).setStyle(ButtonStyle.Primary)
+        );
+        await dynaSend(handler, { components: buttons });
+        const rows = send.mock.calls[0]![0].components as ActionRowBuilder[];
+        expect(rows.map(r => r.components.length)).toEqual([5, 2]);
+
+        const built = [new ActionRowBuilder<ButtonBuilder>().setComponents(buttons[0]!)];
+        await dynaSend(handler, { components: built });
+        expect(send.mock.calls[1]![0].components).toBe(built);
     });
 
     it("throws rather than return nothing when the message was asked for", async () => {

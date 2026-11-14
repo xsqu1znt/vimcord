@@ -160,7 +160,7 @@ describe("AbstractModule stages", () => {
         expect(onError).toHaveBeenCalledOnce();
     });
 
-    it("blocks outside its environment, sending the block to onBlocked or else to onError", async () => {
+    it("blocks outside its environment, sending the block to onBlocked and never to onError", async () => {
         const execute = vi.fn();
         const client = { ...createClient(), $devMode: true };
         const onBlocked = vi.fn();
@@ -176,7 +176,7 @@ describe("AbstractModule stages", () => {
         const fallback = new TestModule({ name: "env", environment: "production", execute, hooks: { onError } });
         fallback.inject(client);
         await fallback.run("a");
-        expect(onError).toHaveBeenCalledOnce();
+        expect(onError).not.toHaveBeenCalled();
         expect(execute).not.toHaveBeenCalled();
     });
 

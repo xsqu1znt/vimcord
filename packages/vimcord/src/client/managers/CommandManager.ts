@@ -1,4 +1,4 @@
-import type { Interaction, Message, RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
+import type { GuildResolvable, Interaction, Message, RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
 import type { CommandModuleType } from "@/abstracts/index.js";
 import type {
     MessageContextCommandModule,
@@ -28,6 +28,13 @@ interface PreparedCommand {
     signature: string;
 }
 
+interface SyncResult {
+    created: number;
+    updated: number;
+    unchanged: number;
+    deleted: number;
+}
+
 type CommandPrefixResult = string | string[] | null;
 
 /** Message prefixes to listen for. A function runs once per message, sync or async; returning `null` ignores the message. */
@@ -47,6 +54,21 @@ const COMMAND_MANAGER_LOGGER = "CommandManager";
 // A dispatch reads the token synchronously before any handler can run.
 const PREFIX_TRIGGER = /\S+/g;
 const GUILD_SYNC_CONCURRENCY = 5;
+
+/** Whether a push covers every loaded command, which is the only time it may delete remote commands. */
+function isUnfiltered(filter: CommandFilter): boolean {
+    return !filter.names?.length && !filter.category && !filter.tag;
+}
+
+/** The guild IDs a command's `registration.guilds` names, or null when it names none. */
+function getRegistrationGuildIds(guilds: GuildResolvable[] | undefined): Set<string> | null {
+    if (!guilds?.length) return null;
+    return new Set(guilds.map(resolveGuildId).filter((id): id is string => id !== null));
+}
+
+function formatSyncResult(result: SyncResult): string {
+    return `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged, ${result.deleted} deleted`;
+}
 
 export class PrefixCommandManager extends BaseCommandManager<CommandModuleType.Prefix, PrefixCommandModule> {
     private readonly aliases = new Map<string, PrefixCommandModule[]>();
@@ -146,19 +168,20 @@ export class CommandManager {
     }
 
     /**
-     * Pushes app commands to the bot application.
+     * Pushes global app commands to the bot application. Without a filter it is a full sync that also deletes remote global commands no loaded module matches; a filtered push never deletes.
      * @param options Filter options.
      * @returns Whether command synchronization completed.
      */
     async push(options: CommandFilter = {}): Promise<boolean> {
         const client = await this.getReadyClient("push app commands");
         if (!client) return false;
+        const prune = isUnfiltered(options);
 
         // --- Command Payloads ---
         const commands = this.getAllAppCommands(options)
-            .filter(command => command.registration.global !== false)
+            .filter(command => command.registration.global)
             .map(command => this.prepareCommand(command.builder.toJSON(), "global"));
-        if (!commands.length) {
+        if (!commands.length && !prune) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to push");
             return false;
         }
@@ -170,16 +193,14 @@ export class CommandManager {
 
         // --- Remote Sync ---
         const existing = (await client.rest.get(Routes.applicationCommands(client.user.id))) as RemoteApplicationCommand[];
-        const result = await this.upsertApplicationCommands(commands, existing, {
+        const result = await this.syncRemoteCommands(commands, existing, {
             scope: "global",
             createRoute: Routes.applicationCommands(client.user.id),
-            editRoute: commandId => Routes.applicationCommand(client.user.id, commandId)
+            editRoute: commandId => Routes.applicationCommand(client.user.id, commandId),
+            deleteRoute: prune ? commandId => Routes.applicationCommand(client.user.id, commandId) : undefined
         });
         this.client.logger.module(COMMAND_MANAGER_LOGGER, "🗸 Pushed app commands");
-        this.client.logger.module(
-            COMMAND_MANAGER_LOGGER,
-            `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
-        );
+        this.client.logger.module(COMMAND_MANAGER_LOGGER, formatSyncResult(result));
         return true;
     }
 
@@ -198,62 +219,71 @@ export class CommandManager {
     }
 
     /**
-     * Pushes app commands to each guild the bot application is in.
-     * @param options Filter options.
-     * @returns Whether command synchronization completed.
+     * Pushes app commands to guilds. With `guilds`, each target gets every matching command except those registered to other guilds. Without it, only commands with `registration.guilds` are pushed, to the guilds they name. Without a filter, remote commands in each targeted guild that are not in its payload are deleted; a filtered push never deletes. A failed guild is logged and the rest continue.
+     * @param options Filter options and explicit target guilds.
+     * @returns Whether every targeted guild synchronized.
      */
     async pushByGuild(options: CommandFilter & { guilds?: string[] } = {}): Promise<boolean> {
         const client = await this.getReadyClient("push app commands by guild");
         if (!client) return false;
+        const prune = isUnfiltered(options);
+        const explicit = Boolean(options.guilds?.length);
 
-        const commands = this.getAllAppCommands(options);
-        if (!commands.length) {
+        // --- Command Payloads ---
+        const prepared = this.getAllAppCommands(options)
+            .map(c => ({ targets: getRegistrationGuildIds(c.registration.guilds), command: c }))
+            .filter(c => explicit || c.targets)
+            .map(c => ({ targets: c.targets, command: this.prepareCommand(c.command.builder.toJSON(), "guild") }));
+        if (!prepared.length) {
             this.client.logger.module(COMMAND_MANAGER_LOGGER, "✖ There are no app commands to register");
             return false;
         }
 
-        // Default to every cached guild when the caller does not provide a narrower target list
-        const guildIds = options.guilds?.length ? options.guilds : client.guilds.cache.map(guild => guild.id);
-
-        const prepared = commands.map(c => ({
-            command: this.prepareCommand(c.builder.toJSON(), "guild"),
-            targets: c.registration.guilds?.length ? new Set(c.registration.guilds.map(resolveGuildId)) : null
-        }));
-
+        const guildIds = explicit ? options.guilds! : [...new Set(prepared.flatMap(c => [...c.targets!]))];
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
             `↑ Pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}...`
         );
 
-        // Sync guilds with bounded concurrency; a large guild count would otherwise fire every REST request at once
+        // --- Remote Sync ---
+        // Bounded concurrency; a large guild count would otherwise fire every REST request at once
+        let failed = 0;
         await mapWithConcurrency(guildIds, GUILD_SYNC_CONCURRENCY, async guildId => {
             const payload = prepared.filter(c => !c.targets || c.targets.has(guildId)).map(c => c.command);
-            if (!payload.length) {
+            if (!payload.length && !prune) {
                 this.client.logger.debug(`[${COMMAND_MANAGER_LOGGER}] Skipping ${guildId}, no commands target this guild`);
                 return;
             }
 
-            const existing = (await client.rest.get(
-                Routes.applicationGuildCommands(client.user.id, guildId)
-            )) as RemoteApplicationCommand[];
-            const result = await this.upsertApplicationCommands(payload, existing, {
-                scope: "guild",
-                createRoute: Routes.applicationGuildCommands(client.user.id, guildId),
-                editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
-            });
             const guildName = client.guilds.cache.get(guildId)?.name ?? "n/a";
-            this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pushed app commands to ${guildName} (${guildId})`);
-            this.client.logger.module(
-                COMMAND_MANAGER_LOGGER,
-                `╰ ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`
-            );
+            try {
+                const existing = (await client.rest.get(
+                    Routes.applicationGuildCommands(client.user.id, guildId)
+                )) as RemoteApplicationCommand[];
+                const result = await this.syncRemoteCommands(payload, existing, {
+                    scope: "guild",
+                    createRoute: Routes.applicationGuildCommands(client.user.id, guildId),
+                    editRoute: commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId),
+                    deleteRoute: prune
+                        ? commandId => Routes.applicationGuildCommand(client.user.id, guildId, commandId)
+                        : undefined
+                });
+                this.client.logger.module(COMMAND_MANAGER_LOGGER, `Pushed app commands to ${guildName} (${guildId})`);
+                this.client.logger.module(COMMAND_MANAGER_LOGGER, formatSyncResult(result));
+            } catch (error) {
+                failed++;
+                this.client.logger.error(
+                    `[${COMMAND_MANAGER_LOGGER}] Failed to push app commands to ${guildName} (${guildId})`,
+                    error as Error
+                );
+            }
         });
 
         this.client.logger.module(
             COMMAND_MANAGER_LOGGER,
-            `🗸 Finished pushing app commands to ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
+            `🗸 Finished pushing app commands to ${guildIds.length - failed} of ${guildIds.length} guild${guildIds.length === 1 ? "" : "s"}`
         );
-        return true;
+        return !failed;
     }
 
     /**
@@ -409,28 +439,29 @@ export class CommandManager {
         };
     }
 
-    private async upsertApplicationCommands(
+    /** Creates missing commands and patches changed ones in one scope, then deletes unmatched remote commands when `deleteRoute` is given. */
+    private async syncRemoteCommands(
         commands: PreparedCommand[],
         existing: RemoteApplicationCommand[],
         routes: {
             scope: ApplicationCommandRegistrationScope;
             createRoute: RestRoute;
             editRoute(commandId: string): RestRoute;
+            deleteRoute?(commandId: string): RestRoute;
         }
-    ): Promise<{ created: number; updated: number; unchanged: number }> {
-        let created = 0;
-        let updated = 0;
-        let unchanged = 0;
+    ): Promise<SyncResult> {
+        const result: SyncResult = { created: 0, updated: 0, unchanged: 0, deleted: 0 };
 
         // Name and type form Discord's stable command identity across local and remote payloads
         const existingByKey = new Map(existing.map(command => [createApplicationCommandKey(command), command]));
 
         for (const command of commands) {
             const existingCommand = existingByKey.get(command.key);
+            existingByKey.delete(command.key);
             if (!existingCommand) {
                 // Missing remote commands can be created without disturbing existing ids
                 await this.client.rest.post(routes.createRoute, { body: command.payload });
-                created++;
+                result.created++;
                 continue;
             }
 
@@ -439,13 +470,19 @@ export class CommandManager {
                 await this.client.rest.patch(routes.editRoute(existingCommand.id), {
                     body: createApplicationCommandUpdatePayload(command.payload, routes.scope)
                 });
-                updated++;
+                result.updated++;
                 continue;
             }
 
-            unchanged++;
+            result.unchanged++;
         }
 
-        return { created, updated, unchanged };
+        // Whatever is left has no local module
+        if (!routes.deleteRoute) return result;
+        for (const stale of existingByKey.values()) {
+            await this.client.rest.delete(routes.deleteRoute(stale.id));
+            result.deleted++;
+        }
+        return result;
     }
 }

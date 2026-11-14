@@ -17,7 +17,9 @@ type EventModuleHookContext<Args extends unknown[]> = ModuleHookContext<Args, bo
 export interface EventModuleOptions<
     Event extends keyof VimcordClientEvents = keyof VimcordClientEvents,
     Args extends VimcordClientEvents[Event] = VimcordClientEvents[Event]
-> extends ModuleOptions<Args, EventModuleContext<Args>, EventModuleHookContext<Args>> {
+> extends Omit<ModuleOptions<Args, EventModuleContext<Args>, EventModuleHookContext<Args>>, "name"> {
+    /** Name shown in logs and used by `getByName`. Names need not be unique. @default the event name */
+    name?: string;
     /** Waits for readiness before handling this event. @default false */
     requiresReady?: boolean;
     /** The client event to trigger on. */
@@ -39,7 +41,7 @@ export class EventModule<
     readonly once: boolean;
 
     constructor(options: EventModuleOptions<Event, Args>) {
-        super({ requiresReady: false, ...options });
+        super({ requiresReady: false, ...options, name: options.name ?? options.event });
 
         this.event = options.event;
         this.once = options.once ?? false;

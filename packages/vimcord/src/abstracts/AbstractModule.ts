@@ -1,6 +1,5 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 
-import { ModuleError } from "@/errors/ModuleError.js";
 import { createHumanId } from "@/utils/str.js";
 
 /** Whether a module check passed, with failure details when it did not. */
@@ -62,7 +61,7 @@ export interface ModuleContext<Ready extends boolean = true> {
     client: Vimcord<Ready>;
 }
 
-/** Module, client, and error supplied to lifecycle hooks. */
+/** Module and client supplied to lifecycle hooks. */
 export interface ModuleHookContext<
     Args extends unknown[] = unknown[],
     Ready extends boolean = true,
@@ -72,8 +71,6 @@ export interface ModuleHookContext<
     module: Module;
     /** Client that owns or runs this operation. */
     client: Vimcord<Ready>;
-    /** Error raised while handling the invocation. */
-    error?: Error;
 }
 
 // --- Module Options ---
@@ -85,7 +82,7 @@ export interface ModuleOptions<
     Hooks extends ModuleHooks<Args, HookCTX, any> = ModuleHooks<Args, HookCTX>
 > {
     /** Stable module identifier. @default generated human-readable ID */
-    customId?: string;
+    id?: string;
     /** The name of the module. */
     name: string;
     /** Optional description of the module. */
@@ -131,10 +128,10 @@ export interface ModuleHooks<
 > {
     /** Gates the handler. Anything but `true` stops the invocation; respond to the user here when you do. */
     before?(ctx: HookCTX): Promise<boolean> | boolean;
-    /** Handles a blocked invocation; without a hook, reasoned blocks call onError and running blocks do nothing. */
+    /** Handles a blocked invocation; without a hook, commands send their default reply and events ignore it. */
     onBlocked?(ctx: HookCTX, block: Block): Promise<void> | void;
-    /** Handles invocation failures; without a hook, handler errors are logged and blocks are ignored. */
-    onError?(ctx: HookCTX): Promise<void> | void;
+    /** Handles a thrown handler or gate; without a hook, the error is logged and commands also send their default reply. */
+    onError?(ctx: HookCTX, error: Error): Promise<void> | void;
 }
 
 // --- Abstract Module ---
@@ -180,8 +177,8 @@ export abstract class AbstractModule<
     protected readonly execute: (ctx: ModuleCTX) => unknown;
 
     constructor(options: ModuleOptions<Args, ModuleCTX, HookCTX, Hooks>) {
-        const { customId, name, metadata, enabled, requiresReady, environment, singleInvocation, hooks, execute } = options;
-        this.id = customId ?? createHumanId();
+        const { id, name, metadata, enabled, requiresReady, environment, singleInvocation, hooks, execute } = options;
+        this.id = id ?? createHumanId();
         this.name = name;
         this.metadata = metadata ?? {};
 
@@ -232,12 +229,27 @@ export abstract class AbstractModule<
         }
     }
 
-    /** Default handling of a block no `onBlocked` hook received. */
-    protected async handleUnobservedBlock(ctx: HookCTX, block: Block): Promise<void> {
-        const { reason } = block as { reason?: string };
-        if (reason === undefined) return;
-        ctx.error ??= new ModuleError(reason);
-        await this.runHook("onError" as keyof Hooks, ctx);
+    /** Default handling of a block no `onBlocked` hook received. Blocks are silent unless a subclass answers them. */
+    protected handleUnobservedBlock(_ctx: HookCTX, _block: Block): void | Promise<void> {}
+
+    /** Default handling of an error no `onError` hook received: logs it. Commands also reply to the user. */
+    protected handleUnobservedError(_ctx: HookCTX, error: Error): void | Promise<void> {
+        this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error);
+    }
+
+    /** Reports a thrown handler or gate to `onError`, or to the default handling when no hook is set. */
+    protected async handleError(ctx: HookCTX, error: Error): Promise<void> {
+        const onError = this.getHook("onError" as keyof Hooks) as ((ctx: HookCTX, error: Error) => unknown) | undefined;
+        try {
+            if (onError) {
+                await this.timed(
+                    () => `Ran hook 'onError' for '${this.buildName()}'`,
+                    () => onError(ctx, error)
+                );
+            } else await this.handleUnobservedError(ctx, error);
+        } catch (err) {
+            this.client!.logger.error(`[Module] Hook 'onError' failed for '${this.buildName()}'`, err as Error);
+        }
     }
 
     /** Runs the `before` gate. Commands override this to compose the client's gate with the module's. */
@@ -288,33 +300,6 @@ export abstract class AbstractModule<
             this.client!.logger.debug(`[Module] ${label} in ${(performance.now() - startedAt).toFixed(1)}ms`);
             return result;
         });
-    }
-
-    /** Runs a hook with relevant context and an optional fallback. */
-    async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
-        hook: K,
-        ctx: HookContext,
-        fallback?: (ctx: HookContext) => Promise<void>
-    ): Promise<void> {
-        const injected = this.checkInjection();
-        if (!(typeof injected === "boolean" ? injected : await injected)) return;
-        const hookFn = this.getHook(hook) as ((ctx: HookContext) => Promise<void>) | undefined;
-
-        try {
-            if (hookFn) {
-                await this.timed(
-                    () => `Ran hook '${String(hook)}' for '${this.buildName()}'`,
-                    () => hookFn(ctx)
-                );
-            } else if (fallback) {
-                await this.timed(
-                    () => `Ran fallback hook '${String(hook)}' for '${this.buildName()}'`,
-                    () => fallback(ctx)
-                );
-            }
-        } catch (err) {
-            this.client!.logger.error(`[Module] Hook '${String(hook)}' failed for '${this.buildName()}'`, err as Error);
-        }
     }
 
     /** Execute order: */
@@ -389,10 +374,7 @@ export abstract class AbstractModule<
 
             return complete({ executed, response: executeResponse, executionTiming });
         } catch (err) {
-            hookCTX.error = err as Error;
-            await this.runHook("onError", hookCTX, async () =>
-                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
-            );
+            await this.handleError(hookCTX, err as Error);
             return complete({ executed, response: undefined, error: err as Error, executionTiming });
         }
     }

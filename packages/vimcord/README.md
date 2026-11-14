@@ -55,9 +55,7 @@ import { Vimcord } from "vimcord";
 
 const client = new Vimcord({
     intents: [GatewayIntentBits.Guilds],
-    modules: {
-        slashCommands: { dir: "./commands", suffix: ".slash" }
-    }
+    modules: "./commands"
 });
 
 await client.login();

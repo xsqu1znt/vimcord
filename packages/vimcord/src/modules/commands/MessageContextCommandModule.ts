@@ -1,7 +1,12 @@
-import type { CommandModuleContext, ContextCommandModuleOptions } from "@/abstracts/index.js";
+import type {
+    CommandModuleContext,
+    ContextCommandModuleOptions,
+    ResolvedAppCommandRegistration
+} from "@/abstracts/index.js";
 
 import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import { resolveRegistration } from "@/commands/commandRegistration.js";
 
 type MessageContextCommandModuleOptions = ContextCommandModuleOptions<CommandModuleType.MessageContext>;
 
@@ -17,7 +22,7 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
     /** Defers the interaction before the handler runs. */
     override readonly deferReply: MessageContextCommandModuleOptions["deferReply"];
     /** Guild and global application command registration scopes. */
-    readonly registration: NonNullable<MessageContextCommandModuleOptions["registration"]>;
+    readonly registration: ResolvedAppCommandRegistration;
 
     constructor(options: MessageContextCommandModuleOptions) {
         const builder =
@@ -33,6 +38,6 @@ export class MessageContextCommandModule extends AbstractCommandModule<CommandMo
         this.directExecution = new.target === MessageContextCommandModule;
         this.builder = builder;
         this.deferReply = options.deferReply;
-        this.registration = { global: true, ...options.registration };
+        this.registration = resolveRegistration(options.registration);
     }
 }

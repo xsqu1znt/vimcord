@@ -37,8 +37,13 @@ function walkFiles(dir: string, base = ""): string[] {
  * Recursively imports matching modules from a directory relative to the entry file. Throws naming the directory when it is missing or has no matches, and naming every file that fails to import.
  * @param dir Directory to search
  * @param suffix Filename suffixes to import; `null` imports every module
+ * @param allowEmpty Returns nothing instead of throwing when no file matches
  */
-export async function importModulesFromDir<T>(dir: string, suffix: string | string[] | null): Promise<ImportedModule<T>[]> {
+export async function importModulesFromDir<T>(
+    dir: string,
+    suffix: string | string[] | null,
+    allowEmpty = false
+): Promise<ImportedModule<T>[]> {
     const root = path.resolve(getProcessDir(), dir);
     if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
         throw new ModuleError(`Module directory '${dir}' does not exist (resolved to '${root}')`);
@@ -46,6 +51,7 @@ export async function importModulesFromDir<T>(dir: string, suffix: string | stri
 
     const files = walkFiles(root).filter(filename => isTSOrJS(filename, suffix));
     if (!files.length) {
+        if (allowEmpty) return [];
         throw new ModuleError(`Module directory '${dir}' has no modules matching suffix ${JSON.stringify(suffix)}`);
     }
 

@@ -8,8 +8,8 @@ import { VimcordPlugin } from "vimcord";
 
 export class MetricsPlugin extends VimcordPlugin {
     name = "metrics";
-    description = "Reports in-process metrics health.";
-    version = "1.0.0";
+    override description = "Reports in-process metrics health.";
+    override version = "1.0.0";
 
     install({ health }: VimcordPluginContext): void {
         health.register({
@@ -24,7 +24,8 @@ export class MetricsPlugin extends VimcordPlugin {
 
 | Member | Purpose | Default |
 | --- | --- | --- |
-| `name`, `description`, `version` | Plugin identity and discovery | Required |
+| `name` | Plugin identity, dependency key, and discovery | Required |
+| `description`, `version` | Shown in `/plugins`; missing ones show `—` | None |
 | `dependencies` | Plugin names installed first | None |
 | `install(context)` | Acquire resources; throw if startup cannot continue | Required |
 | `onPluginsInstalled(context)` | Work requiring all plugins, before modules/gateway | No work |

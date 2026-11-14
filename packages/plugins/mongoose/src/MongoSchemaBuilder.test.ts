@@ -803,6 +803,23 @@ describe("bounded read cache", () => {
         expect(await CachedCooldowns.fetch({ key: "a" }, { hits: 1 })).toMatchObject({ hits: 2 });
     });
 
+    it("takes a projection in options as well as positionally, bypassing the cache either way", async () => {
+        await CachedCooldowns.create({ key: "p", hits: 3 });
+        const cached = await CachedCooldowns.fetch({ key: "p" });
+        await CachedCooldowns.model.updateOne({ key: "p" }, { hits: 4 });
+
+        const projected = await CachedCooldowns.fetch({ key: "p" }, undefined, { projection: { hits: 1, _id: 0 } });
+        expect(projected).toEqual({ hits: 4 });
+        expectTypeOf(projected).toEqualTypeOf<InferDoc<typeof CachedCooldowns> | null>();
+        expect(await CachedCooldowns.fetch({ key: "p" }, { key: 1 }, { projection: { hits: 1, _id: 0 } })).toEqual({
+            hits: 4
+        });
+        expect(await CachedCooldowns.fetchAll({ key: "p" }, undefined, { projection: { key: 1, _id: 0 } })).toEqual([
+            { key: "p" }
+        ]);
+        expect(await CachedCooldowns.fetch({ key: "p" })).toBe(cached);
+    });
+
     it("evicts oldest insertions and expires one-time keys without another read", async () => {
         const builder = attach(
             createMongoSchema("bounded", { key: String }, { cache: { key: "key", ttl: 100, maxEntries: 2 } })

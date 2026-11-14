@@ -16,17 +16,27 @@ import type {
 
 import { applyDeferReply } from "@/commands/commandDeferral.js";
 import { pickRestrictions, testCommandPermissions, warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
+import { resolveBlockReply, sendCommandReply } from "@/commands/commandReplies.js";
+import { getGlobalUxConfig } from "@/ux/uxConfig.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
 const MATCHED_COMMAND = () => true;
 
+/** The client's hooks for one command kind. */
 function getCommandHooks<T extends CommandModuleType>(
     type: T,
     hooks: GlobalCommandHooks | undefined
 ): CommandModuleHooks<T> | undefined {
     const key = type === CommandModuleType.Prefix ? "prefix" : type === CommandModuleType.Slash ? "slash" : "context";
     return hooks?.[key] as CommandModuleHooks<T> | undefined;
+}
+
+/** The client's `all` hooks, typed for one command kind. */
+function getAllCommandHooks<T extends CommandModuleType>(
+    hooks: GlobalCommandHooks | undefined
+): CommandModuleHooks<T> | undefined {
+    return hooks?.all as CommandModuleHooks<T> | undefined;
 }
 
 /** Base for command modules with shared permissions, hooks, and routing. */
@@ -124,11 +134,7 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             : MATCHED_COMMAND;
         const failed = (error: unknown): Promise<boolean> => {
             const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
-            const hookCTX = this.createHookCTX(ctx, args);
-            hookCTX.error = error as Error;
-            return this.runHook("onError", hookCTX, async () =>
-                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error as Error)
-            ).then(() => {
+            return this.handleError(this.createHookCTX(ctx, args), error as Error).then(() => {
                 if (logging) this.logUsage(args[0], startedAt, recognizedAt, executionStartedAt, durationMs, error as Error);
                 return true;
             });
@@ -193,16 +199,41 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
         return `${this.id}:${ctx.user.id}`;
     }
 
-    /** Returns command-local hooks before falling back to the client's hooks. */
+    /** Returns the module's hook, else the client's hook for this command kind, else the client's `all` hook. */
     protected override getHook<K extends keyof CommandModuleHooks<T>>(hook: K): CommandModuleHooks<T>[K] | undefined {
-        return this.hooks[hook] ?? getCommandHooks(this.type, this.client?.globals.hooks)?.[hook];
+        const globals = this.client?.globals.hooks;
+        return this.hooks[hook] ?? getCommandHooks(this.type, globals)?.[hook] ?? getAllCommandHooks<T>(globals)?.[hook];
     }
 
-    /** Runs the client's gate first, so a module's own `before` can never skip it. */
+    /** Runs the client's `all` gate, then its gate for this kind, then the module's, so no narrower gate can skip a wider one. */
     protected override async runBefore(ctx: CommandModuleHookContext<T>): Promise<boolean> {
-        const clientBefore = getCommandHooks(this.type, this.client?.globals.hooks)?.before;
-        if (!(await this.callBefore(clientBefore, ctx))) return false;
+        const globals = this.client?.globals.hooks;
+        if (!(await this.callBefore(getAllCommandHooks<T>(globals)?.before, ctx))) return false;
+        if (!(await this.callBefore(getCommandHooks(this.type, globals)?.before, ctx))) return false;
         return this.callBefore(this.hooks.before, ctx);
+    }
+
+    /** Sends the configured default reply for a block no hook took. Blocks from a bot invoker stay silent. */
+    protected override handleUnobservedBlock(ctx: CommandModuleHookContext<T>, block: CommandBlock): Promise<void> | void {
+        if (ctx.user.bot) return;
+        const content = resolveBlockReply(block);
+        if (content !== null) return this.sendDefaultReply(ctx, content);
+    }
+
+    /** Logs the error, then sends the configured default error reply. */
+    protected override handleUnobservedError(ctx: CommandModuleHookContext<T>, error: Error): Promise<void> | void {
+        super.handleUnobservedError(ctx, error);
+        const content = getGlobalUxConfig().command.error;
+        if (content !== null) return this.sendDefaultReply(ctx, content);
+    }
+
+    /** Sends a default reply; a failed send is only logged in verbose mode, so it never escapes dispatch. */
+    private async sendDefaultReply(ctx: CommandModuleHookContext<T>, content: string): Promise<void> {
+        try {
+            await sendCommandReply(ctx, content);
+        } catch (err) {
+            this.client?.logger.debug(`[Module] Failed to send the default reply for '${this.buildName()}'`, err);
+        }
     }
 
     /** The matched subcommand, for commands that have them. */

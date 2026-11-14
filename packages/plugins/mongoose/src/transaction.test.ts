@@ -5,7 +5,15 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { Vimcord } from "vimcord";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { abort, createMongoSchema, MongoosePlugin, TransactionAbort, tryTransaction, useTransaction } from "./index.js";
+import {
+    abort,
+    createMongoSchema,
+    MongoosePlugin,
+    transaction,
+    TransactionAbort,
+    tryTransaction,
+    useTransaction
+} from "./index.js";
 import { sessionContext } from "./sessionContext.js";
 
 const plugin = new MongoosePlugin();
@@ -143,6 +151,23 @@ describe("transaction boundaries", () => {
         expect(await Records.fetch({ key: "counter" })).toMatchObject({ count: 0 });
         expect(await Records.count({ key: "new" })).toBe(0);
         expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it("transaction() commits a value, and turns an abort into a failed result after rolling back", async () => {
+        const committed = await transaction(async () => {
+            await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
+            return "done";
+        });
+        expectTypeOf(committed).toEqualTypeOf<TransactionResult<string>>();
+        expect(committed).toEqual({ success: true, value: "done" });
+
+        const aborted = await transaction(async () => {
+            await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
+            abort("Nope");
+        });
+        expect(aborted).toEqual({ success: false, error: "Nope" });
+        expect(await Records.fetch({ key: "counter" })).toMatchObject({ count: 1 });
+        await expect(transaction(async () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
     });
 
     it("commits sequential writes and returns the callback value", async () => {

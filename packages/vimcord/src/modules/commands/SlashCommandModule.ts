@@ -1,9 +1,9 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 import type {
-    CommandBlock,
     CommandModuleArgs,
     CommandModuleContext,
     CommandModuleHookContext,
+    ResolvedAppCommandRegistration,
     ResolvedSlashSubcommand,
     SlashCommandAutocompleteHandler,
     SlashCommandBuilderResolvable,
@@ -16,8 +16,8 @@ import { ApplicationCommandOptionType, SlashCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
 import { resolveDeferReply } from "@/commands/commandDeferral.js";
 import { warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
+import { resolveRegistration } from "@/commands/commandRegistration.js";
 import { ModuleError } from "@/errors/ModuleError.js";
-import { dynaSend } from "@/ux/index.js";
 
 /** Discord's cap on the number of autocomplete choices returned in one response. */
 const MAX_AUTOCOMPLETE_CHOICES = 25;
@@ -96,7 +96,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
     /** Defers the interaction before the handler runs. */
     override readonly deferReply: SlashCommandModuleOptions["deferReply"];
     /** Guild and global application command registration scopes. */
-    readonly registration: NonNullable<SlashCommandModuleOptions["registration"]>;
+    readonly registration: ResolvedAppCommandRegistration;
     /** Handlers keyed by subcommand name or slash group:subcommand path. */
     readonly subcommands: Map<string, ResolvedSlashSubcommand>;
     /** Handler returning choices for the focused slash option. */
@@ -117,7 +117,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
 
         this.builder = builder;
         this.deferReply = options.deferReply;
-        this.registration = { global: true, ...options.registration };
+        this.registration = resolveRegistration(options.registration);
         this.subcommands = subcommands;
         this.autocomplete = options.autocomplete;
         this.configuredExecute = options.execute as typeof this.configuredExecute;
@@ -180,21 +180,7 @@ export class SlashCommandModule extends AbstractCommandModule<CommandModuleType.
 
     private executeApp(ctx: CommandModuleContext<CommandModuleType.Slash>): unknown {
         const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
-        if (subcommand) return subcommand.handler(ctx);
+        if (subcommand) return subcommand.execute(ctx);
         return this.configuredExecute?.call(this, ctx);
-    }
-
-    /** Tells the user about an unmatched subcommand when no `onBlocked` hook takes the block. */
-    protected override async handleUnobservedBlock(
-        ctx: CommandModuleHookContext<CommandModuleType.Slash>,
-        block: CommandBlock
-    ): Promise<void> {
-        if (block.kind !== "unknownRoute") return super.handleUnobservedBlock(ctx, block);
-
-        await dynaSend(ctx.interaction, {
-            content: `Subcommand '${block.path}' was not found.`,
-            flags: "Ephemeral",
-            method: ctx.interaction.replied || ctx.interaction.deferred ? "followUp" : undefined
-        });
     }
 }

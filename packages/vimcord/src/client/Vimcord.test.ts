@@ -12,15 +12,13 @@ import { Vimcord } from "./Vimcord.js";
 let client: Vimcord | undefined;
 
 function createClient(options: Partial<VimcordClientOptions> = {}): Vimcord {
-    client = new Vimcord({ intents: [], disableBanner: true, ...options });
+    client = new Vimcord({ intents: [], banner: false, ...options });
     client.logger.clientReady = vi.fn();
     return client;
 }
 
 class RecordingPlugin extends VimcordPlugin {
     name: string;
-    description = "Records install/uninstall calls";
-    version = "1.0.0";
     installCalls = 0;
     uninstallCalls = 0;
 
@@ -230,9 +228,28 @@ describe("Vimcord command sync", () => {
         const client = createClient(options);
         const commands = client.modules.commands;
         const push = vi.spyOn(commands, "push").mockResolvedValue(true);
-        vi.spyOn(commands, "getAllAppCommands").mockReturnValue([{ registration: { global: true } }] as never);
-        return { client, push };
+        const pushByGuild = vi.spyOn(commands, "pushByGuild").mockResolvedValue(true);
+        const getAll = vi
+            .spyOn(commands, "getAllAppCommands")
+            .mockReturnValue([{ registration: { global: true } }] as never);
+        return { client, push, pushByGuild, getAll };
     }
+
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+
+    it("syncs guild scope only when a module names guilds, without a failed global sync stopping it", async () => {
+        const { client, push, pushByGuild, getAll } = createSyncClient();
+        (client as unknown as EventEmitter).emit("clientReady");
+        await settle();
+        expect(pushByGuild).not.toHaveBeenCalled();
+
+        getAll.mockReturnValue([{ registration: { global: false, guilds: ["staff"] } }] as never);
+        push.mockRejectedValue(new Error("rest down"));
+        const logged = vi.spyOn(client.logger, "error").mockImplementation(() => {});
+        await (client as unknown as { syncApplicationCommands(): Promise<void> }).syncApplicationCommands();
+        expect(logged).toHaveBeenCalledOnce();
+        expect(pushByGuild).toHaveBeenCalledExactlyOnceWith();
+    });
 
     it("syncs once the client is ready, and not before", () => {
         const { client, push } = createSyncClient();

@@ -112,10 +112,10 @@ export class VimcordCLI {
         return this.started && this.client === client;
     }
 
-    /** Attaches the client unless it opted out with `enableCLI: false`. */
+    /** Attaches the client unless it opted out with `cli: false`. */
     syncClient(client: Vimcord): void {
         if (!this.started || VimcordClient.getInstance() !== client) return;
-        this.client = client.globals.app.enableCLI ? client : null;
+        this.client = client.globals.app.cli ? client : null;
     }
 
     private detachClient(client: Vimcord): void {

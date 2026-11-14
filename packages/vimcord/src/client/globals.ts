@@ -30,10 +30,10 @@ export interface AppGlobals {
     commandLogging: boolean;
 
     /** Includes this client in the process-wide CLI when `setupCLI()` has initialized it. @default true */
-    enableCLI: boolean;
+    cli: boolean;
 
-    /** Disables the Vimcord ASCII art banner on startup. @default false */
-    disableBanner: boolean;
+    /** Prints the Vimcord ASCII art banner on startup. @default true */
+    banner: boolean;
 }
 
 /** Resolved staff users, roles, and the guild used for role checks. */
@@ -74,8 +74,8 @@ export const defaultAppGlobals = (): AppGlobals => {
         devMode: getDevMode(),
         verbose: false,
         commandLogging: true,
-        enableCLI: true,
-        disableBanner: false
+        cli: true,
+        banner: true
     };
 };
 

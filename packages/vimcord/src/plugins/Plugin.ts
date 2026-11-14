@@ -16,10 +16,10 @@ export interface VimcordPluginContext {
 export abstract class VimcordPlugin {
     /** Name displayed in logs or command discovery. */
     abstract name: string;
-    /** Short description displayed to users or in discovery. */
-    abstract description: string;
-    /** Version displayed in logs and plugin discovery. */
-    abstract version: string;
+    /** Short description displayed in plugin discovery. */
+    description?: string;
+    /** Version displayed in plugin discovery. */
+    version?: string;
 
     /** Plugin names that must be installed first. @default [] */
     dependencies?: string[];

@@ -10,12 +10,14 @@ import { sessionContext } from "./sessionContext.js";
 export type TransactionResult<T> =
     | {
           /** Whether the transaction committed successfully. */
-          success: true; /** Stable chapter select value, preserved across chapter replacement. */
+          success: true;
+          /** The callback's return value. */
           value: T;
       }
     | {
           /** Whether the transaction committed successfully. */
-          success: false; /** Error raised while handling the invocation. */
+          success: false;
+          /** The abort message. */
           error: string;
       };
 
@@ -64,4 +66,12 @@ export async function tryTransaction<T>(run: () => Promise<T>, fallback?: string
         console.warn(`Transaction failed: ${fallback}`, error);
         return { success: false, error: fallback };
     }
+}
+
+/**
+ * Runs a transaction and returns its result, turning `abort()` into `{ success: false }`. The default choice; it equals `tryTransaction(() => useTransaction(fn))`.
+ * @param fn Callback receiving the transaction session; the driver may retry it
+ */
+export function transaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<TransactionResult<T>> {
+    return tryTransaction(() => useTransaction(fn));
 }

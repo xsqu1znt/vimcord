@@ -102,12 +102,15 @@ function createRegistrationClient() {
         awaitReady: async () => true,
         guilds: { cache: new Collection(Array.from({ length: 12 }, (_, i) => [`guild-${i}`, { id: `guild-${i}` }])) },
         logger: { module: vi.fn(), debug: vi.fn(), error: vi.fn() },
-        rest: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), patch: vi.fn(), put: vi.fn() }
+        rest: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() }
     };
 }
 
 function command(name: string, guilds?: string[]) {
-    return { builder: { toJSON: vi.fn(() => ({ name, description: "d", type: 1 as const })) }, registration: { guilds } };
+    return {
+        builder: { toJSON: vi.fn(() => ({ name, description: "d", type: 1 as const })) },
+        registration: { guilds, global: !guilds }
+    };
 }
 
 beforeEach(() => {
@@ -204,7 +207,7 @@ describe("CommandManager usage timing", () => {
             deferReply: false,
             execute,
             subcommands: {
-                view: { deferReply: true, handler: () => advance(20) }
+                view: { deferReply: true, execute: () => advance(20) }
             },
             hooks: {
                 before: async () => {
@@ -452,7 +455,7 @@ describe("CommandManager logging", () => {
 });
 
 describe("CommandManager registration preparation", () => {
-    it("builds once per sync, targets guilds within bounded workers, and keeps unrelated remote commands", async () => {
+    it("builds once per sync, targets explicit guilds within bounded workers, and a filtered push deletes nothing", async () => {
         const client = createRegistrationClient();
         const manager = new CommandManager(client as unknown as Vimcord);
         const all = command("all");
@@ -469,19 +472,70 @@ describe("CommandManager registration preparation", () => {
                 { id: "unrelated", name: "remote", type: 1 }
             ];
         });
-        expect(await manager.pushByGuild()).toBe(true);
+        const guilds = [...client.guilds.cache.keys()];
+        expect(await manager.pushByGuild({ guilds, tag: "core" })).toBe(true);
         expect(all.builder.toJSON).toHaveBeenCalledOnce();
         expect(targeted.builder.toJSON).toHaveBeenCalledOnce();
         expect(maximum).toBeLessThanOrEqual(5);
         expect(maximum).toBeGreaterThan(1);
         expect(client.rest.patch).not.toHaveBeenCalled();
         expect(client.rest.put).not.toHaveBeenCalled();
+        expect(client.rest.delete).not.toHaveBeenCalled();
         expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-0"), {
             body: { name: "targeted", description: "d", type: 1 }
         });
-        await manager.pushByGuild({ guilds: ["guild-1"] });
-        expect(all.builder.toJSON).toHaveBeenCalledTimes(2);
-        expect(targeted.builder.toJSON).toHaveBeenCalledTimes(2);
+    });
+
+    it("pushes only guild-scoped commands to the guilds they name when no guilds are given, pruning there", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("all"), command("staff", ["guild-3"])] as never);
+        client.rest.get.mockResolvedValue([{ id: "old", name: "renamed", type: 1 }]);
+
+        expect(await manager.pushByGuild()).toBe(true);
+        expect(client.rest.get).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-3"));
+        expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-3"), {
+            body: { name: "staff", description: "d", type: 1 }
+        });
+        expect(client.rest.delete).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommand("app", "guild-3", "old"));
+    });
+
+    it("keeps syncing other guilds after one fails, and reports the failure", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("staff", ["guild-1", "guild-2"])] as never);
+        client.rest.get.mockImplementation(async (route: string) => {
+            if (route.includes("guild-1")) throw new Error("Missing Access");
+            return [];
+        });
+
+        expect(await manager.pushByGuild()).toBe(false);
+        expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-2"), {
+            body: { name: "staff", description: "d", type: 1 }
+        });
+        expect(client.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it("deletes stale global commands only on an unfiltered push", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("kept"), command("staff", ["guild-0"])] as never);
+        client.rest.get.mockResolvedValue([
+            { id: "kept-id", name: "kept", description: "d", type: 1, contexts: [0, 1, 2] },
+            { id: "user-kept", name: "kept", type: 2 },
+            { id: "staff-id", name: "staff", description: "d", type: 1 }
+        ]);
+
+        await manager.push({ names: ["kept"] });
+        expect(client.rest.delete).not.toHaveBeenCalled();
+
+        await manager.push();
+        expect(client.rest.delete.mock.calls).toEqual([
+            [Routes.applicationCommand("app", "user-kept")],
+            [Routes.applicationCommand("app", "staff-id")]
+        ]);
+        expect(client.rest.post).not.toHaveBeenCalled();
+        expect(client.rest.patch).not.toHaveBeenCalled();
     });
 
     it("patches by existing identity without replacing unchanged commands or deleting unrelated commands", async () => {
@@ -681,7 +735,7 @@ describe("direct command execution", () => {
             })
         );
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ error }));
+        expect(onError).toHaveBeenCalledWith(expect.anything(), error);
         expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
                 timings: { delivery: 48, pre: 0, exec: 30 },
@@ -712,7 +766,7 @@ describe("direct command execution", () => {
                     name: "bank",
                     aliases: ["wallet"],
                     requiresReady: false,
-                    subcommands: { deposit: { aliases: ["put"], handler } },
+                    subcommands: { deposit: { aliases: ["put"], execute: handler } },
                     hooks: {
                         before: async ctx => {
                             args = ctx.args;

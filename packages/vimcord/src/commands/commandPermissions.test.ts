@@ -284,7 +284,7 @@ describe("command access warnings", () => {
             create: (access: CommandAccess) =>
                 new PrefixCommandModule({
                     name: "manage",
-                    subcommands: { prune: { aliases: ["clear"], access, handler() {} } }
+                    subcommands: { prune: { aliases: ["clear"], access, execute() {} } }
                 })
         },
         {
@@ -301,7 +301,7 @@ describe("command access warnings", () => {
                                     .setDescription("Admin tools")
                                     .addSubcommand(s => s.setName("prune").setDescription("Prunes records."))
                             ),
-                    subcommands: { "admin:prune": { access, handler() {} } }
+                    subcommands: { "admin:prune": { access, execute() {} } }
                 })
         }
     ])("warns once for subcommand $subcommand without counting aliases", ({ subcommand, create }) => {
@@ -353,7 +353,7 @@ describe("command access warnings", () => {
         { permissions: ["ManageGuild"], users: ["owner"], roles: ["moderator"], guildOwner: true, staff: true }
     ] satisfies (CommandAccess | undefined)[])("does not warn for valid access: %j", access => {
         const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
-        new PrefixCommandModule({ name: "manage", access, subcommands: { prune: { access, handler() {} } }, execute() {} });
+        new PrefixCommandModule({ name: "manage", access, subcommands: { prune: { access, execute() {} } }, execute() {} });
         expect(warn).not.toHaveBeenCalled();
     });
 
@@ -363,7 +363,7 @@ describe("command access warnings", () => {
         new PrefixCommandModule({
             name: "manage",
             access,
-            subcommands: { prune: { access, handler() {} }, valid: { access: { staff: true }, handler() {} } }
+            subcommands: { prune: { access, execute() {} }, valid: { access: { staff: true }, execute() {} } }
         });
 
         expect(warn).toHaveBeenCalledTimes(2);

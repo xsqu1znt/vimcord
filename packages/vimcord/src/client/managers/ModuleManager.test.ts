@@ -31,7 +31,7 @@ function fixture(name: string, files: Record<string, string>): string {
 
 beforeEach(() => {
     root = mkdtempSync(path.join(tmpdir(), "vimcord-modules-"));
-    client = new Vimcord({ intents: [], disableBanner: true });
+    client = new Vimcord({ intents: [], banner: false });
 });
 
 afterEach(async () => {
@@ -96,13 +96,42 @@ describe("ModuleManager.load", () => {
         );
     });
 
+    it("loads each conventional suffix from one directory string, letting a type have no files", async () => {
+        const dir = fixture("shorthand", {
+            "commands/ping.prefix.ts": PREFIX_MODULE,
+            "events/ping.event.ts": EVENT_MODULE,
+            "helper.ts": `throw new Error("a helper must not be imported");`
+        });
+        await client.modules.load(dir);
+        expect(client.modules.commands.prefix.getByName("ping")).toBeDefined();
+        expect(client.modules.events.getByEvent("messageCreate")).toHaveLength(1);
+        expect(client.modules.commands.slash.getAll()).toEqual([]);
+    });
+
+    it("names an unnamed event module after its event, and loads two of them on one event", async () => {
+        const unnamed = `
+import { EventModule } from "${SRC}/modules/index.js";
+export default new EventModule({ event: "messageCreate", execute() {} });
+`;
+        const dir = fixture("unnamed", { "a.event.ts": unnamed, "b.event.ts": unnamed });
+        await client.modules.load({ events: { dir, suffix: ".event" } });
+        const events = client.modules.events.getByEvent("messageCreate");
+        expect(events.map(e => e.name)).toEqual(["messageCreate", "messageCreate"]);
+    });
+
+    it("still rejects a missing directory or a wrong module type under the shorthand", async () => {
+        await expect(client.modules.load("./missing")).rejects.toThrow(/'.\/missing' does not exist/);
+        const dir = fixture("mislabeled", { "ping.slash.ts": PREFIX_MODULE });
+        await expect(client.modules.load(dir)).rejects.toThrow(/modules\.slashCommands expects a SlashCommandModule/);
+    });
+
     it("fails login with the file named and leaves nothing loaded for a retry", async () => {
         await client.destroy();
         const good = fixture("good", { "ping.prefix.ts": PREFIX_MODULE });
         const bad = fixture("bad", { "x.event.ts": "export default 1;" });
         client = new Vimcord({
             intents: [],
-            disableBanner: true,
+            banner: false,
             modules: { prefixCommands: { dir: good, suffix: ".prefix" }, events: { dir: bad, suffix: ".event" } }
         });
         await expect(client.login("token")).rejects.toThrow(/x\.event\.ts/);

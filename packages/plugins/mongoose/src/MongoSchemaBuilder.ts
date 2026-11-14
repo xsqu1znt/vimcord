@@ -570,7 +570,7 @@ export class MongoSchemaBuilder<
     /**
      * Fetches the first document that matches a filter.
      * @param filter The filter used to match the document
-     * @param projection The fields to include or exclude
+     * @param projection The fields to include or exclude; `options.projection` works too and wins when both are set
      * @param options The query options to pass to Mongoose
      */
     async fetch<Options extends QueryOptions<LeanDoc<Def, Opts>>>(
@@ -631,7 +631,7 @@ export class MongoSchemaBuilder<
     /**
      * Fetches every document that matches a filter.
      * @param filter The filter used to match documents
-     * @param projection The fields to include or exclude
+     * @param projection The fields to include or exclude; `options.projection` works too and wins when both are set
      * @param options The query options to pass to Mongoose
      */
     async fetchAll<Options extends QueryOptions<LeanDoc<Def, Opts>>>(

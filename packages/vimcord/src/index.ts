@@ -6,6 +6,7 @@ export type {
     CommandModuleContext,
     GuildCommandModuleContext,
     CommandModuleHookContext,
+    AnyCommandHookContext,
     CommandBlock,
     CommandModuleHooks,
     CommandModuleMetadata,
@@ -18,7 +19,7 @@ export type {
 export { Vimcord } from "./client/Vimcord.js";
 export type { VimcordClientOptions } from "./client/Vimcord.js";
 export type { StaffOptions } from "./client/globals.js";
-export type { AppModuleImports, AppModuleImportOptions } from "./client/managers/ModuleManager.js";
+export type { AppModules, AppModuleImports, AppModuleImportOptions } from "./client/managers/ModuleManager.js";
 export type { VimcordStatusActivity, VimcordStatusProfile, VimcordStatusConfig } from "./client/StatusManager.js";
 export type { CLITableColumn, CLITableRow } from "./cli/CLILogger.js";
 /** CLI output API supplied to custom commands. */

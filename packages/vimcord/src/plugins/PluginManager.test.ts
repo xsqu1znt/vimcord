@@ -14,8 +14,6 @@ function createClient(): Vimcord {
 
 class TestPlugin extends VimcordPlugin {
     name: string;
-    description = "Test plugin";
-    version = "1.0.0";
 
     constructor(
         name: string,
@@ -36,8 +34,6 @@ class TestPlugin extends VimcordPlugin {
 
 class HealthPlugin extends VimcordPlugin {
     name = "health";
-    description = "Registers a health probe then fails to finish installing";
-    version = "1.0.0";
     uninstallCalls = 0;
 
     override install({ health }: VimcordPluginContext): void {

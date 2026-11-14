@@ -63,7 +63,7 @@ export class PrefixCommandModule extends AbstractCommandModule<CommandModuleType
             ...options,
             execute: ctx => {
                 const subcommand = ctx.subcommand ? this.subcommands.get(ctx.subcommand) : undefined;
-                return subcommand ? subcommand.handler(ctx) : execute?.call(this, ctx);
+                return subcommand ? subcommand.execute(ctx) : execute?.call(this, ctx);
             }
         });
         this.aliases = options.aliases?.map(alias => alias.toLowerCase()) ?? [];

@@ -12,11 +12,7 @@ const client = new Vimcord({
     name: "Example Bot",
     plugins: [new DotEnvPlugin()],
     prefix: "!",
-    modules: {
-        slashCommands: { dir: "./commands/slash", suffix: ".slash" },
-        prefixCommands: { dir: "./commands/prefix", suffix: ".prefix" },
-        events: { dir: "./events", suffix: ".event" }
-    }
+    modules: "./"
 });
 await client.status.set({ activity: { type: ActivityType.Watching, name: c => `${c.guilds.cache.size} servers` }, interval: 60_000 });
 await client.login();
@@ -32,25 +28,33 @@ await client.login();
 | `devMode` | Development token, environment rules, and UX colors | Process `--dev` flag |
 | `verbose` | Diagnostic logs | `false` |
 | `commandLogging` | Fixed delivery, preparation, and execution timings | `true` |
-| `enableCLI` | Allow this client to attach to an initialized CLI | `true` |
-| `disableBanner` | Hide startup ASCII banner | `false` |
+| `cli` | Allow this client to attach to an initialized CLI | `true` |
+| `banner` | Print the startup ASCII banner | `true` |
 | `plugins` | Plugins installed in dependency order | `[]` |
-| `modules` | Module directory entries | No directory imports |
+| `modules` | A directory searched for every conventional suffix, or per-type entries | No directory imports |
 | `prefix` | String, strings, or sync/async `(message) => string \| string[] \| null` | No prefix commands |
 | `allowMention` | Accept a bot mention as a prefix | `false` |
 | `syncCommands` | Sync application commands after readiness | `true` |
-| `hooks` | Shared `prefix`, `slash`, and `context` hooks | None |
+| `hooks` | Shared `all`, `prefix`, `slash`, and `context` hooks | None |
 | `staff` | Staff IDs and staff guild | No staff |
 
 `login(token?)` installs plugins, reads the token, runs `onPluginsInstalled`, loads modules, installs command listeners, then connects. It reads `TOKEN_DEV` in dev mode and `TOKEN` otherwise. Failed login unloads acquired resources so it can be retried. Missing dependencies or dependency cycles fail at construction. Plugin startup and module import failures abort login; a command sync failure after readiness is logged without stopping the bot.
 
-`awaitReady(timeout = 60_000)` resolves to a boolean. Mutable accessors are `$name`, `$version`, `$devMode`, and `$verboseMode`. Changing `$devMode` also updates global UX colors; reapply status to select another environment profile.
+## Command sync
+
+With `syncCommands`, readiness syncs global commands, then guild commands in the guilds that modules name in `registration.guilds`; it never walks every cached guild. Each sync creates missing commands, patches changed ones, and deletes remote commands in that scope with no loaded module, matched by name and type. A failed scope or guild is logged and the rest continue.
+
+`/register global` and `/register guild <guilds...|all>` sync the same way. Guild targets get every matching command except those registered to other guilds. With `--names`, `--category`, or `--tag`, the push only creates and patches; nothing outside the filter is deleted. `/unregister` clears a whole scope.
+
+`awaitReady(timeout = 60_000)` resolves to a boolean. Mutable accessors are `$name`, `$version`, `$devMode`, and `$verbose`. Changing `$devMode` also updates global UX colors; reapply status to select another environment profile.
 
 ## Module directories
 
-Entries are `slashCommands`, `prefixCommands`, `messageContextCommands`, `userContextCommands`, and `events`. Each takes `dir: string | string[]` and a required `suffix: string | string[] | null`. Directories are relative to the entry file and searched recursively for `.ts` and `.js`, excluding `.d.ts`.
+`modules: "./src"` loads every conventional suffix under that directory: `.slash` slash commands, `.prefix` prefix commands, `.mctx` message context commands, `.uctx` user context commands, and `.event` events. A type with no files is fine there; a missing directory still fails login.
 
-Use `.slash`, `.prefix`, `.mctx`, `.uctx`, and `.event` as conventional suffixes. Unmatched files are ignored. With `suffix: null`, every eligible file must default-export the configured module type. A missing directory, no matches, import failure, wrong default export, or duplicate module ID fails login with the source named.
+For other layouts or suffixes, pass an object. Entries are `slashCommands`, `prefixCommands`, `messageContextCommands`, `userContextCommands`, and `events`. Each takes `dir: string | string[]` and a required `suffix: string | string[] | null`. Directories are relative to the entry file and searched recursively for `.ts` and `.js`, excluding `.d.ts`.
+
+Use `.slash`, `.prefix`, `.mctx`, `.uctx`, and `.event` as conventional suffixes. Unmatched files are ignored. With `suffix: null`, every eligible file must default-export the configured module type. In the object form, a missing directory, no matches, import failure, wrong default export, or duplicate module ID fails login with the source named.
 
 ## Staff
 

@@ -40,4 +40,4 @@ defineGlobalUxConfig({ embedColor: "Blue", embedColorDev: "Orange", defaultIdle:
 const config = getGlobalUxConfig();
 ```
 
-Both colors default to null. Development color falls back to the production color when null. The client's dev mode updates the shared UX dev-mode flag. `defineGlobalUxConfig` merges nested object overrides; arrays and builders are replaced. `getGlobalUxConfig()` returns the live mutable config.
+Both colors default to null. Development color falls back to the production color when null. The client's dev mode updates the shared UX dev-mode flag. `defineGlobalUxConfig` merges nested object overrides; arrays and builders are replaced. `getGlobalUxConfig()` returns the live mutable config. Default command replies live under `command`; see [Default replies](../commands.md#default-replies).

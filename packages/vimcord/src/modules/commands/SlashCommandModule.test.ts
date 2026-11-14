@@ -1,6 +1,6 @@
 import type { StaffGlobals } from "@/client/globals.js";
 
-import { SlashCommandBuilder } from "discord.js";
+import { MessageFlags, SlashCommandBuilder } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { defaultAppGlobals } from "@/client/globals.js";
 import { SlashCommandModule } from "./SlashCommandModule.js";
@@ -52,7 +52,7 @@ describe("SlashCommandModule configuration validation", () => {
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    subcommands: { Ping: { handler: () => undefined }, ping: { handler: () => undefined } }
+                    subcommands: { Ping: { execute: () => undefined }, ping: { execute: () => undefined } }
                 })
         ).toThrow(/duplicate subcommand/i);
     });
@@ -62,7 +62,7 @@ describe("SlashCommandModule configuration validation", () => {
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    subcommands: { ping: { handler: () => undefined } }
+                    subcommands: { ping: { execute: () => undefined } }
                 })
         ).toThrow(/pong/);
     });
@@ -72,7 +72,7 @@ describe("SlashCommandModule configuration validation", () => {
             () =>
                 new SlashCommandModule({
                     builder: builderWithSubcommands(),
-                    subcommands: { ping: { handler: () => undefined }, pong: { handler: () => undefined } }
+                    subcommands: { ping: { execute: () => undefined }, pong: { execute: () => undefined } }
                 })
         ).not.toThrow();
     });
@@ -82,9 +82,25 @@ describe("SlashCommandModule configuration validation", () => {
             () =>
                 new SlashCommandModule({
                     builder: new SlashCommandBuilder().setName("flat").setDescription("d"),
-                    subcommands: { unreachable: { handler: () => undefined } }
+                    subcommands: { unreachable: { execute: () => undefined } }
                 })
         ).toThrow(/does not declare any/);
+    });
+});
+
+describe("SlashCommandModule registration", () => {
+    const builder = () => new SlashCommandBuilder().setName("flat").setDescription("d");
+
+    it.each([
+        [undefined, true],
+        [{ guilds: ["staff"] }, false],
+        [{ guilds: ["staff"], global: true }, true],
+        [{ guilds: [] }, true],
+        [{ global: false }, false]
+    ])("resolves registration %j to global=%s", (registration, global) => {
+        expect(new SlashCommandModule({ builder: builder(), registration, execute: () => {} }).registration.global).toBe(
+            global
+        );
     });
 });
 
@@ -105,7 +121,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
             execute: () => {},
-            subcommands: { "mod:kick": { handler } }
+            subcommands: { "mod:kick": { execute: handler } }
         });
         module.inject(createClient());
         const interaction = createInteraction("kick");
@@ -120,7 +136,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
 
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
-            subcommands: { ping: { handler, access: { users: ["someone-else"] } }, pong: { handler } },
+            subcommands: { ping: { execute: handler, access: { users: ["someone-else"] } }, pong: { execute: handler } },
             hooks: { onBlocked }
         });
         module.inject(createClient());
@@ -141,7 +157,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
 
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
-            subcommands: { ping: { handler }, pong: { handler } },
+            subcommands: { ping: { execute: handler }, pong: { execute: handler } },
             hooks: { onBlocked }
         });
         module.inject(createClient());
@@ -160,7 +176,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
             deferReply: true,
-            subcommands: { ping: { handler, deferReply: false }, pong: { handler } }
+            subcommands: { ping: { execute: handler, deferReply: false }, pong: { execute: handler } }
         });
         module.inject(createClient());
 
@@ -177,7 +193,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
         const deferReply = vi.fn();
         const module = new SlashCommandModule({
             builder: builderWithSubcommands(),
-            subcommands: { ping: { deferReply: "ephemeral", handler: () => {} }, pong: { handler: () => {} } }
+            subcommands: { ping: { deferReply: "ephemeral", execute: () => {} }, pong: { execute: () => {} } }
         });
         module.inject(createClient());
         const interaction = createInteraction("ping");
@@ -205,7 +221,7 @@ describe("SlashCommandModule subcommand dispatch", () => {
         const module = new CustomContextModule({
             builder: builderWithSubcommands(),
             execute: () => {},
-            subcommands: { ping: { handler, deferReply: true } }
+            subcommands: { ping: { execute: handler, deferReply: true } }
         });
         module.inject(createClient());
         const interaction = createInteraction("ping");
@@ -213,6 +229,82 @@ describe("SlashCommandModule subcommand dispatch", () => {
         expect(await module.runWithResult(interaction)).toMatchObject({ executed: true });
         expect(handler).toHaveBeenCalledOnce();
         expect(deferReply).toHaveBeenCalledOnce();
+    });
+});
+
+describe("SlashCommandModule default replies", () => {
+    function createRepliable(state: { deferred?: boolean; replied?: boolean } = {}) {
+        const interaction = createInteraction("ping");
+        Object.assign(interaction, {
+            deferred: state.deferred ?? false,
+            replied: state.replied ?? false,
+            reply: vi.fn(),
+            editReply: vi.fn(),
+            followUp: vi.fn()
+        });
+        return interaction;
+    }
+
+    it.each([
+        ["fresh", {}, "reply", { flags: MessageFlags.Ephemeral }],
+        ["deferred", { deferred: true }, "editReply", {}],
+        ["answered", { deferred: true, replied: true }, "followUp", { flags: MessageFlags.Ephemeral }]
+    ] as const)("answers a %s interaction through %s", async (_name, state, method, extra) => {
+        const module = new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            subcommands: { ping: { execute: () => {} }, pong: { execute: () => {} } }
+        });
+        module.inject(createClient());
+        const interaction = createRepliable(state);
+        interaction.options.getSubcommand = () => "typo";
+
+        await module.run(interaction);
+        expect(interaction[method]).toHaveBeenCalledExactlyOnceWith({
+            content: "Subcommand 'typo' was not found.",
+            ...extra
+        });
+    });
+
+    it("tells the user when the bot is missing permissions", async () => {
+        const module = new SlashCommandModule({
+            builder: builderWithSubcommands(),
+            botPermissions: ["ManageMessages"],
+            execute: () => {}
+        });
+        module.inject(createClient());
+        const interaction = createRepliable();
+        Object.assign(interaction, { guildId: "guild", appPermissions: { has: () => false } });
+
+        await module.run(interaction);
+        expect(interaction.reply).toHaveBeenCalledExactlyOnceWith({
+            content: "I'm missing permissions needed to run this command.",
+            flags: MessageFlags.Ephemeral
+        });
+    });
+
+    it("replies to a failed handler on the direct path unless an onError hook owns it", async () => {
+        const execute = () => {
+            throw new Error("boom");
+        };
+        const builder = new SlashCommandBuilder().setName("flat").setDescription("d");
+        const client = createClient();
+        const bare = new SlashCommandModule({ builder, execute });
+        bare.inject(client);
+        const interaction = createRepliable();
+        await bare.dispatch(interaction);
+        expect(interaction.reply).toHaveBeenCalledExactlyOnceWith({
+            content: "Something went wrong while running this command.",
+            flags: MessageFlags.Ephemeral
+        });
+        expect(client.logger.error).toHaveBeenCalledOnce();
+
+        const onError = vi.fn();
+        const hooked = new SlashCommandModule({ builder, execute, hooks: { onError } });
+        hooked.inject(client);
+        const owned = createRepliable();
+        await hooked.dispatch(owned);
+        expect(onError).toHaveBeenCalledOnce();
+        expect(owned.reply).not.toHaveBeenCalled();
     });
 });
 
@@ -227,7 +319,7 @@ describe("guildOnly narrowing", () => {
             },
             subcommands: {
                 ping: {
-                    handler(ctx) {
+                    execute(ctx) {
                         const guildId: string = ctx.interaction.guildId;
                         return guildId;
                     }
@@ -244,13 +336,13 @@ describe("guildOnly narrowing", () => {
             subcommands: {
                 ping: {
                     guildOnly: true,
-                    handler(ctx) {
+                    execute(ctx) {
                         const guildId: string = ctx.interaction.guildId;
                         return guildId;
                     }
                 },
                 pong: {
-                    handler(ctx) {
+                    execute(ctx) {
                         // @ts-expect-error This subcommand is not guildOnly.
                         const guildId: string = ctx.interaction.guildId;
                         return guildId;

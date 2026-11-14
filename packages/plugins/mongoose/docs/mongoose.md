@@ -40,6 +40,8 @@ type UserRecord = InferDoc<typeof Users>;
 const user = await Users.fetch({ userId: USER_ID });
 const requiredUser = await Users.fetch({ userId: USER_ID }, undefined, { required: true });
 const document = await Users.fetch({ userId: USER_ID }, undefined, { lean: false });
+const points = await Users.fetch({ userId: USER_ID }, { points: 1 });
+const samePoints = await Users.fetch({ userId: USER_ID }, undefined, { projection: { points: 1 } });
 const images = await Users.distinct("profile.imageUrl");
 await Users.updateOne({ userId: USER_ID }, { $inc: { points: 5 } }, { runValidators: true });
 ```
@@ -67,6 +69,8 @@ await Users.updateOne({ userId: USER_ID }, { $inc: { points: 5 } }, { runValidat
 `fetch`, `fetchAll`, `update`, and `upsert` return lean objects unless options specify `lean: false`. Lean reads skip virtuals, getters, defaults on reading, and toJSON/toObject transforms. `create` and `insertMany` always return hydrated documents.
 
 `update` returns the after document by default; use `returnDocument: "before"` when needed. It may take an aggregation update pipeline, as may updateOne and updateAll. Pipeline stages are not cast to the schema. Updates require opt-in `runValidators` where supported. `upsert` forces upsert true and returnDocument after. Literal object projections with `_id: 0` or false remove `_id` from inferred write results; inference does not precisely model every other projection.
+
+`fetch` and `fetchAll` take the projection positionally or as `options.projection`, which is Mongoose's own query option; when both are set, `options.projection` wins. Either way the read skips the cache and the inferred type stays the full document.
 
 For bounded query results use `fetchAll` options such as `{ sort: { _id: 1 }, skip: 20, limit: 20 }`, and call `count` separately when a total is needed. Use the raw model for cursor queries. `insertMany.limit` bounds validation concurrency, not MongoDB batch size.
 
@@ -101,24 +105,26 @@ Plain objects and arrays freeze once on insertion. Date, ObjectId, Decimal128, a
 
 Updates invalidate just the pinned key when a direct value or `$eq` identifies it, no collation applies, and the update preserves the key and its parent/child paths. Extra filter predicates are allowed. Key-changing updates, unpinned filters, collations, and unsupported pipeline stages clear the whole cache. `$set`, `$addFields`, and `$unset` pipelines can preserve unrelated keys. Creates, bulk operations, and broad deletes clear affected caches conservatively.
 
-Raw model writes and hydrated document save bypass builder invalidation. Use top-level `useTransaction` with builder writes so caches clear again when commit or rollback finishes.
+Raw model writes and hydrated document save bypass builder invalidation. Use `transaction` (or `useTransaction`) with builder writes so caches clear again when commit or rollback finishes.
 
 ## Transactions
 
 ```ts
-import { abort, tryTransaction, useTransaction } from "@vimcord/plugin-mongoose";
+import { abort, transaction } from "@vimcord/plugin-mongoose";
 
-const result = await tryTransaction(() => useTransaction(async () => {
+const result = await transaction(async () => {
     const source = await Users.fetch({ userId: SOURCE_ID }, undefined, { required: true });
     if (source.points < 1) abort("Not enough points.");
     await Users.updateOne({ userId: SOURCE_ID }, { $inc: { points: -1 } });
     const destination = await Users.updateOne({ userId: DESTINATION_ID }, { $inc: { points: 1 } });
     if (!destination.matchedCount) abort("The destination no longer exists.");
     return { transferred: 1 };
-}));
+});
 if (result.success) console.log(result.value.transferred);
 else console.log(result.error);
 ```
+
+Use `transaction(callback)` by default. It returns `TransactionResult<T>`: `{ success: true, value }` on commit, or `{ success: false, error }` after `abort(message)` rolls the writes back. Unexpected errors still reject. It is exactly `tryTransaction(() => useTransaction(callback))`; reach for those two primitives when you need transaction options or a fallback message.
 
 `useTransaction(callback, transactionOptions?)` starts a session on the plugin's isolated connection, runs the driver's transaction wrapper, clears caches written by builders on commit or rollback, and ends the session. The callback receives the session, but builder calls inherit it automatically. Explicit `{ session: null }` opts one operation out. Await all callback work and run transaction operations sequentially. The driver may retry the callback, so perform external side effects after successful completion. MongoDB transactions require a replica set or sharded deployment.
 

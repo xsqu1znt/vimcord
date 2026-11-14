@@ -1,10 +1,18 @@
 import type { Message } from "discord.js";
 import type { CommandModuleContext, CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
 import type { Vimcord } from "@/client/index.js";
+import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultAppGlobals, defaultStaffGlobals } from "@/client/globals.js";
+import { defineGlobalUxConfig, getGlobalUxConfig } from "@/ux/uxConfig.js";
 import { PrefixCommandModule } from "./PrefixCommandModule.js";
+
+const DEFAULT_COMMAND_MESSAGES = { ...getGlobalUxConfig().command };
+
+afterEach(() => {
+    defineGlobalUxConfig({ command: DEFAULT_COMMAND_MESSAGES });
+});
 
 function createClient() {
     return {
@@ -21,7 +29,8 @@ function createMessage(content: string) {
         guildId: null,
         guild: null,
         member: null,
-        channel: {}
+        channel: {},
+        reply: vi.fn(async () => undefined)
     } as unknown as Message;
 }
 
@@ -36,7 +45,7 @@ describe("PrefixCommandModule subcommands", () => {
         const execute = vi.fn();
         const module = new PrefixCommandModule({
             name: "buy",
-            subcommands: { Frame: { aliases: ["f"], description: "Buy a frame", handler } },
+            subcommands: { Frame: { aliases: ["f"], description: "Buy a frame", execute: handler } },
             execute
         });
         module.inject(createClient());
@@ -61,7 +70,7 @@ describe("PrefixCommandModule subcommands", () => {
             ctx.args
         ]);
         const handler = vi.fn();
-        const module = new PrefixCommandModule({ name: "buy", subcommands: { frame: { handler } }, execute });
+        const module = new PrefixCommandModule({ name: "buy", subcommands: { frame: { execute: handler } }, execute });
         module.inject(createClient());
 
         expect(await module.run(createMessage(`!buy ${content}`), "!", "buy")).toEqual([
@@ -76,7 +85,11 @@ describe("PrefixCommandModule subcommands", () => {
     it("supports subcommands-only modules and blocks an unmatched token as unknownRoute", async () => {
         const handler = vi.fn((ctx: CommandModuleContext<CommandModuleType.Prefix>) => ctx.args);
         const onBlocked = vi.fn();
-        const module = new PrefixCommandModule({ name: "buy", subcommands: { frame: { handler } }, hooks: { onBlocked } });
+        const module = new PrefixCommandModule({
+            name: "buy",
+            subcommands: { frame: { execute: handler } },
+            hooks: { onBlocked }
+        });
         module.inject(createClient());
         expect(await module.run(createMessage("!buy frame"), "!", "buy")).toEqual([]);
         expect(await module.run(createMessage("!buy Unknown thing"), "!", "buy")).toBeUndefined();
@@ -95,7 +108,7 @@ describe("PrefixCommandModule subcommands", () => {
             return true;
         });
         const handler = vi.fn(() => "bought");
-        const module = new PrefixCommandModule({ name: "buy", subcommands: { frame: { handler } } });
+        const module = new PrefixCommandModule({ name: "buy", subcommands: { frame: { execute: handler } } });
         const client = createClient();
         client.globals.hooks = { prefix: { before } };
         module.inject(client);
@@ -159,7 +172,7 @@ describe("PrefixCommandModule subcommands", () => {
         const module = new PrefixCommandModule({
             name: "buy",
             access: { users: ["other"] },
-            subcommands: { frame: { handler } }
+            subcommands: { frame: { execute: handler } }
         });
         module.inject(createClient());
         expect((await module.runWithResult(createMessage("!buy frame"), "!", "buy")).executed).toBe(false);
@@ -167,7 +180,7 @@ describe("PrefixCommandModule subcommands", () => {
         const halted = new PrefixCommandModule({
             name: "buy",
             hooks: { before: async () => false },
-            subcommands: { frame: { handler } }
+            subcommands: { frame: { execute: handler } }
         });
         halted.inject(createClient());
         expect((await halted.runWithResult(createMessage("!buy frame"), "!", "buy")).executed).toBe(false);
@@ -181,7 +194,7 @@ describe("PrefixCommandModule subcommands", () => {
         const module = new PrefixCommandModule({
             name: "buy",
             execute,
-            subcommands: { frame: { handler, guildOnly: true } },
+            subcommands: { frame: { execute: handler, guildOnly: true } },
             hooks: { onBlocked }
         });
         const client = createClient();
@@ -204,7 +217,7 @@ describe("PrefixCommandModule subcommands", () => {
         const closed = vi.fn();
         const module = new PrefixCommandModule({
             name: "buy",
-            subcommands: { open: { allowBots: true, handler: open }, closed: { handler: closed } }
+            subcommands: { open: { allowBots: true, execute: open }, closed: { execute: closed } }
         });
         module.inject(createClient());
         const fromBot = (content: string) => {
@@ -226,8 +239,8 @@ describe("PrefixCommandModule subcommands", () => {
                 new PrefixCommandModule({
                     name: "buy",
                     subcommands: {
-                        frame: { aliases: ["EFFECT"], handler: () => {} },
-                        effect: { handler: () => {} }
+                        frame: { aliases: ["EFFECT"], execute: () => {} },
+                        effect: { execute: () => {} }
                     }
                 })
         ).toThrow(/duplicate/);
@@ -257,6 +270,153 @@ describe("PrefixCommandModule subcommands", () => {
     });
 });
 
+describe("PrefixCommandModule hook resolution", () => {
+    it("runs all, then prefix, then the module's before, stopping at the first denial", async () => {
+        const calls: string[] = [];
+        const gate =
+            (name: string, result = true) =>
+            () => (calls.push(name), result);
+        const execute = vi.fn();
+        const module = new PrefixCommandModule({ name: "buy", execute, hooks: { before: gate("module") } });
+        const client = createClient();
+        client.globals.hooks = { all: { before: gate("all") }, prefix: { before: gate("prefix") } };
+        module.inject(client);
+
+        await module.run(createMessage("!buy"), "!", "buy");
+        expect(calls).toEqual(["all", "prefix", "module"]);
+
+        calls.length = 0;
+        client.globals.hooks.all!.before = gate("all", false);
+        await module.run(createMessage("!buy"), "!", "buy");
+        expect(calls).toEqual(["all"]);
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it("honours an all before on the direct dispatch path", async () => {
+        const execute = vi.fn();
+        const module = new PrefixCommandModule({ name: "buy", execute });
+        const client = createClient();
+        client.globals.app.commandLogging = false;
+        client.globals.hooks = { all: { before: () => false } };
+        module.inject(client);
+
+        await module.dispatch(createMessage("!buy"), "!", "buy");
+        expect(execute).not.toHaveBeenCalled();
+    });
+
+    it.each(["onBlocked", "onError"] as const)(
+        "resolves %s as module, then prefix, then all, then the default",
+        async hook => {
+            const calls: string[] = [];
+            const record = (name: string) => () => void calls.push(name);
+            const scopes = { module: {}, prefix: {}, all: {} } as Record<
+                "module" | "prefix" | "all",
+                Record<string, unknown>
+            >;
+            const client = createClient();
+            client.globals.hooks = { all: scopes.all, prefix: scopes.prefix } as GlobalCommandHooks;
+            const message = createMessage("!buy");
+
+            const run = async () => {
+                const module = new PrefixCommandModule({
+                    name: "buy",
+                    access: hook === "onBlocked" ? { users: ["other"] } : undefined,
+                    hooks: scopes.module,
+                    execute: () => {
+                        throw new Error("boom");
+                    }
+                });
+                module.inject(client);
+                await module.run(message, "!", "buy");
+            };
+
+            for (const scope of ["module", "prefix", "all"] as const) scopes[scope][hook] = record(scope);
+            await run();
+            delete scopes.module[hook];
+            await run();
+            delete scopes.prefix[hook];
+            await run();
+            expect(calls).toEqual(["module", "prefix", "all"]);
+            expect(message.reply).not.toHaveBeenCalled();
+
+            delete scopes.all[hook];
+            await run();
+            expect(message.reply).toHaveBeenCalledOnce();
+        }
+    );
+});
+
+describe("PrefixCommandModule default replies", () => {
+    function run(options: Partial<ConstructorParameters<typeof PrefixCommandModule>[0]>, content = "!buy") {
+        const module = new PrefixCommandModule({ name: "buy", execute: () => {}, ...options } as never);
+        const client = createClient();
+        module.inject(client);
+        const message = createMessage(content);
+        return { client, message, done: module.run(message, "!", "buy") };
+    }
+
+    it.each([
+        ["no access grant", { access: { users: ["other"] } }, "You don't have permission to use this command."],
+        ["guildOnly outside a guild", { guildOnly: true }, "This command can only be used in a server."]
+    ])("replies without pings for %s", async (_name, options, content) => {
+        const { message, done } = run(options);
+        await done;
+        expect(message.reply).toHaveBeenCalledExactlyOnceWith({
+            content,
+            allowedMentions: { parse: [], repliedUser: false }
+        });
+    });
+
+    it("replies to an unmatched subcommand with the configured path text", async () => {
+        const { message, done } = run({ execute: undefined, subcommands: { frame: { execute: () => {} } } }, "!buy nope");
+        await done;
+        expect(message.reply).toHaveBeenCalledWith(expect.objectContaining({ content: "Subcommand 'nope' was not found." }));
+    });
+
+    it("stays silent for a bot invoker, null messages, and environment blocks", async () => {
+        const bot = createMessage("!buy");
+        Object.assign(bot.author, { bot: true });
+        const module = new PrefixCommandModule({ name: "buy", execute: () => {}, access: { users: ["other"] } });
+        module.inject(createClient());
+        await module.run(bot, "!", "buy");
+        expect(bot.reply).not.toHaveBeenCalled();
+
+        defineGlobalUxConfig({ command: { noAccess: null } });
+        const silenced = run({ access: { users: ["other"] } });
+        await silenced.done;
+        expect(silenced.message.reply).not.toHaveBeenCalled();
+
+        const module2 = new PrefixCommandModule({ name: "buy", environment: "production", execute: () => {} });
+        const client = createClient();
+        Object.assign(client, { $devMode: true });
+        module2.inject(client);
+        const message = createMessage("!buy");
+        await module2.run(message, "!", "buy");
+        expect(message.reply).not.toHaveBeenCalled();
+    });
+
+    it("logs an error and also replies, without a failed reply escaping dispatch", async () => {
+        const error = new Error("boom");
+        const module = new PrefixCommandModule({
+            name: "buy",
+            execute: () => {
+                throw error;
+            }
+        });
+        const client = createClient();
+        client.globals.app.commandLogging = false;
+        module.inject(client);
+        const message = createMessage("!buy");
+        vi.mocked(message.reply).mockRejectedValue(new Error("Missing Permissions"));
+
+        await expect(module.dispatch(message, "!", "buy")).resolves.toBe(true);
+        expect(client.logger.error).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("buy"), error);
+        expect(message.reply).toHaveBeenCalledWith(
+            expect.objectContaining({ content: "Something went wrong while running this command." })
+        );
+    });
+});
+
 describe("guildOnly narrowing", () => {
     it("narrows ctx.message to Message<true>, on the command and on one subcommand", () => {
         new PrefixCommandModule({
@@ -268,7 +428,7 @@ describe("guildOnly narrowing", () => {
             },
             subcommands: {
                 frame: {
-                    handler(ctx) {
+                    execute(ctx) {
                         const guildId: string = ctx.message.guildId;
                         return guildId;
                     }
@@ -285,13 +445,28 @@ describe("guildOnly narrowing", () => {
             subcommands: {
                 frame: {
                     guildOnly: true,
-                    handler(ctx) {
+                    execute(ctx) {
                         const guildId: string = ctx.message.guildId;
                         return guildId;
                     }
                 }
             }
         });
+    });
+});
+
+describe("all hook typing", () => {
+    it("exposes shared fields and narrows by source", () => {
+        const hooks: GlobalCommandHooks = {
+            all: {
+                before(ctx) {
+                    const shared: [string, string, boolean] = [ctx.user.id, ctx.module.name, ctx.client.isReady()];
+                    if ("message" in ctx) return Boolean(ctx.message.content && shared);
+                    return ctx.interaction.isCommand();
+                }
+            }
+        };
+        expect(hooks.all).toBeDefined();
     });
 });
 

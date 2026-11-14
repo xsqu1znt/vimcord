@@ -17,7 +17,6 @@ export default new EventModule({
 import { EventModule } from "vimcord";
 
 export default new EventModule({
-    name: "member-log",
     event: "guildMemberAdd",
     execute({ client, args: [member] }) { client.logger.info(`${member.user.tag} joined ${member.guild.name}`); }
 });
@@ -25,11 +24,11 @@ export default new EventModule({
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `name` | Module name in logs | Required |
+| `name` | Module name in logs and `getByName`; names need not be unique | The event name |
 | `event` | Discord.js client event | Required |
 | `execute` | Handler receiving `{ client, args }` | Required |
 | `once` | Unregister after its first event | `false` |
-| `customId` | Stable module ID | Generated human-readable ID |
+| `id` | Stable module ID | Generated human-readable ID |
 | `enabled` | Permit invocation | `true` |
 | `requiresReady` | Wait for client readiness | `false` |
 | `environment` | Allowed bot environment | `"both"` |

@@ -3,7 +3,7 @@ import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
 import type { VimcordPlugin } from "@/plugins/Plugin.js";
 import type { AppGlobals, StaffOptions, VimcordGlobals } from "./globals.js";
 import type { CommandPrefix, CommandRoutingOptions } from "./managers/CommandManager.js";
-import type { AppModuleImports } from "./managers/ModuleManager.js";
+import type { AppModules } from "./managers/ModuleManager.js";
 import type { VimcordStartupBannerHandle } from "./VimcordLogger.js";
 
 import EventEmitter from "node:events";
@@ -33,15 +33,15 @@ export interface VimcordClientOptions extends ClientOptions, Partial<AppGlobals>
     staff?: StaffOptions;
     /** Plugins installed by login in dependency order. @default [] */
     plugins?: VimcordPlugin[];
-    /** Module directories imported by `login()`. */
-    modules?: AppModuleImports;
+    /** Module directories imported by `login()`. A string such as `"./src"` loads `.slash`, `.prefix`, `.mctx`, `.uctx`, and `.event` files under it. */
+    modules?: AppModules;
     /** Message prefixes. Omit to listen only for application commands. */
     prefix?: CommandPrefix;
     /** Treat a mention of the bot as a prefix. @default false */
     allowMention?: boolean;
-    /** Push application commands once the client is ready. A failure is logged and the bot keeps running. @default true */
+    /** Sync application commands once the client is ready: global commands, plus guild commands in the guilds modules name. Stale remote commands in those scopes are deleted. A failure is logged and the bot keeps running. @default true */
     syncCommands?: boolean;
-    /** Command hooks shared by every module of a command type. */
+    /** Command hooks shared by every command (`all`) or every module of a command type. */
     hooks?: GlobalCommandHooks;
 }
 
@@ -74,7 +74,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     private readonly handleAwaitReady = (): void => this.resolveAwaitReady(true);
     private startupBannerHandle: VimcordStartupBannerHandle | undefined;
     private readonly pendingStaffRoleLookups = new Map<string, Promise<string[]>>();
-    private readonly moduleImports: AppModuleImports | undefined;
+    private readonly moduleImports: AppModules | undefined;
     private readonly commandRouting: CommandRoutingOptions;
     private loginStarted = false;
 
@@ -87,8 +87,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
             devMode,
             verbose,
             commandLogging,
-            enableCLI,
-            disableBanner,
+            cli,
+            banner,
             staff,
             plugins,
             modules,
@@ -108,8 +108,8 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
                 devMode,
                 verbose,
                 commandLogging,
-                enableCLI,
-                disableBanner
+                cli,
+                banner
             }),
             staff: { ...defaultStaffGlobals(), ...staff },
             hooks
@@ -162,24 +162,31 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
     }
 
     /** Current verbose mode state. */
-    get $verboseMode() {
+    get $verbose() {
         return this.globals.app.verbose;
     }
-    set $verboseMode(mode: boolean) {
+    set $verbose(mode: boolean) {
         this.globals.app.verbose = mode;
         this.logger.setVerbose(mode);
     }
 
     // --- Main ---
-    /** Pushes application commands without letting a failure reach the running bot. */
+    /** Fully syncs global commands, and guild commands in the guilds modules name. Each scope logs its own failure, so neither can stop the bot or the other scope. */
     private async syncApplicationCommands(): Promise<void> {
         const { commands } = this.modules;
-        if (!commands.getAllAppCommands().some(command => command.registration.global !== false)) return;
+        const appCommands = commands.getAllAppCommands();
+        if (!appCommands.length) return;
 
-        try {
-            await commands.push();
-        } catch (error) {
-            this.logger.error("[Vimcord] Failed to sync application commands", error as Error);
+        const sync = async (scope: string, run: () => Promise<boolean>): Promise<void> => {
+            try {
+                await run();
+            } catch (error) {
+                this.logger.error(`[Vimcord] Failed to sync ${scope} application commands`, error as Error);
+            }
+        };
+        await sync("global", () => commands.push());
+        if (appCommands.some(command => command.registration.guilds?.length)) {
+            await sync("guild", () => commands.pushByGuild());
         }
     }
 
@@ -206,7 +213,7 @@ export class Vimcord<Ready extends boolean = boolean> extends Client<Ready> {
         this.loginStarted = true;
 
         try {
-            if (!this.globals.app.disableBanner) this.startupBannerHandle = this.logger.startupBanner(this);
+            if (this.globals.app.banner) this.startupBannerHandle = this.logger.startupBanner(this);
 
             // --- Plugins ---
             if (this.plugins.getAll().length) this.logger.log("Loading plugins...");

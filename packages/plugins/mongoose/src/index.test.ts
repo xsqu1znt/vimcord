@@ -17,7 +17,7 @@ describe("initial MongoDB connection", () => {
         const plugin = new MongoosePlugin({ uri: "mongodb://mock.invalid/test" });
         const connect = vi.spyOn(plugin.mongoose, "connect").mockRejectedValue(new Error("Connection refused"));
         const gateway = vi.spyOn(Object.getPrototypeOf(Vimcord.prototype), "login").mockResolvedValue("mock");
-        client = new Vimcord({ intents: [], disableBanner: true, plugins: [plugin] });
+        client = new Vimcord({ intents: [], banner: false, plugins: [plugin] });
         const result = expect(client.login("mock")).rejects.toThrow("MongoDB initial connection failed");
         await vi.advanceTimersByTimeAsync(5_000);
         await result;
@@ -39,7 +39,7 @@ describe("initial MongoDB connection", () => {
             .mockRejectedValueOnce(new Error("Connection refused"))
             .mockResolvedValue(plugin.mongoose);
         const gateway = vi.spyOn(Object.getPrototypeOf(Vimcord.prototype), "login").mockResolvedValue("mock");
-        client = new Vimcord({ intents: [], disableBanner: true, plugins: [plugin] });
+        client = new Vimcord({ intents: [], banner: false, plugins: [plugin] });
         const result = client.login("mock");
         await vi.advanceTimersByTimeAsync(5_000);
         await result;

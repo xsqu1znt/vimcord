@@ -28,7 +28,7 @@ import {
     resolveColor,
     ThumbnailBuilder
 } from "discord.js";
-import { addMessageFlag, dynaSend } from "./dynaSend.js";
+import { addMessageFlag, chunkIntoRows, dynaSend, toSendableComponents } from "./dynaSend.js";
 import { resolveGlobalEmbedColor, resolveUxColor } from "./uxConfig.js";
 
 /** Initial appearance of a Components V2 container. */
@@ -64,8 +64,6 @@ export interface BetterContainerSeparatorOptions {
     /** Vertical spacing around the separator. @default 1 */
     spacing?: number;
 }
-
-const MAX_BUTTONS_PER_ROW = 5;
 
 /** Joins lines, dropping conditional falsey values. An empty string inside a list stays as a blank line. */
 function normalizeText(text: BetterEmbedDescriptionLine | BetterEmbedDescriptionLine[]): string {
@@ -193,20 +191,14 @@ export class BetterContainer {
         }
         if (!buttons && components.length > 1) throw new Error("[BetterContainer] A row can only hold one select menu");
 
-        for (let i = 0; i < components.length; i += MAX_BUTTONS_PER_ROW) {
-            this.container.addActionRowComponents(
-                new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(
-                    components.slice(i, i + MAX_BUTTONS_PER_ROW)
-                )
-            );
-        }
+        this.container.addActionRowComponents(chunkIntoRows(components));
         return this;
     }
 
     private toSendOptions(options: DynaSendOptions): RequiredDynaSendOptions {
         return {
             ...options,
-            components: [this, ...(options.components ?? [])],
+            components: [this, ...toSendableComponents(options.components)],
             flags: addMessageFlag(options.flags, MessageFlags.IsComponentsV2)
         };
     }

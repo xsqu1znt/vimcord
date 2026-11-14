@@ -162,6 +162,9 @@ type ScopedContext<T extends CommandModuleType, InGuild extends boolean> = InGui
 export type CommandModuleHookContext<T extends CommandModuleType> = CommandModuleContext<T> &
     ModuleHookContext<CommandModuleArgs<T>, true, AbstractCommandModule<T>>;
 
+/** Hook context of any command kind. `client`, `user`, and `module` are always there; `"interaction" in ctx` or `"message" in ctx` narrows it. */
+export type AnyCommandHookContext = { [K in CommandModuleType]: CommandModuleHookContext<K> }[CommandModuleType];
+
 // --- Hooks ---
 /** Why a command invocation stopped before reaching its handler. */
 export type CommandBlock =
@@ -192,6 +195,9 @@ export type CommandModuleHooks<T extends CommandModuleType> = ModuleHooks<
     CommandModuleHookContext<T>,
     CommandBlock
 >;
+
+/** Callbacks shared by every command kind, set through the client's `hooks.all`. */
+export type AnyCommandModuleHooks = ModuleHooks<CommandModuleArgs<CommandModuleType>, AnyCommandHookContext, CommandBlock>;
 
 // --- Command Module Options ---
 /** Everything a command module takes except its handlers and `guildOnly`, which decide the handlers' context. */
@@ -235,7 +241,7 @@ export interface CommandModuleMetadata extends ModuleMetadata {
 }
 
 // --- Subcommands ---
-/** Subcommand fields with its handler, whose context is the guild one when the parent or subcommand is `guildOnly`. */
+/** Subcommand fields with its `execute`, whose context is the guild one when the parent or subcommand is `guildOnly`. */
 type ScopedSubcommand<T extends CommandModuleType, Fields, InGuild extends boolean> = Omit<
     CommandRestrictions,
     "guildOnly"
@@ -246,24 +252,24 @@ type ScopedSubcommand<T extends CommandModuleType, Fields, InGuild extends boole
               /** Whether to require invocation in a guild. @default false */
               guildOnly?: boolean;
               /** Runs the matched subcommand after its restrictions pass. */
-              handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
+              execute(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
           }
         : | {
                 /** Whether to require invocation in a guild. @default false */
                 guildOnly: true;
                 /** Runs the matched subcommand after its restrictions pass. */
-                handler(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
+                execute(ctx: GuildCommandModuleContext<T>): Promise<unknown> | unknown;
             }
           | {
                 /** Whether to require invocation in a guild. @default false */
                 guildOnly?: false;
                 /** Runs the matched subcommand after its restrictions pass. */
-                handler(ctx: CommandModuleContext<T>): Promise<unknown> | unknown;
+                execute(ctx: CommandModuleContext<T>): Promise<unknown> | unknown;
             });
 
-/** A subcommand as stored on its module, with its handler no longer split by `guildOnly`. */
+/** A subcommand as stored on its module, with its `execute` no longer split by `guildOnly`. */
 export type ResolvedSubcommand<T extends CommandModuleType, Fields> = CommandRestrictions &
-    Fields & { handler(ctx: CommandModuleContext<T>): Promise<unknown> | unknown };
+    Fields & { execute(ctx: CommandModuleContext<T>): Promise<unknown> | unknown };
 
 /** Aliases and description for a prefix subcommand. */
 interface PrefixSubcommandFields {
@@ -309,12 +315,18 @@ type RoutedHandlers<T extends CommandModuleType, Subcommand, InGuild extends boo
 export type CommandDeferReply = boolean | "ephemeral";
 
 /** Scopes used when registering an application command. */
-interface AppCommandRegistrationRules {
-    /** Only register this command to these guilds. */
+export interface AppCommandRegistrationRules {
+    /** Register this command in these guilds. Startup sync pushes it there. */
     guilds?: GuildResolvable[];
-    /** Allow registering globally. @default true */
+    /** Register this command globally. @default true, or false when `guilds` is set */
     global?: boolean;
 }
+
+/** Registration scopes after defaults, so `global` is always decided. */
+export type ResolvedAppCommandRegistration = AppCommandRegistrationRules & {
+    /** Whether this command is registered globally. */
+    global: boolean;
+};
 
 /** Options shared by every application command. */
 export type AppCommandModuleBaseOptions<T extends CommandModuleType> = Omit<

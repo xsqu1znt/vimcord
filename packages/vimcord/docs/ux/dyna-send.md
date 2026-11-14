@@ -28,7 +28,7 @@ await dynaSend(channel, { components: [new BetterContainer().addText("Ready")], 
 | `method` | `"followUp"` for interactions, `"edit"` for messages or interactions | Inferred |
 | `content` | Message text | Omitted |
 | `embeds` | Discord embeds or BetterEmbed instances | Omitted |
-| `components` | Action rows, ContainerBuilder, or BetterContainer instances | Omitted |
+| `components` | Action rows, ContainerBuilder, or BetterContainer instances, or a flat list of buttons split into rows of 5 | Omitted |
 | `files` | Attachments | Omitted |
 | `stickers` | Discord stickers | Omitted |
 | `poll` | Discord poll data | Omitted |

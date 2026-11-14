@@ -10,6 +10,7 @@ import type {
     EmbedResolvable,
     InteractionBasedSendHandler,
     RequiredDynaSendOptions,
+    SendableComponent,
     SendHandler,
     TriggeredMessage
 } from "./dynaSend.js";
@@ -34,7 +35,7 @@ import { BetterCollector } from "./betterCollector.js";
 import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
-import { addMessageFlag, dynaSend } from "./dynaSend.js";
+import { addMessageFlag, dynaSend, toSendableComponents } from "./dynaSend.js";
 import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
 import { getGlobalUxConfig } from "./uxConfig.js";
 
@@ -523,7 +524,7 @@ export class Paginator {
         page: PageResolvable,
         options: DynaSendOptions = {},
         index: PageIndex = this.state.index
-    ): RequiredDynaSendOptions {
+    ): RequiredDynaSendOptions & { components: SendableComponent[] } {
         const data: DynaSendOptions = {
             ...options,
             content: "",
@@ -539,7 +540,7 @@ export class Paginator {
         } else if (options.components?.some(c => c instanceof BetterContainer || c instanceof ContainerBuilder)) {
             throw new Error("[Paginator] Ordinary pages cannot be combined with Components V2 containers");
         }
-        const components = [...(options.components ?? [])];
+        const components = [...toSendableComponents(options.components)];
         const embeds = [...(options.embeds ?? [])];
         const files = [...(options.files ?? [])];
         if (Array.isArray(page)) embeds.push(...page);
