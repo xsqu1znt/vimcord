@@ -1,21 +1,21 @@
 import type { ModuleContext, ModuleHookContext } from "./AbstractModule.js";
 
 import { describe, expect, it, vi } from "vitest";
+import { EventModule } from "@/modules/EventModule.js";
 import { AbstractModule } from "./AbstractModule.js";
 
-class TestModule extends AbstractModule<[id: string]> {
+type TestContext = ModuleContext & { id: string };
+type TestHookContext = TestContext & ModuleHookContext<[id: string]>;
+
+class TestModule extends AbstractModule<[id: string], TestContext, TestHookContext> {
     override moduleType = "Test";
 
     protected override validate(): boolean {
         return true;
     }
 
-    protected override createModuleCTX(): ModuleContext {
-        return { client: this.client as any };
-    }
-
-    protected override createHookCTX(moduleCTX: ModuleContext, args: [string]): ModuleHookContext<[string]> {
-        return { ...moduleCTX, module: this as any, args };
+    protected override createModuleCTX([id]: [string]): TestContext {
+        return { client: this.client as any, id };
     }
 }
 
@@ -33,13 +33,13 @@ describe("AbstractModule singleInvocation", () => {
             release = resolve;
         });
         const execute = vi.fn(async () => running);
-        const onAlreadyRunning = vi.fn();
+        const onBlocked = vi.fn();
 
         const module = new TestModule({
             name: "test",
             execute,
-            singleInvocation: { key: ctx => `key:${ctx.args[0]}` },
-            hooks: { onAlreadyRunning }
+            singleInvocation: { key: ctx => `key:${ctx.id}` },
+            hooks: { onBlocked }
         });
         module.inject(createClient());
 
@@ -47,7 +47,7 @@ describe("AbstractModule singleInvocation", () => {
         const second = await module.runWithResult("a");
 
         expect(second.executed).toBe(false);
-        expect(onAlreadyRunning).toHaveBeenCalledTimes(1);
+        expect(onBlocked).toHaveBeenCalledExactlyOnceWith(expect.anything(), { kind: "running" });
 
         release();
         await expect(first).resolves.toMatchObject({ executed: true });
@@ -72,7 +72,23 @@ describe("AbstractModule singleInvocation", () => {
     });
 });
 
-describe("AbstractModule stage compatibility", () => {
+describe("AbstractModule stages", () => {
+    it("keeps event invocations unmeasured", async () => {
+        const execute = vi.fn();
+        const module = new EventModule({ name: "ready", event: "clientReady", execute });
+        module.inject(createClient());
+        const clock = vi.spyOn(performance, "now");
+        try {
+            await module.run();
+            const result = await module.runWithResult();
+            expect(execute).toHaveBeenCalledTimes(2);
+            expect(result.executionTiming).toBeUndefined();
+            expect(clock).not.toHaveBeenCalled();
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
     it("runs overridden async tests and readiness checks even with empty base configuration", async () => {
         const calls: string[] = [];
         class CustomizedModule extends TestModule {
@@ -80,15 +96,11 @@ describe("AbstractModule stage compatibility", () => {
                 calls.push("injection");
                 return super.checkInjection();
             }
-            protected override testDeployment(ctx: ModuleHookContext<[string]>) {
-                calls.push("deployment");
-                return super.testDeployment(ctx);
+            protected override testEnvironment(ctx: TestHookContext) {
+                calls.push("environment");
+                return super.testEnvironment(ctx);
             }
-            protected override testConditions(ctx: ModuleHookContext<[string]>) {
-                calls.push("conditions");
-                return Promise.resolve(super.testConditions(ctx)).then(result => result);
-            }
-            protected override performTests(ctx: ModuleHookContext<[string]>) {
+            protected override performTests(ctx: TestHookContext) {
                 calls.push("tests");
                 return Promise.resolve(super.performTests(ctx)).then(result => result);
             }
@@ -101,33 +113,71 @@ describe("AbstractModule stage compatibility", () => {
         });
         module.inject(createClient());
         expect(await module.runWithResult("a")).toMatchObject({ executed: true });
-        expect(calls).toEqual(["injection", "tests", "deployment", "conditions", "execute"]);
+        expect(calls).toEqual(["injection", "tests", "environment", "execute"]);
     });
 
-    it("observes conditions and hooks added between invocations and preserves fail/pre/execute/post order", async () => {
+    it("observes hooks added between invocations and runs before, then execute", async () => {
         const calls: string[] = [];
         const module = new TestModule({ name: "mutable", execute: () => calls.push("execute") });
         module.inject(createClient());
         await module.run("a");
-        module.conditions.push(() => {
-            calls.push("condition");
-            return { passed: true };
-        });
-        module.hooks.preExecute = async (_ctx, next) => {
-            calls.push("pre");
-            next();
-        };
-        module.hooks.postExecute = async () => {
-            calls.push("post");
+        module.hooks.before = () => {
+            calls.push("before");
+            return true;
         };
         await module.run("a");
-        module.conditions.push(() => ({ passed: false, reason: "blocked" }));
-        module.hooks.onConditionTestFail = async () => {
-            calls.push("fail");
-        };
-        const result = await module.runWithResult("a");
-        expect(result.executed).toBe(false);
-        expect(calls).toEqual(["execute", "condition", "pre", "execute", "post", "condition", "fail"]);
+        expect(calls).toEqual(["execute", "before", "execute"]);
+    });
+
+    it.each([
+        ["false", () => false],
+        ["undefined", () => undefined as unknown as boolean],
+        ["async false", async () => false]
+    ])("stops on a before that returns %s", async (_name, before) => {
+        const execute = vi.fn();
+        const module = new TestModule({ name: "gate", execute, hooks: { before } });
+        module.inject(createClient());
+        expect(await module.runWithResult("a")).toMatchObject({ executed: false });
+        expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("treats a before that throws as blocked and reports it to onError", async () => {
+        const execute = vi.fn();
+        const onError = vi.fn();
+        const module = new TestModule({
+            name: "gate",
+            execute,
+            hooks: {
+                before: () => {
+                    throw new Error("gate failed");
+                },
+                onError
+            }
+        });
+        module.inject(createClient());
+        expect(await module.runWithResult("a")).toMatchObject({ executed: false });
+        expect(execute).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledOnce();
+    });
+
+    it("blocks outside its environment, sending the block to onBlocked and never to onError", async () => {
+        const execute = vi.fn();
+        const client = { ...createClient(), $devMode: true };
+        const onBlocked = vi.fn();
+        const observed = new TestModule({ name: "env", environment: "production", execute, hooks: { onBlocked } });
+        observed.inject(client);
+        await observed.run("a");
+        expect(onBlocked).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+            kind: "environment",
+            reason: "Client is in development mode"
+        });
+
+        const onError = vi.fn();
+        const fallback = new TestModule({ name: "env", environment: "production", execute, hooks: { onError } });
+        fallback.inject(client);
+        await fallback.run("a");
+        expect(onError).not.toHaveBeenCalled();
+        expect(execute).not.toHaveBeenCalled();
     });
 
     it("waits for readiness and suppresses disabled diagnostic formatting", async () => {

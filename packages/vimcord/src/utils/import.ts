@@ -1,6 +1,7 @@
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { ModuleError } from "@/errors/ModuleError.js";
 
 /** A dynamically imported module and its source path. */
 export interface ImportedModule<T> {
@@ -15,68 +16,63 @@ export function getProcessDir(): string {
     return path.dirname(mainPath);
 }
 
-/** Checks whether a filename is a TypeScript or JavaScript module with an optional suffix. */
-export function isTSOrJS(filename: string, suffix?: string | string[]): boolean {
-    if (!suffix) return filename.endsWith(".ts") || filename.endsWith(".js");
-    if (Array.isArray(suffix)) {
-        return suffix.some(s => filename.endsWith(`${s}.ts`) || filename.endsWith(`${s}.js`));
-    } else {
-        return filename.endsWith(`${suffix}.ts`) || filename.endsWith(`${suffix}.js`);
-    }
+/** Checks whether a filename is a TypeScript or JavaScript module matching a suffix. `null` matches every module. */
+export function isTSOrJS(filename: string, suffix: string | string[] | null = null): boolean {
+    // Declaration files sit next to compiled modules but have nothing to import.
+    if (filename.endsWith(".d.ts")) return false;
+    if (suffix === null) return filename.endsWith(".ts") || filename.endsWith(".js");
+    const suffixes = typeof suffix === "string" ? [suffix] : suffix;
+    return suffixes.some(s => filename.endsWith(`${s}.ts`) || filename.endsWith(`${s}.js`));
 }
 
-/** Recursively imports matching TypeScript or JavaScript modules from a process-relative directory. */
-export async function importModulesFromDir<T>(dir: string, suffix?: string | string[]): Promise<ImportedModule<T>[]> {
-    const cwd = getProcessDir();
-    const MODULE_RELATIVE_PATH = path.join(cwd, dir);
-    const MODULE_LOG_PATH = dir;
+function walkFiles(dir: string, base = ""): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+        const relativePath = base ? path.join(base, entry.name) : entry.name;
+        if (entry.isDirectory()) return walkFiles(path.join(dir, entry.name), relativePath);
+        return entry.isFile() ? [relativePath] : [];
+    });
+}
 
-    // Search the directory for event modules
-    const files = (() => {
-        if (!existsSync(MODULE_RELATIVE_PATH)) return [];
+/**
+ * Recursively imports matching modules from a directory relative to the entry file. Throws naming the directory when it is missing or has no matches, and naming every file that fails to import.
+ * @param dir Directory to search
+ * @param suffix Filename suffixes to import; `null` imports every module
+ * @param allowEmpty Returns nothing instead of throwing when no file matches
+ */
+export async function importModulesFromDir<T>(
+    dir: string,
+    suffix: string | string[] | null,
+    allowEmpty = false
+): Promise<ImportedModule<T>[]> {
+    const root = path.resolve(getProcessDir(), dir);
+    if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new ModuleError(`Module directory '${dir}' does not exist (resolved to '${root}')`);
+    }
 
-        const walk = (targetDir: string, base = ""): string[] => {
-            return readdirSync(targetDir, { withFileTypes: true }).flatMap(entry => {
-                const relativePath = base ? path.join(base, entry.name) : entry.name;
-                const fullPath = path.join(targetDir, entry.name);
+    const files = walkFiles(root).filter(filename => isTSOrJS(filename, suffix));
+    if (!files.length) {
+        if (allowEmpty) return [];
+        throw new ModuleError(`Module directory '${dir}' has no modules matching suffix ${JSON.stringify(suffix)}`);
+    }
 
-                if (entry.isDirectory()) return walk(fullPath, relativePath);
-                if (entry.isFile()) return [relativePath];
-
-                return [];
-            });
-        };
-
-        return walk(MODULE_RELATIVE_PATH);
-    })().filter(filename => isTSOrJS(filename, suffix));
-    if (!files.length) return [];
-
-    // Import the modules found in the given directory
-    const modules = await Promise.all(
-        files.map(async fn => {
-            const modulePath = path.join(MODULE_RELATIVE_PATH, fn);
-            const logPath = `./${path.join(MODULE_LOG_PATH, fn)}`;
-
-            try {
-                const moduleUrl = pathToFileURL(modulePath);
-                moduleUrl.searchParams.set("updated", Date.now().toString());
-                const importedModule = (await import(moduleUrl.href)) as T;
-
-                return { module: importedModule, path: logPath };
-            } catch (err) {
-                // Log the warning to the console
-                console.warn(`Failed to import module at '${logPath}'`, err);
-                return null;
-            }
+    const results = await Promise.allSettled(
+        files.map(async filename => {
+            const moduleUrl = pathToFileURL(path.join(root, filename));
+            moduleUrl.searchParams.set("updated", Date.now().toString());
+            return { module: (await import(moduleUrl.href)) as T, path: `./${path.join(dir, filename)}` };
         })
     );
 
-    // Filter out modules that failed to import and return
-    const filteredModules = modules.filter((m): m is ImportedModule<T> => Boolean(m));
-    if (!filteredModules.length) {
-        console.warn(`No valid modules were found in directory '${dir}'`);
+    const failures = results.flatMap((result, i) =>
+        result.status === "rejected" ? [{ i, error: result.reason as unknown }] : []
+    );
+    if (failures.length) {
+        const details = failures.map(({ i, error }) => {
+            const message = error instanceof Error ? error.message : String(error);
+            return `'./${path.join(dir, files[i]!)}': ${message}`;
+        });
+        throw new ModuleError(`Failed to import ${details.join("\n")}`, { cause: failures[0]!.error });
     }
 
-    // Return the filtered modules
-    return filteredModules;
+    return results.map(result => (result as PromiseFulfilledResult<ImportedModule<T>>).value);
 }

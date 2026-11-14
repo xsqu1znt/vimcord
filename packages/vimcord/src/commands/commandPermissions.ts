@@ -1,89 +1,78 @@
 import type {
     APIInteractionGuildMember,
     GuildMember,
-    GuildResolvable,
     Message,
     PermissionResolvable,
     RoleResolvable,
-    User,
     UserResolvable
 } from "discord.js";
 import type { ModuleTestResult } from "@/abstracts/AbstractModule.js";
 import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/index.js";
-import type { StaffGlobals } from "@/client/globals.js";
 
-import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
-import { resolveGuildId } from "@/utils/clientUtils.js";
+import { PermissionsBitField } from "discord.js";
+import { Logger } from "@/utils/Logger.js";
 
+/** Reason a command's permission check failed. */
 export enum MissingPermissionReason {
     User = "User",
     UserNotAllowed = "UserNotAllowed",
-    UserBlacklisted = "UserBlacklisted",
 
     Role = "Role",
-    RoleBlacklisted = "RoleBlacklisted",
 
     Client = "Client",
     IsBot = "IsBot",
 
-    GuildBlacklisted = "GuildBlacklisted",
-    GuildNotWhitelisted = "GuildNotWhitelisted",
     NotInGuild = "NotInGuild",
 
     NotGuildOwner = "NotGuildOwner",
-    NotBotOwner = "NotBotOwner",
     NotBotStaff = "NotBotStaff"
 }
 
-export interface CommandModulePermissions {
-    /** User permissions in the invoking channel that grant access to this command.
-     * @remarks If this is a slash command, use the builder's `setDefaultMemberPermissions` option instead.
-     * Other grants can also allow access. Hard restrictions always apply.
-     */
-    user?: PermissionResolvable[];
-    /** Users granted access to this command. Other grants can also allow access. */
+/** Who may use a command. Meeting any one grants access; an empty or omitted object lets everyone through. */
+export interface CommandAccess {
+    /** User permissions in the invoking channel. */
+    permissions?: PermissionResolvable[];
+    /** Specific users. */
     users?: UserResolvable[];
-    /** Don't allow these users to use this command. This restriction always applies. */
-    userBlacklist?: UserResolvable[];
-
-    /** Roles that grant access to this command. Other grants can also allow access. */
+    /** Holders of these roles in the invoking server or the configured staff server. */
     roles?: RoleResolvable[];
-    /** Don't allow these roles to use this command. This restriction always applies. */
-    roleBlacklist?: RoleResolvable[];
-
-    /** Permissions the client must have in the invoking channel. This restriction applies in guilds. */
-    client?: PermissionResolvable[];
-    /** Allow other bots to use this command. */
-    allowBots?: boolean;
-
-    /** Only allow these guilds to use this command. This restriction always applies. */
-    guildWhitelist?: GuildResolvable[];
-    /** Don't allow these guilds to use this command. This restriction always applies. */
-    guildBlacklist?: GuildResolvable[];
-    /** Only allow this command inside a guild.
-     * @remarks For slash commands, use the builder's `setContexts()` option instead.
-     */
-    guildOnly?: boolean;
-
-    /** Grant access to the owner of the invoking guild. Other grants can also allow access. */
+    /** Grants access to the invoking guild owner. @default false */
     guildOwner?: boolean;
-    /** Grant access to the bot owner. Other grants can also allow access. */
-    botOwner?: boolean;
-    /** Grant access to configured bot staff. Other grants can also allow access. */
-    botStaff?: boolean;
+    /** Grants access to configured bot staff. @default false */
+    staff?: boolean;
 }
 
+/** Restrictions on who can run a command or subcommand. Everything except `access` must pass. */
+export interface CommandRestrictions {
+    /** Requires invocation in a guild. @default false */
+    guildOnly?: boolean;
+    /** Permissions the bot must have in the invoking channel. Checked in guilds. */
+    botPermissions?: PermissionResolvable[];
+    /** Allows other bots to invoke this command. @default false */
+    allowBots?: boolean;
+    /** Grants access when any configured entry matches; an empty object permits everyone. @default {} */
+    access?: CommandAccess;
+}
+
+/** Whether access passed, with missing permissions or roles on failure. */
 export type PermissionTestResult =
     | ModuleTestResult<true>
     | (ModuleTestResult<false> & {
+          /** Why the operation stopped or the check failed. */
           reason: MissingPermissionReason;
+          /** Permissions the user lacks in the invoking channel. */
           missingUserPermissions?: PermissionResolvable[];
+          /** Permissions the bot lacks in the invoking channel. */
           missingClientPermissions?: PermissionResolvable[];
+          /** Configured roles the user does not hold. */
           missingRoles?: RoleResolvable[];
       });
 
 type CommandMember = GuildMember | APIInteractionGuildMember | null;
 type FailedPermissionTest = Extract<PermissionTestResult, { passed: false }>;
+
+const ACCESS_KEYS = new Set(["permissions", "users", "roles", "guildOwner", "staff"]);
+const ACCESS_WARNING_LOGGER = new Logger({ prefix: "Command" });
 
 function resolveUserId(user: UserResolvable): string {
     if (typeof user === "string") return user;
@@ -116,18 +105,12 @@ function testRoles(member: CommandMember, requiredRoles: RoleResolvable[] | unde
 
 function testUserPermissions(
     permissions: PermissionsBitField | null,
-    requiredPermissions: PermissionResolvable[] | undefined,
-    bypassAdministrator = false
+    requiredPermissions: PermissionResolvable[] | undefined
 ): PermissionTestResult {
     if (!requiredPermissions?.length) return { passed: true };
     if (!permissions) return { passed: false, reason: MissingPermissionReason.NotInGuild };
 
-    const effectivePermissions = bypassAdministrator
-        ? requiredPermissions
-              .map(permission => PermissionsBitField.resolve(permission) & ~PermissionFlagsBits.Administrator)
-              .filter(permission => permission !== 0n)
-        : requiredPermissions;
-    const missing = effectivePermissions.filter(permission => !permissions.has(permission));
+    const missing = requiredPermissions.filter(permission => !permissions.has(permission));
     return missing.length
         ? { passed: false, reason: MissingPermissionReason.User, missingUserPermissions: missing }
         : { passed: true };
@@ -156,62 +139,57 @@ function testClientPermissions(
         : { passed: true };
 }
 
-function requiresAdministrator(requiredPermissions: PermissionResolvable[] | undefined): boolean {
-    return Boolean(
-        requiredPermissions?.some(
-            permission =>
-                (PermissionsBitField.resolve(permission) & PermissionFlagsBits.Administrator) ===
-                PermissionFlagsBits.Administrator
-        )
-    );
-}
-
-function getBypassesStaff(staff: StaffGlobals, commandName: string) {
-    const normalizedCommandName = commandName.trim().toLowerCase();
-    return staff.bypassesStaff.filter(entry => entry.commandName.trim().toLowerCase() === normalizedCommandName);
-}
-
-async function hasStaffBypassRole(
-    entries: StaffGlobals["bypassesStaff"],
-    getStaffRoleIds: () => Promise<string[]>
-): Promise<boolean> {
-    if (!entries.some(entry => entry.roleIds?.length)) return false;
-
-    const roleIds = await getStaffRoleIds();
-    return entries.some(entry => entry.roleIds?.some(id => roleIds.includes(id)));
-}
-
 function resolveCommandSource<K extends CommandModuleType>(ctx: CommandModuleHookContext<K>) {
     return "message" in ctx ? ctx.message : ctx.interaction;
 }
 
-/** Returns the user who invoked the command, whether it came in as a message or an interaction. */
-export function resolveInvokingUser<K extends CommandModuleType>(ctx: CommandModuleHookContext<K>): User {
-    const source = resolveCommandSource(ctx);
-    return "author" in source ? source.author : source.user;
-}
-
-function hasConfiguredGrants(permissions: CommandModulePermissions): boolean {
+function hasConfiguredGrants(access: CommandAccess): boolean {
     return Boolean(
-        permissions.user?.length ||
-        permissions.users?.length ||
-        permissions.roles?.length ||
-        permissions.guildOwner ||
-        permissions.botOwner ||
-        permissions.botStaff
+        access.permissions?.length || access.users?.length || access.roles?.length || access.guildOwner || access.staff
     );
 }
 
+/** Warns about ignored access keys once during command or subcommand construction. */
+export function warnUnrecognizedAccessKeys(
+    commandName: string,
+    access: CommandAccess | undefined,
+    subcommand?: string
+): void {
+    if (!access) return;
+    const keys = Object.keys(access).filter(key => !ACCESS_KEYS.has(key));
+    if (!keys.length) return;
+
+    const target = `Command '${commandName}'${subcommand ? ` subcommand '${subcommand}'` : ""}`;
+    let message = `${target} has unrecognized access keys: ${keys.join(", ")}.`;
+    if (!hasConfiguredGrants(access)) {
+        message += subcommand
+            ? " No recognized access grant is configured; this subcommand is open to everyone who passes the parent command's restrictions and its own hard restrictions."
+            : " No recognized access grant is configured; this command is open to everyone who passes its hard restrictions.";
+    }
+    if (keys.includes("botOwner")) message += " Replace botOwner with access: { users: [...] }.";
+    ACCESS_WARNING_LOGGER.warn(message);
+}
+
 /**
- * Tests hard command restrictions before checking whether any configured access grant applies.
- * Hard restrictions use AND. User permissions, users, roles, guild owner, bot owner, and bot staff use OR.
- *
+ * Returns the restrictions a command or subcommand actually sets, or `undefined` when it sets none. `allowBots` isn't one: it only matters for bots, which skip the fast path on their own.
+ * @param options The command or subcommand options
+ */
+export function pickRestrictions(options: CommandRestrictions): CommandRestrictions | undefined {
+    const { guildOnly, botPermissions, access } = options;
+    if (!guildOnly && !botPermissions?.length && !access) return undefined;
+    return { guildOnly, botPermissions, access };
+}
+
+/**
+ * Tests hard restrictions before checking whether any configured access grant applies. `guildOnly`, `botPermissions`, and the bot check all must pass; any one `access` entry grants access.
  * @param ctx The command invocation.
- * @param permissions The command permission settings.
+ * @param restrictions The command's restrictions.
+ * @param allowBots Whether bots may run the command. Defaults to `restrictions.allowBots`.
  */
 export function testCommandPermissions<K extends CommandModuleType>(
     ctx: CommandModuleHookContext<K>,
-    permissions: CommandModulePermissions
+    restrictions: CommandRestrictions,
+    allowBots = restrictions.allowBots
 ): PermissionTestResult | Promise<PermissionTestResult> {
     const source = resolveCommandSource(ctx);
     const isMessage = "author" in source;
@@ -219,132 +197,88 @@ export function testCommandPermissions<K extends CommandModuleType>(
     const guildId = source.guildId;
     const member = source.member as CommandMember;
     const staff = ctx.client.globals.staff;
+    const access = restrictions.access ?? {};
 
     // --- Hard restrictions ---
-    if (!guildId && (permissions.guildOnly || permissions.guildWhitelist?.length)) {
-        return { passed: false, reason: MissingPermissionReason.NotInGuild };
-    }
-    if (guildId && permissions.guildBlacklist?.some(guild => resolveGuildId(guild) === guildId)) {
-        return { passed: false, reason: MissingPermissionReason.GuildBlacklisted };
-    }
-    if (
-        guildId &&
-        permissions.guildWhitelist?.length &&
-        !permissions.guildWhitelist.some(guild => resolveGuildId(guild) === guildId)
-    ) {
-        return { passed: false, reason: MissingPermissionReason.GuildNotWhitelisted };
-    }
-    if (!permissions.allowBots && user.bot) return { passed: false, reason: MissingPermissionReason.IsBot };
-    if (permissions.userBlacklist?.some(blocked => resolveUserId(blocked) === user.id)) {
-        return { passed: false, reason: MissingPermissionReason.UserBlacklisted };
-    }
-    if (permissions.roleBlacklist?.some(role => hasRole(member, resolveRoleId(role)))) {
-        return { passed: false, reason: MissingPermissionReason.RoleBlacklisted };
-    }
+    if (!guildId && restrictions.guildOnly) return { passed: false, reason: MissingPermissionReason.NotInGuild };
+    if (!allowBots && user.bot) return { passed: false, reason: MissingPermissionReason.IsBot };
 
     let result: PermissionTestResult;
-    if (guildId && permissions.client?.length) {
+    if (guildId && restrictions.botPermissions?.length) {
         const clientPermissions = isMessage
             ? getPrefixChannelPermissions(source, source.guild?.members.me ?? null)
             : source.appPermissions;
-        result = testClientPermissions(clientPermissions, permissions.client);
+        result = testClientPermissions(clientPermissions, restrictions.botPermissions);
         if (!result.passed) return result;
     }
 
-    if (!hasConfiguredGrants(permissions)) return { passed: true };
+    if (!hasConfiguredGrants(access)) return { passed: true };
 
     // --- Cheap access grants ---
-    const userPermissions = permissions.user?.length
+    const userPermissions = access.permissions?.length
         ? isMessage
             ? getPrefixChannelPermissions(source, member as GuildMember | null)
             : source.memberPermissions
         : null;
-    const userPermissionResult = testUserPermissions(userPermissions, permissions.user);
-    if (userPermissionResult.passed && permissions.user?.length) return userPermissionResult;
+    const userPermissionResult = testUserPermissions(userPermissions, access.permissions);
+    if (userPermissionResult.passed && access.permissions?.length) return userPermissionResult;
 
     let firstFailure: FailedPermissionTest | undefined;
     if (!userPermissionResult.passed) firstFailure = userPermissionResult;
 
-    if (permissions.users?.length) {
-        result = testUsers(user.id, permissions.users);
+    if (access.users?.length) {
+        result = testUsers(user.id, access.users);
         if (result.passed) return result;
         firstFailure ??= result;
     }
 
-    if (permissions.roles?.length) {
-        result = testRoles(member, permissions.roles);
+    if (access.roles?.length) {
+        result = testRoles(member, access.roles);
         if (result.passed) return result;
         firstFailure ??= result;
     }
 
-    const staffBypassEntries = getBypassesStaff(staff, ctx.module.name);
-    const isStaffBypasserById = staffBypassEntries.some(entry => entry.userIds?.includes(user.id));
-    const isKnownBotStaff = staff.ownerId === user.id || staff.superUsers.includes(user.id);
     const cachedGuild = source.guild;
 
-    if (permissions.guildOwner && !guildId) {
+    if (access.guildOwner && !guildId) {
         firstFailure ??= { passed: false, reason: MissingPermissionReason.NotInGuild };
     }
 
-    if (permissions.guildOwner && cachedGuild) {
+    if (access.guildOwner && cachedGuild) {
         if (cachedGuild.ownerId === user.id) return { passed: true };
         firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
     }
 
-    const botOwnerFailed = Boolean(permissions.botOwner && staff.ownerId !== user.id);
-    if (permissions.botOwner && !botOwnerFailed) return { passed: true };
-    if (permissions.botStaff && (isKnownBotStaff || isStaffBypasserById)) return { passed: true };
+    if (access.staff) {
+        if (staff.users.includes(user.id)) return { passed: true };
+        if (guildId === staff.guildId && staff.roles.some(id => hasRole(member, id))) return { passed: true };
+    }
 
+    const needsRoleLookup = Boolean(
+        staff.guildId && guildId !== staff.guildId && (access.roles?.length || (access.staff && staff.roles.length))
+    );
+    const needsOwnerLookup = Boolean(access.guildOwner && guildId && !cachedGuild);
+    if (!needsRoleLookup && !needsOwnerLookup) return failedGrants();
     return testRemoteGrants();
 
+    function failedGrants(): PermissionTestResult {
+        if (access.staff) firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
+        return firstFailure ?? { passed: true };
+    }
+
     async function testRemoteGrants(): Promise<PermissionTestResult> {
-        const administratorRequired = !userPermissionResult.passed && requiresAdministrator(permissions.user);
-        let staffRoleIds: Promise<string[]> | undefined;
-        const getStaffRoleIds = () => (staffRoleIds ??= ctx.client.getStaffGuildRoleIds(user.id));
-        const getBotStaff = async () => {
-            if (isKnownBotStaff) return true;
-            if (!staff.superUserRoles.length) return false;
-
-            const roleIds = await getStaffRoleIds();
-            return staff.superUserRoles.some(id => roleIds.includes(id));
-        };
-
-        if (administratorRequired) {
-            const bypasses = staff.bypassesGuildAdmin;
-            let bypassAdministrator =
-                (bypasses.botOwner && staff.ownerId === user.id) ||
-                (bypasses.superUsers && staff.superUsers.includes(user.id)) ||
-                (bypasses.allBotStaff && isKnownBotStaff) ||
-                (bypasses.bypassers && isStaffBypasserById);
-            if (!bypassAdministrator && bypasses.allBotStaff) bypassAdministrator = await getBotStaff();
-            if (!bypassAdministrator && bypasses.bypassers && staffBypassEntries.length) {
-                bypassAdministrator = isStaffBypasserById || (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds));
-            }
-            if (bypassAdministrator) {
-                result = testUserPermissions(userPermissions, permissions.user, true);
-                if (result.passed) return result;
-                firstFailure = result;
-            }
-        }
-
-        if (permissions.guildOwner && guildId && !cachedGuild) {
+        if (needsOwnerLookup) {
             const guild = await ctx.client.fetchGuild(guildId);
             if (guild?.ownerId === user.id) return { passed: true };
             firstFailure ??= { passed: false, reason: MissingPermissionReason.NotGuildOwner };
         }
 
-        if (botOwnerFailed) {
-            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotOwner };
+        if (needsRoleLookup) {
+            const roleIds = await ctx.client.getStaffGuildRoleIds(user.id);
+            if (access.roles?.some(role => roleIds.includes(resolveRoleId(role)))) return { passed: true };
+            if (access.staff && staff.roles.some(id => roleIds.includes(id))) return { passed: true };
         }
 
-        if (permissions.botStaff) {
-            if (await getBotStaff()) return { passed: true };
-            if (staffBypassEntries.length && (await hasStaffBypassRole(staffBypassEntries, getStaffRoleIds))) {
-                return { passed: true };
-            }
-            firstFailure ??= { passed: false, reason: MissingPermissionReason.NotBotStaff };
-        }
-
-        return firstFailure ?? { passed: true };
+        return failedGrants();
     }
 }

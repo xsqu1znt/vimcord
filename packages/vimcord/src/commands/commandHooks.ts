@@ -1,30 +1,14 @@
-import type { CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
+import type { AnyCommandModuleHooks, CommandModuleHooks, CommandModuleType } from "@/abstracts/index.js";
 
-import { mergeDeep } from "@/utils/obj.js";
-
-export interface GlobalCommandHooks {
-    /** Global hooks for prefix commands. */
+/**
+ * Command hooks set through the client's `hooks` option. The top-level hooks cover every command type; a type key adds its own.
+ * `before` runs the shared hook, then the type's, then the module's. `onBlocked` and `onError` use the module's, else the type's, else the shared one.
+ */
+export interface GlobalCommandHooks extends AnyCommandModuleHooks {
+    /** Hooks for prefix commands. */
     prefix?: CommandModuleHooks<CommandModuleType.Prefix>;
-    /** Global hooks for slash commands. */
+    /** Hooks for slash commands. */
     slash?: CommandModuleHooks<CommandModuleType.Slash>;
-    /** Global hooks for message and user context commands. */
+    /** Hooks for message and user context commands. */
     context?: CommandModuleHooks<CommandModuleType.MessageContext | CommandModuleType.UserContext>;
-}
-
-const GLOBAL_COMMAND_HOOKS: GlobalCommandHooks = {};
-
-/**
- * Updates the global command hook configuration.
- * @param hooks Partial command hooks to merge into the global config
- */
-export function defineGlobalCommandHooks(hooks: GlobalCommandHooks): void {
-    mergeDeep(GLOBAL_COMMAND_HOOKS, hooks);
-}
-
-/**
- * Returns the package-level hook configuration for the command module base class.
- * @internal
- */
-export function getGlobalCommandHooks(): GlobalCommandHooks {
-    return GLOBAL_COMMAND_HOOKS;
 }

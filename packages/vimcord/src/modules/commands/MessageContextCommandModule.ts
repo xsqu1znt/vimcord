@@ -1,31 +1,44 @@
-import type { AppCommandModuleOptions } from "@/abstracts/index.js";
+import type {
+    CommandModuleContext,
+    ContextCommandModuleOptions,
+    ResolvedAppCommandRegistration
+} from "@/abstracts/index.js";
 
 import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
 import { AbstractCommandModule, CommandModuleType } from "@/abstracts/index.js";
+import { applyGuildOnlyContexts, resolveRegistration } from "@/commands/commandRegistration.js";
 
-type MessageContextCommandModuleOptions = AppCommandModuleOptions<CommandModuleType.MessageContext>;
+type MessageContextCommandModuleOptions = ContextCommandModuleOptions<CommandModuleType.MessageContext>;
 
+/** Defines a context menu command targeting a message. */
 export class MessageContextCommandModule extends AbstractCommandModule<CommandModuleType.MessageContext> {
+    /** Command kind used for dispatch. */
     override type: CommandModuleType.MessageContext = CommandModuleType.MessageContext;
+    /** Module kind displayed in logs. */
     override moduleType: string = "Command:Context";
 
+    /** Discord.js builder or callback configuring the application command. */
     readonly builder: ContextMenuCommandBuilder;
+    /** Defers the interaction before the handler runs. */
     override readonly deferReply: MessageContextCommandModuleOptions["deferReply"];
-    readonly registration: NonNullable<MessageContextCommandModuleOptions["registration"]>;
+    /** Guild and global application command registration scopes. */
+    readonly registration: ResolvedAppCommandRegistration;
 
     constructor(options: MessageContextCommandModuleOptions) {
         const builder =
             typeof options.builder === "function" ? options.builder(new ContextMenuCommandBuilder()) : options.builder;
         builder.setType(ApplicationCommandType.Message);
+        applyGuildOnlyContexts(builder, options.guildOnly);
 
         super({
             name: builder.name,
-            ...options
+            ...options,
+            execute: options.execute as (ctx: CommandModuleContext<CommandModuleType.MessageContext>) => unknown
         });
 
         this.directExecution = new.target === MessageContextCommandModule;
         this.builder = builder;
         this.deferReply = options.deferReply;
-        this.registration = { global: true, ...options.registration };
+        this.registration = resolveRegistration(options.registration);
     }
 }

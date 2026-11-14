@@ -1,4 +1,6 @@
-import { Client, User } from "discord.js";
+import type { ChatInputCommandInteraction } from "discord.js";
+
+import { BaseInteraction, Message } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterEmbed } from "./betterEmbed.js";
 
@@ -35,43 +37,10 @@ describe("BetterEmbed deferred build", () => {
     });
 });
 
-describe("BetterEmbed token formatting", () => {
-    it("preserves escaping, word boundaries, unknown tokens and absent context", () => {
-        const embed = new BetterEmbed({
-            description: String.raw`\$INVIS $INVIS $INVISIBLE $UNKNOWN $USER $YEAR $year $MONTH $month $DAY $day @name #channel`
-        });
-        const now = new Date();
-        const month = String(now.getMonth() + 1).padStart(2, "0");
-        const day = String(now.getDate()).padStart(2, "0");
-        expect(embed.toJSON().description).toBe(
-            `\\$INVIS \u200B $INVISIBLE $UNKNOWN $USER ${now.getFullYear()} ${String(now.getFullYear()).slice(-2)} ${month} ${month} ${day} ${day} @name #channel`
-        );
-    });
-
-    it("resolves avatars once per build only when used, and reads new context on later builds", async () => {
-        const client = new Client({ intents: [] });
-        const TestUser = User as unknown as new (client: Client, data: object) => User;
-        const user = new TestUser(client, { id: "123", username: "Alice", discriminator: "0", avatar: null });
-        const avatar = vi.spyOn(user, "displayAvatarURL").mockReturnValue("https://example.com/a.png");
-        const embed = new BetterEmbed({ context: { user }, title: "$USER_NAME", description: "@name #channel" });
-        expect(embed.toJSON().title).toBe("Alice");
-        expect(avatar).not.toHaveBeenCalled();
-        embed.setAuthor({ text: "Name", icon: true }).setDescription("$USER_AVATAR $USER_AVATAR");
-        expect(embed.toJSON().description).toBe("https://example.com/a.png https://example.com/a.png");
-        expect(avatar).toHaveBeenCalledOnce();
-        user.username = "Bob";
-        expect(embed.toJSON().title).toBe("Bob");
-        expect(avatar).toHaveBeenCalledTimes(2);
-        await client.destroy();
-    });
-
-    it("keeps ordered substitutions and String.replace syntax in Discord usernames", async () => {
-        const client = new Client({ intents: [] });
-        const TestUser = User as unknown as new (client: Client, data: object) => User;
-        const user = new TestUser(client, { id: "123", username: "$DAY $$ $&", discriminator: "0", avatar: null });
-        const embed = new BetterEmbed({ context: { user }, description: "$USER_NAME" });
-        expect(embed.toJSON().description).toBe(`${String(new Date().getDate()).padStart(2, "0")} $ $USER_NAME`);
-        await client.destroy();
+describe("BetterEmbed text", () => {
+    it("sends $-prefixed text unchanged", () => {
+        const embed = new BetterEmbed({ title: "$USER", description: "$YEAR costs $5" });
+        expect(embed.toJSON()).toMatchObject({ title: "$USER", description: "$YEAR costs $5" });
     });
 });
 
@@ -116,5 +85,22 @@ describe("BetterEmbed API payload", () => {
         } finally {
             random.mockRestore();
         }
+    });
+});
+
+describe("BetterEmbed sending", () => {
+    it("edits a message through message.edit and follows up through the interaction", async () => {
+        const embed = new BetterEmbed({ title: "Title" });
+        const edit = vi.fn().mockResolvedValue({ id: "edited" });
+        const message = Object.create(Message.prototype) as Message;
+        Object.defineProperties(message, { edit: { value: edit }, editable: { value: true } });
+        await embed.edit(message, { content: "Text" });
+        expect(edit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ content: "Text", embeds: [embed] }));
+
+        const followUp = vi.fn().mockResolvedValue({ id: "followed" });
+        const interaction = Object.create(BaseInteraction.prototype) as ChatInputCommandInteraction;
+        Object.defineProperty(interaction, "followUp", { value: followUp });
+        await embed.followUp(interaction);
+        expect(followUp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ embeds: [embed] }));
     });
 });

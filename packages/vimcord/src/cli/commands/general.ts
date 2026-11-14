@@ -94,7 +94,7 @@ export function createGeneralCLICommands(): CLICommand[] {
                             { key: "status", label: "Status" },
                             { key: "description", label: "Description" }
                         ],
-                        plugins
+                        plugins.map(p => ({ ...p, version: p.version ?? "—", description: p.description ?? "—" }))
                     );
                 }
             }

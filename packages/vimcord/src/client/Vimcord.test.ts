@@ -1,21 +1,24 @@
+import type { CommandModuleHookContext, CommandModuleType } from "@/abstracts/commands/CommandModuleTypeKit.js";
+import type { VimcordClientOptions } from "./Vimcord.js";
+
 import EventEmitter from "node:events";
 import { Client } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testCommandPermissions } from "@/commands/commandPermissions.js";
 import { VimcordPlugin } from "@/plugins/Plugin.js";
+import { resolveEmbedColor, uxConfig } from "@/ux/uxConfig.js";
 import { Vimcord } from "./Vimcord.js";
 
 let client: Vimcord | undefined;
 
-function createClient(): Vimcord {
-    client = new Vimcord({ client: { intents: [] } });
+function createClient(options: Partial<VimcordClientOptions> = {}): Vimcord {
+    client = new Vimcord({ intents: [], banner: false, ...options });
     client.logger.clientReady = vi.fn();
     return client;
 }
 
 class RecordingPlugin extends VimcordPlugin {
     name: string;
-    description = "Records install/uninstall calls";
-    version = "1.0.0";
     installCalls = 0;
     uninstallCalls = 0;
 
@@ -70,9 +73,8 @@ describe("Vimcord.awaitReady", () => {
     });
 
     it("finishes client cleanup after a plugin uninstall failure", async () => {
-        const client = createClient();
         const plugin = new RecordingPlugin("failing", { failUninstall: true });
-        client.use(plugin);
+        const client = createClient({ plugins: [plugin] });
         await client.plugins.load();
 
         const wait = client.awaitReady();
@@ -91,9 +93,8 @@ describe("Vimcord.awaitReady", () => {
 
 describe("Vimcord.login plugin cleanup", () => {
     it("cleans up already-installed plugins when a later login step fails", async () => {
-        const client = createClient();
         const plugin = new RecordingPlugin("service");
-        client.use(plugin);
+        const client = createClient({ plugins: [plugin] });
         vi.spyOn(Client.prototype, "login").mockRejectedValue(new Error("network down"));
 
         await expect(client.login("token")).rejects.toThrow(/network down/);
@@ -104,12 +105,216 @@ describe("Vimcord.login plugin cleanup", () => {
     });
 
     it("keeps the login failure as the primary error even when plugin cleanup also fails", async () => {
-        const client = createClient();
         const plugin = new RecordingPlugin("service", { failUninstall: true });
-        client.use(plugin);
+        const client = createClient({ plugins: [plugin] });
         vi.spyOn(Client.prototype, "login").mockRejectedValue(new Error("network down"));
 
         await expect(client.login("token")).rejects.toThrow(/network down/);
         expect(client.plugins.isInstalled(plugin.name)).toBe(false);
+    });
+});
+
+describe("Vimcord.login startup", () => {
+    it("runs plugins, the plugin step, modules, listeners, then the gateway, in that order", async () => {
+        const order: string[] = [];
+        const installed: boolean[] = [];
+        class Step extends RecordingPlugin {
+            override install(): void {
+                order.push(`install:${this.name}`);
+            }
+            override onPluginsInstalled(): void {
+                order.push(`step:${this.name}`);
+                installed.push(client!.plugins.isInstalled("a") && client!.plugins.isInstalled("b"));
+            }
+        }
+        const client = createClient({
+            plugins: [new Step("a"), new Step("b")],
+            modules: {},
+            prefix: "!"
+        });
+        vi.spyOn(client.modules, "load").mockImplementation(async () => {
+            order.push("modules");
+        });
+        vi.spyOn(Client.prototype, "login").mockImplementation(async () => {
+            order.push(`gateway:${client.listenerCount("interactionCreate")}:${client.listenerCount("messageCreate")}`);
+            return "token";
+        });
+
+        await client.login("token");
+
+        expect(order).toEqual(["install:a", "install:b", "step:a", "step:b", "modules", "gateway:1:1"]);
+        expect(installed).toEqual([true, true]);
+    });
+
+    it("rejects a missing token before running the plugin step", async () => {
+        const step = vi.fn();
+        class Step extends RecordingPlugin {
+            override onPluginsInstalled(): void {
+                step();
+            }
+        }
+        const client = createClient({ plugins: [new Step("a")] });
+        vi.stubEnv("TOKEN", "");
+        vi.stubEnv("TOKEN_DEV", "");
+
+        await expect(client.login()).rejects.toThrow(/TOKEN Missing/);
+
+        expect(step).not.toHaveBeenCalled();
+        vi.unstubAllEnvs();
+    });
+
+    it("uninstalls every plugin when the plugin step fails, and can retry with the same plugins", async () => {
+        let fail = true;
+        class Step extends RecordingPlugin {
+            override onPluginsInstalled(): void {
+                if (fail) throw new Error("migration failed");
+            }
+        }
+        const first = new RecordingPlugin("first");
+        const failing = new Step("failing");
+        const client = createClient({ plugins: [first, failing] });
+        const gateway = vi.spyOn(Client.prototype, "login").mockResolvedValue("token");
+
+        const error = (await client.login("token").catch(e => e)) as Error;
+
+        expect(error.message).toMatch(/migration failed/);
+        expect(error.cause).toBeInstanceOf(Error);
+        expect(gateway).not.toHaveBeenCalled();
+        expect(first.uninstallCalls).toBe(1);
+        expect(failing.uninstallCalls).toBe(1);
+
+        fail = false;
+        await client.login("token");
+        expect(first.installCalls).toBe(2);
+        expect(gateway).toHaveBeenCalledOnce();
+    });
+
+    it("refuses a second login without tearing down the running client", async () => {
+        const plugin = new RecordingPlugin("service");
+        const client = createClient({ plugins: [plugin] });
+        vi.spyOn(Client.prototype, "login").mockResolvedValue("token");
+        await client.login("token");
+
+        await expect(client.login("token")).rejects.toThrow(/already called/);
+
+        expect(plugin.uninstallCalls).toBe(0);
+        expect(client.plugins.isInstalled("service")).toBe(true);
+    });
+
+    it("removes the command listeners on destroy", async () => {
+        const client = createClient({ prefix: "!" });
+        vi.spyOn(Client.prototype, "login").mockResolvedValue("token");
+        await client.login("token");
+        expect(client.listenerCount("messageCreate")).toBe(1);
+
+        await client.destroy();
+
+        expect(client.listenerCount("interactionCreate")).toBe(0);
+        expect(client.listenerCount("messageCreate")).toBe(0);
+    });
+
+    it("strips Vimcord settings before configuring Discord.js", () => {
+        const client = createClient({ name: "Bot", staff: { users: ["1"] }, closeTimeout: 1234 });
+        expect(client.options).toMatchObject({ closeTimeout: 1234 });
+        expect(client.options).not.toHaveProperty("name");
+        expect(client.options).not.toHaveProperty("staff");
+        expect(client.$name).toBe("Bot");
+        expect(client.globals.staff.users).toEqual(["1"]);
+    });
+});
+
+describe("Vimcord command sync", () => {
+    function createSyncClient(options: Partial<VimcordClientOptions> = {}) {
+        const client = createClient(options);
+        const commands = client.modules.commands;
+        const push = vi.spyOn(commands, "push").mockResolvedValue(true);
+        const pushByGuild = vi.spyOn(commands, "pushByGuild").mockResolvedValue(true);
+        const getAll = vi
+            .spyOn(commands, "getAllAppCommands")
+            .mockReturnValue([{ registration: { global: true } }] as never);
+        return { client, push, pushByGuild, getAll };
+    }
+
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+
+    it("syncs guild scope only when a module names guilds, without a failed global sync stopping it", async () => {
+        const { client, push, pushByGuild, getAll } = createSyncClient();
+        (client as unknown as EventEmitter).emit("clientReady");
+        await settle();
+        expect(pushByGuild).not.toHaveBeenCalled();
+
+        getAll.mockReturnValue([{ registration: { global: false, guilds: ["staff"] } }] as never);
+        push.mockRejectedValue(new Error("rest down"));
+        const logged = vi.spyOn(client.logger, "error").mockImplementation(() => {});
+        await (client as unknown as { syncApplicationCommands(): Promise<void> }).syncApplicationCommands();
+        expect(logged).toHaveBeenCalledOnce();
+        expect(pushByGuild).toHaveBeenCalledExactlyOnceWith();
+    });
+
+    it("syncs once the client is ready, and not before", () => {
+        const { client, push } = createSyncClient();
+        expect(push).not.toHaveBeenCalled();
+        (client as unknown as EventEmitter).emit("clientReady");
+        expect(push).toHaveBeenCalledOnce();
+    });
+
+    it("skips syncing with syncCommands: false", () => {
+        const { client, push } = createSyncClient({ syncCommands: false });
+        (client as unknown as EventEmitter).emit("clientReady");
+        expect(push).not.toHaveBeenCalled();
+    });
+
+    it("logs a sync failure instead of raising it", async () => {
+        const { client, push } = createSyncClient();
+        const logged = vi.spyOn(client.logger, "error").mockImplementation(() => {});
+        push.mockRejectedValue(new Error("rest down"));
+        (client as unknown as EventEmitter).emit("clientReady");
+        await new Promise(resolve => setImmediate(resolve));
+        expect(logged).toHaveBeenCalledOnce();
+    });
+});
+
+describe("Vimcord ux option", () => {
+    it("applies embedColorDev from the constructor option and the $devMode setter", () => {
+        const client = createClient({ devMode: true, ux: { embedColor: "#111111", embedColorDev: "#222222" } });
+        expect(resolveEmbedColor()).toBe("#222222");
+
+        client.$devMode = false;
+        expect(resolveEmbedColor()).toBe("#111111");
+    });
+
+    it("merges nested sections over the defaults and restores them on destroy", async () => {
+        const defaults = structuredClone(uxConfig.command);
+        const client = createClient({ ux: { command: { error: null } } });
+        expect(uxConfig.command).toEqual({ ...defaults, error: null });
+
+        await client.destroy();
+        expect(uxConfig.command).toEqual(defaults);
+    });
+});
+
+// These assignments are checked by pnpm check, including non-literal staff options.
+const staffWithRoles = { roles: ["staff-role"] };
+void ({ intents: [], staff: { users: ["user"] } } satisfies VimcordClientOptions);
+void ({ intents: [], staff: { roles: ["staff-role"], guildId: "staff-guild" } } satisfies VimcordClientOptions);
+// @ts-expect-error Staff roles require guildId.
+void ({ intents: [], staff: { roles: ["staff-role"] } } satisfies VimcordClientOptions);
+// @ts-expect-error Variables with staff roles also require guildId.
+void ({ intents: [], staff: staffWithRoles } satisfies VimcordClientOptions);
+
+describe("Vimcord staff identity", () => {
+    it("does not treat command-only role grants as bot staff", async () => {
+        const client = createClient({ staff: { users: ["listed"], roles: ["staff-role"], guildId: "staff-guild" } });
+        const lookup = vi.spyOn(client, "getStaffGuildRoleIds").mockResolvedValue(["helper"]);
+        expect(await client.isBotStaff("listed")).toBe(true);
+        expect(lookup).not.toHaveBeenCalled();
+        const ctx = {
+            client,
+            interaction: { user: { id: "helper-user", bot: false }, guildId: null, member: null }
+        } as unknown as CommandModuleHookContext<CommandModuleType.Slash>;
+        expect(await testCommandPermissions(ctx, { access: { roles: ["helper"] } })).toEqual({ passed: true });
+        expect(await client.isBotStaff("helper-user")).toBe(false);
+        lookup.mockResolvedValue(["staff-role"]);
+        expect(await client.isBotStaff("staff-user")).toBe(true);
     });
 });

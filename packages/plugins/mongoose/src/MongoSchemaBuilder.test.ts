@@ -1,11 +1,11 @@
 import type { mongo, QueryOptions, Types, UpdateQuery, UpdateWithAggregationPipeline } from "mongoose";
-import type { Vimcord } from "vimcord";
-import type { CreateDocument, InferDoc, InferHydratedDoc } from "./MongoSchemaBuilder.js";
+import type { InferDoc } from "./MongoSchemaBuilder.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { Document } from "mongoose";
-import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { MongoosePlugin } from "./index.js";
+import { Vimcord } from "vimcord";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { MongoosePlugin, useTransaction } from "./index.js";
 import { createMongoSchema } from "./MongoSchemaBuilder.js";
 
 const stubClient = { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord;
@@ -46,17 +46,22 @@ beforeAll(async () => {
     await plugin.mongoose.connect(replSet.getUri(), { dbName: "test" });
     await Cooldowns.create({ key: "init" }); // Creates the collection, which a transaction can't do
     await Cooldowns.deleteAll({});
-    await Cooldowns.model!.init(); // Builds the unique index the contention test relies on
+    await Cooldowns.model.init(); // Builds the unique index the contention test relies on
 }, 120_000);
 
 afterAll(async () => {
-    await plugin.disconnect();
+    await plugin.mongoose.disconnect();
     await replSet.stop();
 });
 
 beforeEach(async () => {
+    vi.spyOn(Vimcord, "getInstance").mockReturnValue({ plugins: { get: () => plugin } } as unknown as Vimcord);
     await Cooldowns.deleteAll({});
     await CachedCooldowns.deleteAll({});
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
 });
 
 describe("hydrated timestamp inference", () => {
@@ -74,11 +79,10 @@ describe("hydrated timestamp inference", () => {
                 { timestamps: true }
             )
         );
-        const input = { releaseId: 1, status: "draft" } satisfies CreateDocument<typeof builder>;
+        const input = { releaseId: 1, status: "draft" } as const;
         const doc = await builder.create(input);
         const plain = doc.toObject();
 
-        expectTypeOf(doc).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
         expectTypeOf(plain).toExtend<InferDoc<typeof builder>>();
         expectTypeOf(doc.createdAt).toEqualTypeOf<Date>();
         expectTypeOf(doc.updatedAt).toEqualTypeOf<Date>();
@@ -98,7 +102,7 @@ describe("hydrated timestamp inference", () => {
         expectTypeOf(created!.toObject()).toExtend<InferDoc<typeof builder>>();
         expect(created!.createdAt).toBeInstanceOf(Date);
         const fetched = await builder.fetch({ releaseId: 1 }, undefined, { lean: false, required: true });
-        expectTypeOf(fetched).toEqualTypeOf<InferHydratedDoc<typeof builder>>();
+        expectTypeOf(fetched).toEqualTypeOf<typeof doc>();
         expectTypeOf(fetched.toObject()).toExtend<InferDoc<typeof builder>>();
         expect(fetched.toObject().createdAt).toEqual(plain.createdAt);
     });
@@ -349,11 +353,7 @@ describe("update() and upsert() projections", () => {
 
     it("preserves validation, sorting, and update middleware without running findOne middleware", async () => {
         const builder = attach(
-            createMongoSchema(
-                "projectedWrites",
-                { key: String, hits: { type: Number, min: 0, default: 0 } },
-                { leanByDefault: false }
-            )
+            createMongoSchema("projectedWrites", { key: String, hits: { type: Number, min: 0, default: 0 } })
         );
         const found = vi.fn();
         const updated = vi.fn();
@@ -368,8 +368,16 @@ describe("update() and upsert() projections", () => {
             { key: "b", hits: 2 }
         ]);
 
-        const result = await builder.update({}, { hits: 3 }, { projection: { key: 1, _id: 0 }, sort: { hits: -1 } });
-        const upserted = await builder.upsert({ key: "c" }, { hits: 4 }, { projection: { hits: 1, _id: false } });
+        const result = await builder.update(
+            {},
+            { hits: 3 },
+            { projection: { key: 1, _id: 0 }, sort: { hits: -1 }, lean: false }
+        );
+        const upserted = await builder.upsert(
+            { key: "c" },
+            { hits: 4 },
+            { projection: { hits: 1, _id: false }, lean: false }
+        );
 
         expect(result?.toObject()).toEqual({ key: "b" });
         expect(upserted.toObject()).toEqual({ hits: 4 });
@@ -377,7 +385,7 @@ describe("update() and upsert() projections", () => {
         expect(updated).toHaveBeenCalledTimes(2);
         expectTypeOf(result!.save).toBeFunction();
         expectTypeOf(upserted.save).toBeFunction();
-        // @ts-expect-error Builder-default hydrated documents also exclude _id.
+        // @ts-expect-error Hydrated documents also exclude _id.
         expectTypeOf(result!._id);
         // @ts-expect-error Upsert preserves hydration and explicit _id exclusion.
         expectTypeOf(upserted._id);
@@ -564,7 +572,7 @@ describe("update() with an update object", () => {
 describe("update() inside a transaction", () => {
     it("rolls back a pipeline upsert when the transaction throws", async () => {
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 const previous = await Cooldowns.update({ key: "a" }, bump, { upsert: true, returnDocument: "before" });
                 expect(previous).toBeNull();
                 expect(await Cooldowns.count({ key: "a" })).toBe(1); // Visible to the session that wrote it
@@ -579,7 +587,7 @@ describe("update() inside a transaction", () => {
         await Cooldowns.create({ key: "a", hits: 4 });
 
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 await Cooldowns.update({ key: "a" }, bump);
                 throw new Error("abort");
             })
@@ -589,7 +597,7 @@ describe("update() inside a transaction", () => {
     });
 
     it("commits sequential pipeline updates that see each other's writes", async () => {
-        const previous = await Cooldowns.useTransaction(async () => {
+        const previous = await useTransaction(async () => {
             await Cooldowns.update({ key: "a" }, bump, { upsert: true });
             return await Cooldowns.update({ key: "a" }, bump, { returnDocument: "before" });
         });
@@ -600,7 +608,7 @@ describe("update() inside a transaction", () => {
 
     it("skips the transaction for `session: null`, so that write survives a rollback", async () => {
         await expect(
-            Cooldowns.useTransaction(async () => {
+            useTransaction(async () => {
                 await Cooldowns.update({ key: "in" }, bump, { upsert: true });
                 await Cooldowns.update({ key: "out" }, bump, { upsert: true, session: null });
                 throw new Error("abort");
@@ -697,7 +705,7 @@ describe("update cache invalidation", () => {
 
             expect(await CachedCooldowns.fetch({ key: "b" })).not.toBe(other);
             expect(await CachedCooldowns.fetch({ key: "a" })).toEqual(
-                await CachedCooldowns.model!.findOne({ key: "a" }).lean()
+                await CachedCooldowns.model.findOne({ key: "a" }).lean()
             );
         }
     );
@@ -718,7 +726,7 @@ describe("update cache invalidation", () => {
                 { key: "a", hits: 1 },
                 { key: "b", hits: 1 }
             ]);
-            const model = CachedCooldowns.model!;
+            const model = CachedCooldowns.model;
             const findOne = model.findOne.bind(model);
             let release!: () => void;
             let started!: () => void;
@@ -788,11 +796,28 @@ describe("bounded read cache", () => {
         expect(await CachedCooldowns.fetch({ key: "a" })).toBe(first);
         expect(freeze).not.toHaveBeenCalled();
         freeze.mockRestore();
-        await CachedCooldowns.model!.updateOne({ key: "a" }, { hits: 2 });
+        await CachedCooldowns.model.updateOne({ key: "a" }, { hits: 2 });
         for (const opts of [{ populate: "key" }, { collation: { locale: "en" } }, { lean: {} }]) {
             expect(await CachedCooldowns.fetch({ key: "a" }, undefined, opts as QueryOptions)).toMatchObject({ hits: 2 });
         }
         expect(await CachedCooldowns.fetch({ key: "a" }, { hits: 1 })).toMatchObject({ hits: 2 });
+    });
+
+    it("takes a projection in options as well as positionally, bypassing the cache either way", async () => {
+        await CachedCooldowns.create({ key: "p", hits: 3 });
+        const cached = await CachedCooldowns.fetch({ key: "p" });
+        await CachedCooldowns.model.updateOne({ key: "p" }, { hits: 4 });
+
+        const projected = await CachedCooldowns.fetch({ key: "p" }, undefined, { projection: { hits: 1, _id: 0 } });
+        expect(projected).toEqual({ hits: 4 });
+        expectTypeOf(projected).toEqualTypeOf<InferDoc<typeof CachedCooldowns> | null>();
+        expect(await CachedCooldowns.fetch({ key: "p" }, { key: 1 }, { projection: { hits: 1, _id: 0 } })).toEqual({
+            hits: 4
+        });
+        expect(await CachedCooldowns.fetchAll({ key: "p" }, undefined, { projection: { key: 1, _id: 0 } })).toEqual([
+            { key: "p" }
+        ]);
+        expect(await CachedCooldowns.fetch({ key: "p" })).toBe(cached);
     });
 
     it("evicts oldest insertions and expires one-time keys without another read", async () => {
@@ -820,7 +845,7 @@ describe("bounded read cache", () => {
         "insertMany"
     ] as const)("prevents a pending read from repopulating after %s and from deleting a newer pending read", async write => {
         await CachedCooldowns.create({ key: "a", hits: 1 });
-        const model = CachedCooldowns.model!;
+        const model = CachedCooldowns.model;
         const findOne = model.findOne.bind(model);
         let release!: () => void;
         let started!: () => void;
@@ -891,46 +916,7 @@ describe("bounded read cache", () => {
     });
 });
 
-describe("cursor pagination and explicit write APIs", () => {
-    it.each([1, -1] as const)("pages through ties in direction %s without counting or skipping", async direction => {
-        await Cooldowns.insertMany(Array.from({ length: 7 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 3) })));
-        const expected = await Cooldowns.fetchAll({}, undefined, { sort: { hits: direction, _id: direction } });
-        const count = vi.spyOn(Cooldowns.model!, "countDocuments");
-        const seen: string[] = [];
-        let after: { value: unknown; id: (typeof expected)[0]["_id"] } | undefined;
-        for (;;) {
-            const result = await Cooldowns.paginateCursor({}, { path: "hits", direction, limit: 2, after });
-            seen.push(...result.docs.map(d => d.key));
-            if (!result.hasNext) break;
-            after = result.nextCursor!;
-        }
-        expect(seen).toEqual(expected.map(d => d.key));
-        expect(count).not.toHaveBeenCalled();
-        count.mockRestore();
-        const numbered = await Cooldowns.paginate({}, undefined, { page: 2, limit: 2 });
-        expect(numbered).toMatchObject({ total: 7, pages: 4, hasNext: true });
-    });
-
-    it("uses stored sort values for hydrated cursors instead of transformed getters", async () => {
-        const builder = attach(
-            createMongoSchema("cursorGetters", {
-                key: String,
-                hits: { type: Number, get: (n: number) => n + 1000 }
-            })
-        );
-        builder.schema.index({ hits: 1, _id: 1 });
-        await builder.insertMany(Array.from({ length: 6 }, (_, i) => ({ key: String(i), hits: Math.floor(i / 2) })));
-        const first = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false });
-        expect(first.docs[0]?.hits).toBe(1000);
-        expect(first.nextCursor?.value).toBe(0);
-        const second = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: first.nextCursor! });
-        expect(second.docs.map(d => d.key)).toEqual(["2", "3"]);
-        expect(second.nextCursor?.value).toBe(1);
-        const last = await builder.paginateCursor({}, { path: "hits", limit: 2, lean: false, after: second.nextCursor! });
-        expect(last.docs.map(d => d.key)).toEqual(["4", "5"]);
-        expect(last.hasNext).toBe(false);
-    });
-
+describe("explicit write APIs", () => {
     it("validates insertMany without save hooks and uses updateOne query middleware", async () => {
         const builder = attach(createMongoSchema("middleware", { key: { type: String, required: true } }));
         const saved = vi.fn();
@@ -967,7 +953,7 @@ describe("cursor pagination and explicit write APIs", () => {
             saves();
         });
         await builder.create({ key: "taken", other: "taken" });
-        await builder.model!.init();
+        await builder.model.init();
         let attempt = 0;
         await builder.createUnique("key", { other: "new" }, () => (attempt++ ? "new" : "taken"));
         expect(saves).toHaveBeenCalledTimes(3);
@@ -994,9 +980,9 @@ describe("cursor pagination and explicit write APIs", () => {
 
     it("does not retry a compound index containing the generated path", async () => {
         const builder = attach(createMongoSchema("compoundUnique", { key: String, guild: String }));
-        builder.schema.index({ key: 1, guild: 1 }, { unique: true });
+        builder.index({ key: 1, guild: 1 }, { unique: true });
         await builder.create({ key: "taken", guild: "same" });
-        await builder.model!.init();
+        await builder.model.init();
         const generate = vi.fn(() => "taken");
 
         await expect(builder.createUnique("key", { guild: "same" }, generate)).rejects.toMatchObject({

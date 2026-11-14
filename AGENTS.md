@@ -10,10 +10,10 @@ Vimcord runs large, high-traffic bots, so every API it exposes should read clean
 
 A PNPM workspace. `packages/*`, `packages/plugins/*`, and `templates/*`.
 
-- `vimcord` in `packages/vimcord` holds everything and is the public name users install.
+- `vimcord` in `packages/vimcord` holds everything and is the public name users install; its topic docs live in `packages/vimcord/docs/`.
 - `@vimcord/plugin-dotenv` in `packages/plugins/dotenv` loads env files through the plugin lifecycle.
-- `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`.
-- `templates/*` is a placeholder for starter bot templates. Today it's a single README that says templates are coming; there's no template code to update yet.
+- `@vimcord/plugin-mongoose` in `packages/plugins/mongoose` holds the Mongoose connection and `MongoSchemaBuilder`; its guide lives in `packages/plugins/mongoose/docs/mongoose.md`.
+- `templates/basic` is a copyable TypeScript bot with slash and prefix commands, a ready event, and dotenv; `templates/README.md` lists the templates.
 
 Inside `packages/vimcord/src`:
 
@@ -39,7 +39,7 @@ Type checks and a focused smoke test cover this repo. Write a test when the chan
 
 - File names are `PascalCase` when the file's main export is a class, `camelCase` otherwise.
 - `PascalCase` for classes and types, `camelCase` for variables and functions, `SCREAMING_SNAKE_CASE` for top-level constants.
-- Add a file to its nearest `index.ts` barrel when the files around it are already re-exported there.
+- The root `index.ts` exports only what a project would use; keep internal helpers out of the public exports.
 - Order inside a file: imports, types and interfaces, constants, helpers, main export. A helper sits above what uses it.
 - `type` for unions, `interface` for object shapes. Annotate return types on exports; let internal helpers infer. `unknown` for input you have not checked yet, then narrow it.
 - Return early. Past three levels of nesting, rewrite with guard clauses.
@@ -49,12 +49,14 @@ Type checks and a focused smoke test cover this repo. Write a test when the chan
 
 ## Module registration
 
-`ModuleManager.load()` imports each module directory through `AbstractModuleImporter.importFrom(dir, suffix)`. The `suffix` option is a filename filter, not a required tag:
+`login()` runs `ModuleManager.load()` once, from the constructor's `modules` option. Each entry's `suffix` is required and filters filenames:
 
-- No `suffix` configured: every `.ts`/`.js` file in `dir` is imported as that import's module type. Dropping an `.event.ts` file into a `slashCommands.dir` folder with no suffix set will try to import it as a slash command.
-- A `suffix` (or list) configured: only filenames ending in one of those suffixes before `.ts`/`.js` are imported; everything else in the directory is silently skipped, no warning.
+- `null`: every `.ts`/`.js` file in `dir`, except `.d.ts`, is imported as that entry's module type, so a helper file in that folder fails boot.
+- A suffix or list: only filenames ending in one before `.ts`/`.js` are imported. Everything else is skipped silently, which is how helper files live next to modules.
 
-Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.ts`, `.mctx.ts`, `.uctx.ts`, `.event.ts`. Pick whichever a project's `imports` config actually sets.
+A missing directory, zero matches, a failed import, or a default export that isn't that entry's module type aborts login with the file or folder named.
+
+Suffixes are conventional, not enforced by the framework: `.slash.ts`, `.prefix.ts`, `.mctx.ts`, `.uctx.ts`, `.event.ts`.
 
 ## Working with us
 

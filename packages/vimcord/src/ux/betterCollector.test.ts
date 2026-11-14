@@ -1,9 +1,10 @@
 import type { InteractionBasedSendHandler } from "./dynaSend.js";
 
 import EventEmitter from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { Collection, ComponentType } from "discord.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BetterCollector } from "./betterCollector.js";
-import { ResolveAction } from "./shared.js";
+import { applyUxConfig } from "./uxConfig.js";
 
 vi.mock("./interactionRouter.js", () => ({
     createRoutedMessageCollector: (
@@ -13,7 +14,11 @@ vi.mock("./interactionRouter.js", () => ({
 }));
 
 function createMessage() {
-    const collector = Object.assign(new EventEmitter(), { stop: vi.fn() });
+    const collector = Object.assign(new EventEmitter(), {
+        stop: vi.fn(),
+        collected: new Collection(),
+        users: new Collection()
+    });
     let filter: (interaction: any) => boolean | Promise<boolean>;
     const message: any = {
         editable: true,
@@ -35,94 +40,248 @@ function createInteraction(userId: string, customId: string) {
     };
 }
 
-describe("BetterCollector participant filtering", () => {
-    it("runs global and ID listeners in registration order", async () => {
-        const { message, collector } = createMessage();
-        const bc = new BetterCollector(message, { timeout: 1000 });
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+afterEach(() => {
+    vi.restoreAllMocks();
+    applyUxConfig({ collector: { notAParticipantMessage: "You are not allowed to use this." } });
+});
+
+describe("BetterCollector handlers", () => {
+    function open() {
+        const parts = createMessage();
+        return { ...parts, bc: new BetterCollector(parts.message, { timeout: 1000, participants: "anyone" }) };
+    }
+
+    it("runs only the specific handler when both it and a wildcard exist, whatever the registration order", async () => {
+        const { bc, collector } = open();
+        const specific = vi.fn();
+        const wildcard = vi.fn();
+        bc.on(wildcard).on("btn", specific);
+        const i = createInteraction("a", "btn");
+        collector.emit("collect", i);
+        await settle();
+        expect(specific).toHaveBeenCalledExactlyOnceWith(i);
+        expect(wildcard).not.toHaveBeenCalled();
+        expect(i.deferUpdate).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the wildcard for IDs with no handler, without auto-deferring", async () => {
+        const { bc, collector } = open();
+        const specific = vi.fn();
+        const wildcard = vi.fn();
+        bc.on("btn", specific).on(wildcard);
+        const i = createInteraction("a", "other");
+        collector.emit("collect", i);
+        await settle();
+        expect(wildcard).toHaveBeenCalledExactlyOnceWith(i);
+        expect(specific).not.toHaveBeenCalled();
+        expect(i.deferUpdate).not.toHaveBeenCalled();
+    });
+
+    it("auto-defers a click with no handler and no wildcard", async () => {
+        const { bc, collector } = open();
+        bc.on("btn", vi.fn());
+        const i = createInteraction("a", "other");
+        collector.emit("collect", i);
+        await settle();
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("throws at registration on a duplicate custom ID, naming it", () => {
+        const { bc } = open();
+        bc.on("btn_trade:confirm", vi.fn());
+        expect(() => bc.on("btn_trade:confirm", vi.fn())).toThrow(/btn_trade:confirm/);
+        expect(() => bc.on("other", vi.fn())).not.toThrow();
+    });
+
+    it("throws at registration on a second wildcard", () => {
+        const { bc } = open();
+        bc.on(vi.fn());
+        expect(() => bc.on(vi.fn())).toThrow(/wildcard/);
+    });
+
+    it("logs a handler's error instead of letting it escape", async () => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { bc, collector } = open();
+        const failure = new Error("boom");
+        bc.on("btn", () => {
+            throw failure;
+        });
+        collector.emit("collect", createInteraction("a", "btn"));
+        await settle();
+        expect(error).toHaveBeenCalledWith("[BetterCollector] Listener error:", failure);
+    });
+});
+
+describe("BetterCollector onCollect", () => {
+    function open() {
+        const parts = createMessage();
+        return { ...parts, bc: new BetterCollector(parts.message, { timeout: 1000, participants: "anyone" }) };
+    }
+
+    it("awaits observers in order before the handler, ignoring what they return", async () => {
+        const { bc, collector } = open();
         const calls: string[] = [];
-        bc.on("btn", () => calls.push("id"));
-        bc.on(() => calls.push("global"));
-
-        collector.emit("collect", createInteraction("userA", "btn"));
-        await new Promise(resolve => setImmediate(resolve));
-
-        expect(calls).toEqual(["id", "global"]);
+        bc.onCollect(async () => {
+            await settle();
+            calls.push("first");
+            return false;
+        })
+            .onCollect(() => {
+                calls.push("second");
+            })
+            .on("btn", () => {
+                calls.push("handler");
+            });
+        collector.emit("collect", createInteraction("a", "btn"));
+        await settle();
+        await settle();
+        expect(calls).toEqual(["first", "second", "handler"]);
     });
 
-    it("applies a per-listener restriction even though the collector has no global participants", async () => {
-        const { message, collector, getFilter } = createMessage();
-        const bc = new BetterCollector(message, { timeout: 1000 });
-
-        const globalListener = vi.fn();
-        const restrictedListener = vi.fn();
-        bc.on("btn", globalListener);
-        bc.on("btn", restrictedListener, { participants: ["userA"] });
-
-        const filter = getFilter();
-        const interactionB = createInteraction("userB", "btn");
-
-        // The old bug: an empty global participant list short-circuited and let every listener through.
-        expect(await filter(interactionB)).toBe(true);
-        collector.emit("collect", interactionB);
-        await new Promise(resolve => setImmediate(resolve));
-
-        expect(globalListener).toHaveBeenCalledTimes(1);
-        expect(restrictedListener).not.toHaveBeenCalled();
+    it("logs an observer's error and still runs the later observers and the handler", async () => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const { bc, collector } = open();
+        const failure = new Error("boom");
+        const later = vi.fn();
+        const handler = vi.fn();
+        bc.onCollect(() => {
+            throw failure;
+        })
+            .onCollect(later)
+            .on("btn", handler);
+        collector.emit("collect", createInteraction("a", "btn"));
+        await settle();
+        expect(error).toHaveBeenCalledWith("[BetterCollector] Listener error:", failure);
+        expect(later).toHaveBeenCalledOnce();
+        expect(handler).toHaveBeenCalledOnce();
     });
 
-    it("rejects at the Discord.js filter level when no listener allows the participant, before any listener runs", async () => {
+    it("fires for a click with no handler, with the automatic deferUpdate following", async () => {
+        const { bc, collector } = open();
+        const i = createInteraction("a", "unhandled");
+        const observer = vi.fn(() => expect(i.deferUpdate).not.toHaveBeenCalled());
+        bc.onCollect(observer);
+        collector.emit("collect", i);
+        await settle();
+        expect(observer).toHaveBeenCalledOnce();
+        expect(i.deferUpdate).toHaveBeenCalledOnce();
+    });
+});
+
+describe("BetterCollector rejection", () => {
+    it("rejects non-participants on every custom ID, and reads a user or member by ID", async () => {
         const { message, getFilter } = createMessage();
-        const bc = new BetterCollector(message, { timeout: 1000 });
-
-        const restrictedListener = vi.fn();
-        bc.on("btn", restrictedListener, { participants: ["userA"] });
-
-        const filter = getFilter();
-        const interactionB = createInteraction("userB", "btn");
-
-        expect(await filter(interactionB)).toBe(false);
-        expect(interactionB.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: "Ephemeral" }));
-        expect(restrictedListener).not.toHaveBeenCalled();
+        new BetterCollector(message, { participants: ["a", { id: "b" } as never] });
+        const outsider = createInteraction("c", "no-handler");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: "Ephemeral" }));
+        expect(await getFilter()(createInteraction("a", "btn"))).toBe(true);
+        expect(await getFilter()(createInteraction("b", "btn"))).toBe(true);
     });
 
-    it("releases the user lock even after a listener throws", async () => {
-        const { message, collector, getFilter } = createMessage();
-        const bc = new BetterCollector(message, { timeout: 1000, userLock: true });
+    it("lets nobody click with an empty participants list", async () => {
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: [] });
+        expect(await getFilter()(createInteraction("anyone", "btn"))).toBe(false);
+    });
 
+    it("acknowledges silently on an explicit null, even with a message configured", async () => {
+        applyUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: ["a"], notAParticipantMessage: null });
+        const outsider = createInteraction("c", "btn");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).not.toHaveBeenCalled();
+        expect(outsider.deferUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to the configured message only when the option is omitted", async () => {
+        applyUxConfig({ collector: { notAParticipantMessage: "Configured" } });
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: ["a"], notAParticipantMessage: undefined });
+        const outsider = createInteraction("c", "btn");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).toHaveBeenCalledWith(expect.objectContaining({ content: "Configured" }));
+    });
+
+    it("acknowledges silently when the not-a-participant message is configured off", async () => {
+        applyUxConfig({ collector: { notAParticipantMessage: null } });
+        const { message, getFilter } = createMessage();
+        new BetterCollector(message, { participants: ["a"] });
+        const outsider = createInteraction("c", "btn");
+        expect(await getFilter()(outsider)).toBe(false);
+        expect(outsider.reply).not.toHaveBeenCalled();
+        expect(outsider.deferUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("doesn't fire onCollect for rejected clicks, because they never reach the collector's collect event", async () => {
+        const { message, getFilter } = createMessage();
+        const observer = vi.fn();
+        new BetterCollector(message, { participants: ["a"], clickLock: true }).onCollect(observer);
+        expect(await getFilter()(createInteraction("c", "btn"))).toBe(false);
+        expect(await getFilter()(createInteraction("a", "btn"))).toBe(true);
+        expect(await getFilter()(createInteraction("a", "btn"))).toBe(false);
+        expect(observer).not.toHaveBeenCalled();
+    });
+});
+
+describe("BetterCollector clickLock", () => {
+    it("rejects a second click with the config's message until the first finishes, and only for that user", async () => {
+        const { message, collector, getFilter } = createMessage();
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => (release = resolve));
+        new BetterCollector(message, { participants: "anyone", clickLock: true }).on("btn", () => gate);
+        const first = createInteraction("a", "btn");
+        expect(await getFilter()(first)).toBe(true);
+        collector.emit("collect", first);
+
+        const second = createInteraction("a", "btn");
+        expect(await getFilter()(second)).toBe(false);
+        expect(second.reply).toHaveBeenCalledWith(
+            expect.objectContaining({ content: "Please wait, your previous action is still processing." })
+        );
+        expect(await getFilter()(createInteraction("b", "btn"))).toBe(true);
+
+        release();
+        await settle();
+        expect(await getFilter()(createInteraction("a", "btn"))).toBe(true);
+    });
+
+    it("releases the lock even after a handler throws", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const { message, collector, getFilter } = createMessage();
+        const bc = new BetterCollector(message, { timeout: 1000, participants: "anyone", clickLock: true });
         bc.on("btn", () => {
             throw new Error("boom");
         });
-
-        const filter = getFilter();
         const interaction = createInteraction("userA", "btn");
-
-        expect(await filter(interaction)).toBe(true);
+        expect(await getFilter()(interaction)).toBe(true);
         collector.emit("collect", interaction);
-        await new Promise(resolve => setImmediate(resolve));
-
-        // A second click from the same user must not still be treated as locked.
-        expect(await filter(createInteraction("userA", "btn"))).toBe(true);
+        await settle();
+        expect(await getFilter()(createInteraction("userA", "btn"))).toBe(true);
     });
 });
 
 describe("BetterCollector onResolve", () => {
-    it("waits for end listeners before delivering a combined completion payload", async () => {
+    it("waits for end listeners, which get only the reason, before delivering a combined payload", async () => {
         const { message, collector } = createMessage();
         message.edit = vi.fn().mockResolvedValue(message);
-        const collected = [createInteraction("user", "btn")];
         let ended = false;
         const onResolve = vi.fn(async context => {
             expect(ended).toBe(true);
-            expect(context).toEqual({ message, collected, reason: "manual" });
-            return { action: ResolveAction.DisableComponents, content: "Done" };
+            expect(context).toEqual({ message, reason: "manual" });
+            return { action: "disable" as const, content: "Done" };
         });
-        const bc = new BetterCollector(message, { timeout: 1000, onResolve });
-        bc.onEnd(async () => {
+        const onEnd = vi.fn(async () => {
             await Promise.resolve();
             ended = true;
         });
-        collector.emit("end", collected, "manual");
-        await new Promise(resolve => setImmediate(resolve));
+        new BetterCollector(message, { timeout: 1000, participants: "anyone", onResolve }).onEnd(onEnd);
+        collector.emit("end", new Collection(), "manual");
+        await settle();
+        expect(onEnd).toHaveBeenCalledExactlyOnceWith("manual");
         expect(onResolve).toHaveBeenCalledOnce();
         expect(message.edit).toHaveBeenCalledOnce();
         expect(message.edit).toHaveBeenCalledWith(expect.objectContaining({ content: "Done" }));
@@ -135,10 +294,54 @@ it("delivers an ephemeral collector's final payload through its sending interact
     const editMessage = vi.fn().mockResolvedValue(message);
     new BetterCollector(message, {
         timeout: 1000,
+        participants: "anyone",
         interaction: { webhook: { editMessage } } as unknown as InteractionBasedSendHandler,
-        onResolve: () => ({ action: ResolveAction.ClearComponents, content: "Done" })
+        onResolve: () => ({ action: "clear" as const, content: "Done" })
     });
     collector.emit("end", [], "time");
-    await new Promise(resolve => setImmediate(resolve));
+    await settle();
     expect(editMessage).toHaveBeenCalledWith("ephemeral", expect.objectContaining({ content: "Done" }));
+});
+
+describe("BetterCollector defaults", () => {
+    const row = {
+        toJSON: () => ({ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, custom_id: "go" }] })
+    };
+
+    it("disables components on end, idles for the configured default, and retains no history", async () => {
+        const { message, collector } = createMessage();
+        message.components = [row];
+        message.edit = vi.fn().mockResolvedValue(message);
+        const create = vi.spyOn(message, "createMessageComponentCollector");
+        new BetterCollector(message, { participants: "anyone" });
+        expect(create.mock.calls[0]![0]).toMatchObject({ idle: 60_000, time: undefined });
+        collector.collected.set("1", {});
+        expect(collector.collected.get("1")).toBeUndefined();
+        collector.users.set("1", {});
+        expect(collector.users.get("1")).toBeUndefined();
+        collector.emit("end", [], "idle");
+        await settle();
+        expect(message.edit.mock.calls[0]![0].components[0].components[0].disabled).toBe(true);
+    });
+
+    it.each(["messageDelete", "channelDelete", "threadDelete", "guildDelete", "messageDeleteBulk"])(
+        "doesn't edit a message that ended with %s, but still runs the callback",
+        async reason => {
+            const { message, collector } = createMessage();
+            message.components = [row];
+            message.edit = vi.fn();
+            const onResolve = vi.fn(() => "disable" as const);
+            new BetterCollector(message, { participants: "anyone", onResolve });
+            collector.emit("end", [], reason);
+            await settle();
+            expect(onResolve).toHaveBeenCalledOnce();
+            expect(message.edit).not.toHaveBeenCalled();
+        }
+    );
+
+    it("rejects both idle and timeout", () => {
+        const { message } = createMessage();
+        // @ts-expect-error idle and timeout are mutually exclusive.
+        expect(() => new BetterCollector(message, { participants: "anyone", idle: 1, timeout: 1 })).toThrow(/Only one of/);
+    });
 });

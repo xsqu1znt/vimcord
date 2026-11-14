@@ -10,9 +10,11 @@ import type {
     EmbedResolvable,
     InteractionBasedSendHandler,
     RequiredDynaSendOptions,
-    SendHandler
+    SendableComponent,
+    SendHandler,
+    TriggeredMessage
 } from "./dynaSend.js";
-import type { OnResolve, Participant, TimingOptions } from "./shared.js";
+import type { InferredSendOptions, OnResolve, ParticipantSendArgs, ParticipantsOption, TimingOptions } from "./shared.js";
 
 import {
     ActionRowBuilder,
@@ -20,7 +22,6 @@ import {
     BaseInteraction,
     ButtonBuilder,
     ButtonStyle,
-    ComponentType,
     ContainerBuilder,
     EmbedBuilder,
     Message,
@@ -34,11 +35,11 @@ import { BetterCollector } from "./betterCollector.js";
 import { BetterContainer } from "./BetterContainer.js";
 import { BetterEmbed } from "./betterEmbed.js";
 import { BetterModal } from "./betterModal.js";
-import { addMessageFlag, dynaSend, SendMethod } from "./dynaSend.js";
-import { handleResolveAction, ResolveAction, resolveTiming } from "./shared.js";
-import { getGlobalUxConfig } from "./uxConfig.js";
+import { addMessageFlag, dynaSend, toSendableComponents } from "./dynaSend.js";
+import { assertTargetHasTrigger, handleResolveAction, isMessageGone, resolveTiming } from "./shared.js";
+import { uxConfig } from "./uxConfig.js";
 
-type NavButtonId = "first" | "skipBack" | "back" | "jump" | "next" | "skipNext" | "last";
+type NavButtonId = "first" | "back" | "jump" | "next" | "last";
 type PageFormat = "ordinary" | "componentsV2";
 type PaginatorResponseInteraction = MessageComponentInteraction | ModalSubmitInteraction;
 type PageFile = NonNullable<BaseMessageOptions["files"]>[number];
@@ -46,18 +47,29 @@ type SinglePageResolvable = string | EmbedResolvable | BetterEmbed | BetterConta
 
 export type PaginatorTimingOptions = TimingOptions;
 export type PaginatorAction = NavButtonId | "chapter" | "set";
+export type PaginatorNav = "short" | "long";
 
+/** A page with ordinary message content, embeds, or attachments. */
 export interface OrdinaryPaginatorPage {
+    /** Text sent in the message. */
     content?: string;
+    /** Embeds attached to the message. */
     embeds?: (EmbedResolvable | BetterEmbed)[];
+    /** Attachments included with the message. */
     files?: PageFile[];
+    /** Not accepted for this page or chapter source. */
     containers?: never;
 }
 
+/** A page made from Components V2 containers and optional attachments. */
 export interface ComponentsV2PaginatorPage {
+    /** Components V2 containers forming this page. */
     containers: (BetterContainer | ContainerBuilder)[];
+    /** Attachments included with the message. */
     files?: PageFile[];
+    /** Not accepted for this page or chapter source. */
     content?: never;
+    /** Not accepted for this page or chapter source. */
     embeds?: never;
 }
 
@@ -65,21 +77,62 @@ export type PageResolvable =
     SinglePageResolvable | (EmbedResolvable | BetterEmbed)[] | OrdinaryPaginatorPage | ComponentsV2PaginatorPage;
 export type Chapter = PageResolvable[];
 
+/** Zero-based chapter and page coordinates. */
 export interface PageIndex {
+    /** Zero-based chapter index. */
     chapter: number;
+    /** Zero-based page index within the chapter. */
     nested: number;
 }
+/** Chapter select menu appearance and optional stable value. */
 export interface ChapterData extends Omit<SelectMenuComponentOptionData, "value"> {
+    /** Stable select value preserved across chapter replacement. @default generated chapter ID */
     value?: string;
 }
-/** Static chapter supplied to replaceChapters; value preserves selection across reordering. */
-export interface PaginatorChapterInput extends ChapterData {
+/** Static chapter; value preserves selection across reordering in replaceChapters. */
+export interface PaginatorStaticChapter extends ChapterData {
+    /** Static pages belonging to this chapter. */
     pages: Chapter;
+    /** Not accepted for this page or chapter source. */
+    load?: never;
+    /** Not accepted for this page or chapter source. */
+    pageCount?: never;
+    /** Not accepted for this page or chapter source. */
+    page?: never;
 }
+/** Chapter loaded once, the first time it's opened. */
+export interface PaginatorLoadedChapter extends ChapterData {
+    /** Loads all pages when this chapter is first opened. */
+    load: PaginatorChapterLoader;
+    /** Not accepted for this page or chapter source. */
+    pages?: never;
+    /** Not accepted for this page or chapter source. */
+    pageCount?: never;
+    /** Not accepted for this page or chapter source. */
+    page?: never;
+}
+/** Chapter that loads each page as it's opened. */
+export interface PaginatorPagedChapter extends ChapterData {
+    /** Number of pages available from the page loader. */
+    pageCount: number;
+    /** Loads one zero-based page from this chapter. */
+    page: PaginatorPageLoader;
+    /** Not accepted for this page or chapter source. */
+    pages?: never;
+    /** Not accepted for this page or chapter source. */
+    load?: never;
+}
+/** A chapter's menu label with static pages, a chapter loader, or a page loader. */
+export type PaginatorChapterInput = PaginatorStaticChapter | PaginatorLoadedChapter | PaginatorPagedChapter;
+/** Completed navigation with its previous index, destination, action, and page. */
 export interface PaginateEvent {
+    /** Index displayed before navigation. */
     previous: PageIndex;
+    /** Index displayed after navigation. */
     destination: PageIndex;
+    /** Navigation action that selected the destination. */
     action: PaginatorAction;
+    /** Page displayed at the navigation destination. */
     page: PageResolvable;
 }
 
@@ -106,33 +159,30 @@ export type PaginatorLoadingHook = (
 
 /** Paginator completion passed to onResolve after pending navigation finishes. */
 export interface PaginatorResolveContext {
+    /** Discord message associated with the operation. */
     message: Message;
+    /** Why the operation stopped or the check failed. */
     reason: string;
 }
 
+/** Paginator content and navigation settings shared by both timing modes. */
 export interface PaginatorBaseOptions {
-    type?: PaginationType;
-    participants?: Participant[];
+    /** Navigation layout. `"long"` adds first and last buttons. @default "short" */
+    nav?: PaginatorNav;
+    /** Initial pages added as the Default chapter. @default [] */
     pages?: PageResolvable[];
+    /** Cleanup action or final payload applied after pending navigation finishes. @default UX config's paginator.onResolve */
     onResolve?: OnResolve<PaginatorResolveContext>;
-    skipSize?: number;
-    /** Adds Jump to the selected navigation layout. */
+    /** Adds a page-jump button and modal. @default false */
     jump?: boolean;
-    /** Places the chapter select before or after send components. Defaults to `afterComponents`; navigation stays last. */
+    /** Where the chapter select goes relative to send components. @default "afterComponents" */
     chapterSelectPosition?: "beforeComponents" | "afterComponents";
     /** Returns a placeholder only while a lazy destination loads. */
     onLoading?: PaginatorLoadingHook;
 }
 
+/** Paginator pages, navigation, timing, and cleanup. */
 export type PaginatorOptions = PaginatorBaseOptions & PaginatorTimingOptions;
-
-/** Explicit navigation layouts. Jump is selected separately with `jump: true`. */
-export enum PaginationType {
-    Short = 0,
-    ShortSkip = 1,
-    Long = 2,
-    LongSkip = 3
-}
 
 interface StaticChapterSource {
     kind: "static";
@@ -175,7 +225,9 @@ interface ExtraButton {
     index: number;
     component: ButtonBuilder;
 }
+/** Acknowledgement behavior for a custom paginator component. */
 export interface PaginatorComponentHandlerOptions {
+    /** Acknowledges the interaction before calling the handler. @default false */
     deferUpdate?: boolean;
 }
 type PaginatorListener<K extends keyof PaginationEventMap> = {
@@ -192,11 +244,9 @@ const LOADING_DELAY_MS = 150;
 
 const NAV_CUSTOM_IDS = {
     first: "paginator:first",
-    skipBack: "paginator:skip-back",
     back: "paginator:back",
     jump: "paginator:jump",
     next: "paginator:next",
-    skipNext: "paginator:skip-next",
     last: "paginator:last",
     chapterSelect: "paginator:chapter"
 } as const;
@@ -217,29 +267,15 @@ function cloneButton(button: ButtonBuilder, disabled = false): ButtonBuilder {
 }
 
 function createNavButton(id: NavButtonId): ButtonBuilder {
-    const data = getGlobalUxConfig().paginator.buttons[id];
+    const data = uxConfig.paginator.buttons[id];
     const button = new ButtonBuilder({ customId: NAV_CUSTOM_IDS[id], style: ButtonStyle.Secondary });
     if (data.label) button.setLabel(data.label);
     if (data.emoji) button.setEmoji(data.emoji);
     return button;
 }
 
-function getNavButtonIds(type: PaginationType, jump: boolean): NavButtonId[] {
-    let ids: NavButtonId[];
-    switch (type) {
-        case PaginationType.Short:
-            ids = ["back", "next"];
-            break;
-        case PaginationType.ShortSkip:
-            ids = ["skipBack", "back", "next", "skipNext"];
-            break;
-        case PaginationType.Long:
-            ids = ["first", "back", "next", "last"];
-            break;
-        case PaginationType.LongSkip:
-            ids = ["first", "skipBack", "back", "next", "skipNext", "last"];
-            break;
-    }
+function getNavButtonIds(nav: PaginatorNav, jump: boolean): NavButtonId[] {
+    const ids: NavButtonId[] = nav === "long" ? ["first", "back", "next", "last"] : ["back", "next"];
     if (jump) ids.splice(ids.indexOf("next"), 0, "jump");
     return ids;
 }
@@ -273,7 +309,9 @@ function isNavigationInteraction(customId: string): boolean {
     return customId !== NAV_CUSTOM_IDS.jump && Object.values(NAV_CUSTOM_IDS).some(id => id === customId);
 }
 
+/** Sends chapter-based pages with navigation and participant checks. */
 export class Paginator {
+    /** Registered chapters in select menu order. */
     chapters: PaginatorChapter[] = [];
     private readonly options: ResolvedPaginatorOptions;
     private readonly extraButtons: ExtraButton[] = [];
@@ -286,14 +324,39 @@ export class Paginator {
     private readonly componentListeners: PaginatorComponentListener[] = [];
     private readonly navButtons: Record<NavButtonId, ButtonBuilder> = {
         first: createNavButton("first"),
-        skipBack: createNavButton("skipBack"),
         back: createNavButton("back"),
         jump: createNavButton("jump"),
         next: createNavButton("next"),
-        skipNext: createNavButton("skipNext"),
         last: createNavButton("last")
     };
+    private readonly navHandlers: Record<string, (i: MessageComponentInteraction) => Promise<void>> = {
+        [NAV_CUSTOM_IDS.chapterSelect]: async i => {
+            if (!i.isStringSelectMenu()) return;
+            const chapter = this.chapters.findIndex(c => c.id === i.values[0]);
+            if (chapter >= 0) await this.navigate("chapter", chapter, 0, i);
+        },
+        [NAV_CUSTOM_IDS.first]: i => this.navigate("first", this.state.index.chapter, 0, i),
+        [NAV_CUSTOM_IDS.back]: i => this.navigate("back", this.state.index.chapter, this.state.index.nested - 1, i),
+        [NAV_CUSTOM_IDS.jump]: i => this.showJumpModal(i),
+        [NAV_CUSTOM_IDS.next]: i => this.navigate("next", this.state.index.chapter, this.state.index.nested + 1, i),
+        [NAV_CUSTOM_IDS.last]: i => {
+            const chapter = this.state.index.chapter;
+            const requested = { chapter, nested: (this.getPageCount(this.getChapter()) ?? 1) - 1 };
+            return this.runNavigationRequest(
+                "last",
+                async () => {
+                    const count =
+                        this.getPageCount(this.getChapter(chapter)) ??
+                        (await this.loadChapter(this.getChapter(chapter))).length;
+                    return { chapter, nested: count - 1 };
+                },
+                requested,
+                i
+            );
+        }
+    };
     private collector: BetterCollector | null = null;
+    private participants: ParticipantsOption | undefined;
     private format: PageFormat | null = null;
     private navigationBusy = false;
     private navigationPromise: Promise<void> | null = null;
@@ -307,22 +370,20 @@ export class Paginator {
         active: false
     };
 
-    constructor(options: PaginatorOptions) {
-        const config = getGlobalUxConfig().paginator;
+    constructor(options: PaginatorOptions = {}) {
+        const config = uxConfig.paginator;
         const timing = resolveTiming(options);
         this.options = {
-            type: options.type ?? PaginationType.Short,
-            participants: options.participants ?? [],
+            nav: options.nav ?? "short",
             pages: options.pages ?? [],
             timeout: timing.timeout,
             idle: timing.idle,
             onResolve: options.onResolve ?? config.onResolve,
-            skipSize: options.skipSize ?? config.skipSize,
             jump: options.jump ?? false,
             chapterSelectPosition: options.chapterSelectPosition ?? "afterComponents",
             onLoading: options.onLoading
         };
-        if (this.options.pages.length) this.addChapter(this.options.pages, { label: "Default" });
+        if (this.options.pages.length) this.addChapter({ label: "Default", pages: this.options.pages });
     }
 
     private getChapter(index = this.state.index.chapter): PaginatorChapter {
@@ -446,7 +507,7 @@ export class Paginator {
         }
         const buttons =
             count > 1
-                ? getNavButtonIds(this.options.type, this.options.jump).map(id => cloneButton(this.navButtons[id], disabled))
+                ? getNavButtonIds(this.options.nav, this.options.jump).map(id => cloneButton(this.navButtons[id], disabled))
                 : [];
         for (const extra of this.extraButtons) buttons.splice(extra.index, 0, cloneButton(extra.component, disabled));
         const maxRows = this.chapters.length > 1 ? 4 : 5;
@@ -463,7 +524,7 @@ export class Paginator {
         page: PageResolvable,
         options: DynaSendOptions = {},
         index: PageIndex = this.state.index
-    ): RequiredDynaSendOptions {
+    ): RequiredDynaSendOptions & { components: SendableComponent[] } {
         const data: DynaSendOptions = {
             ...options,
             content: "",
@@ -476,22 +537,20 @@ export class Paginator {
             if (options.content || options.embeds?.length)
                 throw new Error("[Paginator] Components V2 pages cannot be combined with ordinary message content");
             data.flags = addMessageFlag(options.flags, MessageFlags.IsComponentsV2);
-        } else if (options.components?.some(c => c instanceof ContainerBuilder)) {
+        } else if (options.components?.some(c => c instanceof BetterContainer || c instanceof ContainerBuilder)) {
             throw new Error("[Paginator] Ordinary pages cannot be combined with Components V2 containers");
         }
-        const components = [...(options.components ?? [])];
+        const components = [...toSendableComponents(options.components)];
         const embeds = [...(options.embeds ?? [])];
         const files = [...(options.files ?? [])];
         if (Array.isArray(page)) embeds.push(...page);
         else if (typeof page === "string") data.content = page;
         else if (page instanceof AttachmentBuilder) files.push(page);
-        else if (page instanceof BetterContainer || page instanceof ContainerBuilder)
-            components.push(page instanceof BetterContainer ? page.toBuilder() : page);
+        else if (page instanceof BetterContainer || page instanceof ContainerBuilder) components.push(page);
         else if (isPageObject(page)) {
             if ("content" in page && page.content !== undefined) data.content = page.content;
             if ("embeds" in page && page.embeds) embeds.push(...page.embeds);
-            if ("containers" in page && page.containers)
-                components.push(...page.containers.map(c => (c instanceof BetterContainer ? c.toBuilder() : c)));
+            if ("containers" in page && page.containers) components.push(...page.containers);
             if (page.files) files.push(...page.files);
         } else embeds.push(page);
         const rows = this.buildRows(false, index);
@@ -534,7 +593,7 @@ export class Paginator {
             ? await this.state.interaction.webhook.editMessage(message.id, editOptions)
             : await dynaSend(message, {
                   ...data,
-                  sendMethod: SendMethod.MessageEdit
+                  method: "edit"
               });
         return this.state.message;
     }
@@ -647,7 +706,7 @@ export class Paginator {
         } catch (error) {
             console.error("[Paginator] Navigation failed:", error);
             if (placeholderShown && this.state.active) await this.editPage(previousPage).catch(() => {});
-            if (interaction) await this.respond(interaction, getGlobalUxConfig().paginator.messages.loadFailed);
+            if (interaction) await this.respond(interaction, uxConfig.paginator.messages.loadFailed);
         }
     }
 
@@ -681,69 +740,42 @@ export class Paginator {
         }
     }
 
-    private registerComponentListener(collector: BetterCollector, listener: PaginatorComponentListener): void {
-        collector.on(listener.customId, listener.fn, { defer: listener.deferUpdate ? { update: true } : false });
+    /** Runs on every click: `collect` observers, then `onComponent` listeners for the ID, then built-in navigation. */
+    private async handleClick(i: MessageComponentInteraction): Promise<void> {
+        const listeners = this.componentListeners.filter(l => l.customId === i.customId);
+        const navigation = this.navHandlers[i.customId];
+
+        // Other code runs before navigation can update the message, so a navigation click is acknowledged first.
+        const observed = this.listeners.collect.length > 0 || listeners.length > 0;
+        const acknowledge = listeners.some(l => l.deferUpdate) || (isNavigationInteraction(i.customId) && observed);
+        if (acknowledge && !hasResponded(i)) await i.deferUpdate().catch(() => {});
+
+        await this.emit("collect", i, this.getCurrentPage(), { ...this.state.index });
+        for (const listener of listeners) {
+            try {
+                await listener.fn(i);
+            } catch (error) {
+                console.error("[Paginator] Component listener error:", error);
+            }
+        }
+        await navigation?.(i);
     }
 
     private collectComponents(): void {
         const message = this.state.message;
         if (!message) return;
         this.collector?.stop("refresh");
-        const collector = new BetterCollector(message, {
-            type: null,
-            retainHistory: false,
-            participants: this.options.participants,
+        // `send`'s signature already required `participants` for targets with no trigger.
+        const collector = new BetterCollector(message as TriggeredMessage, {
+            participants: this.participants,
+            interaction: this.state.interaction,
             ...createCollectorTiming(this.options),
-            onResolve: ResolveAction.DoNothing,
-            notAParticipantMessage: getGlobalUxConfig().paginator.notAParticipantMessage
+            onResolve: "keep",
+            notAParticipantMessage: uxConfig.paginator.notAParticipantMessage
         });
         this.collector = collector;
-        collector.on(async i => {
-            if (
-                isNavigationInteraction(i.customId) &&
-                !hasResponded(i) &&
-                (this.listeners.collect.length || this.componentListeners.some(l => l.customId === i.customId))
-            ) {
-                await i.deferUpdate().catch(() => {});
-            }
-            await this.emit("collect", i, this.getCurrentPage(), { ...this.state.index });
-        });
-        for (const listener of this.componentListeners) this.registerComponentListener(collector, listener);
-        collector.on(NAV_CUSTOM_IDS.chapterSelect, async i => {
-            if (!i.isStringSelectMenu()) return;
-            const chapter = this.chapters.findIndex(c => c.id === i.values[0]);
-            if (chapter >= 0) await this.navigate("chapter", chapter, 0, i);
-        });
-        collector.on(NAV_CUSTOM_IDS.first, i => this.navigate("first", this.state.index.chapter, 0, i));
-        collector.on(NAV_CUSTOM_IDS.skipBack, i =>
-            this.navigate("skipBack", this.state.index.chapter, this.state.index.nested - this.options.skipSize, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.back, i =>
-            this.navigate("back", this.state.index.chapter, this.state.index.nested - 1, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.jump, i => this.showJumpModal(i));
-        collector.on(NAV_CUSTOM_IDS.next, i =>
-            this.navigate("next", this.state.index.chapter, this.state.index.nested + 1, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.skipNext, i =>
-            this.navigate("skipNext", this.state.index.chapter, this.state.index.nested + this.options.skipSize, i)
-        );
-        collector.on(NAV_CUSTOM_IDS.last, async i => {
-            const chapter = this.state.index.chapter;
-            const requested = { chapter, nested: (this.getPageCount(this.getChapter()) ?? 1) - 1 };
-            await this.runNavigationRequest(
-                "last",
-                async () => {
-                    const count =
-                        this.getPageCount(this.getChapter(chapter)) ??
-                        (await this.loadChapter(this.getChapter(chapter))).length;
-                    return { chapter, nested: count - 1 };
-                },
-                requested,
-                i
-            );
-        });
-        collector.onEnd(async (_collected, reason) => {
+        collector.on(i => this.handleClick(i));
+        collector.onEnd(async reason => {
             if (reason === "refresh") return;
             this.collector = null;
             await this.handleTimeout(reason);
@@ -753,7 +785,7 @@ export class Paginator {
     private async showJumpModal(interaction: MessageComponentInteraction): Promise<void> {
         const openedChapter = this.state.index.chapter;
         const pageCount = this.getPageCount(this.getChapter()) ?? (await this.loadChapter(this.getChapter())).length;
-        const config = getGlobalUxConfig().paginator.jumpModal;
+        const config = uxConfig.paginator.jumpModal;
         const formatText = (text: string): string =>
             text.replaceAll("$CURRENT_PAGE", String(this.state.index.nested + 1)).replaceAll("$MAX_PAGE", String(pageCount));
         const modal = new BetterModal({ title: formatText(config.title) }).addTextInput({
@@ -769,14 +801,14 @@ export class Paginator {
         const result = await modal.showAndAwait(interaction, { timeout: config.timeout });
         if (!result) return;
         if (!this.state.active) {
-            await this.respond(result.interaction, getGlobalUxConfig().paginator.messages.expired);
+            await this.respond(result.interaction, uxConfig.paginator.messages.expired);
             return;
         }
         if (this.state.index.chapter !== openedChapter) {
-            await this.respond(result.interaction, getGlobalUxConfig().paginator.messages.chapterChanged);
+            await this.respond(result.interaction, uxConfig.paginator.messages.chapterChanged);
             return;
         }
-        const submitted = Number(result.getField(JUMP_PAGE_CUSTOM_ID, ComponentType.TextInput, true).trim());
+        const submitted = Number(result.fields[JUMP_PAGE_CUSTOM_ID].trim());
         const currentCount = this.getPageCount(this.getChapter());
         if (!Number.isInteger(submitted) || !currentCount || submitted < 1 || submitted > currentCount) {
             await result.reply({ content: formatText(config.invalidPageMessage), flags: "Ephemeral" });
@@ -798,46 +830,50 @@ export class Paginator {
             typeof this.options.onResolve === "function"
                 ? await this.options.onResolve({ message: latestMessage, reason })
                 : this.options.onResolve;
-        this.state.message =
-            (await handleResolveAction(
-                latestMessage,
-                result,
-                this.state.sendOptions?.allowedMentions,
-                this.state.interaction
-            )) ?? latestMessage;
+        if (!isMessageGone(reason)) {
+            this.state.message =
+                (await handleResolveAction(
+                    latestMessage,
+                    result,
+                    this.state.sendOptions?.allowedMentions,
+                    this.state.interaction
+                )) ?? latestMessage;
+        }
         await this.emit("postTimeout", this.state.message ?? message);
     }
 
+    /** Registers a listener for the selected event or component. */
     on<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this {
         this.listeners[event].push({ fn: listener, once: false });
         return this;
     }
 
+    /** Registers a listener removed after its first event. */
     once<K extends keyof PaginationEventMap>(event: K, listener: (...args: PaginationEventMap[K]) => unknown): this {
         this.listeners[event].push({ fn: listener, once: true });
         return this;
     }
 
+    /** Registers a handler for a custom paginator component. */
     onComponent(
         customId: string,
         listener: (interaction: MessageComponentInteraction) => unknown,
         options?: PaginatorComponentHandlerOptions
     ): this {
-        const component = { customId, fn: listener, deferUpdate: options?.deferUpdate ?? false };
-        this.componentListeners.push(component);
-        if (this.collector) this.registerComponentListener(this.collector, component);
+        this.componentListeners.push({ customId, fn: listener, deferUpdate: options?.deferUpdate ?? false });
         return this;
     }
 
-    addChapter(pages: PageResolvable[], data: ChapterData): this {
-        return this.addChapterSource({ kind: "static", pages }, data);
-    }
-    addLazyChapter(loader: PaginatorChapterLoader, data: ChapterData): this {
-        return this.addChapterSource({ kind: "chapterLoader", loader, pages: null }, data);
-    }
-    addPageLoader(pageCount: number, loader: PaginatorPageLoader, data: ChapterData): this {
-        assertPageLoaderCount(pageCount);
-        return this.addChapterSource({ kind: "pageLoader", loader, pageCount }, data);
+    /**
+     * Adds a chapter with static pages, a once-loaded chapter, or individually loaded pages.
+     * @param chapter The chapter's source and its select menu data
+     */
+    addChapter(chapter: PaginatorChapterInput): this {
+        const { pages, load, pageCount, page, ...data } = chapter;
+        if (pages) return this.addChapterSource({ kind: "static", pages }, data);
+        if (load) return this.addChapterSource({ kind: "chapterLoader", loader: load, pages: null }, data);
+        assertPageLoaderCount(pageCount!);
+        return this.addChapterSource({ kind: "pageLoader", loader: page!, pageCount: pageCount! }, data);
     }
 
     private addChapterSource(source: ChapterSource, data: ChapterData): this {
@@ -849,6 +885,7 @@ export class Paginator {
         return this;
     }
 
+    /** Removes chapters and resets the current page within the remaining chapters. */
     spliceChapters(index: number, deleteCount: number): this {
         this.chapters.splice(index, deleteCount);
         this.state.index.chapter = wrapIndex(this.state.index.chapter, this.chapters.length - 1);
@@ -857,22 +894,23 @@ export class Paginator {
     }
 
     /**
-     * Replaces static chapters and re-renders, preserving the chapter value and clamping its page.
-     * Chapters without values preserve their position; a removed chapter returns to the first page.
+     * Replaces static chapters and re-renders, preserving the chapter value and clamping its page. Chapters without values preserve their position; a removed chapter returns to the first page.
      * @param chapters Replacement pages and chapter menu data
      */
-    async replaceChapters(chapters: PaginatorChapterInput[]): Promise<void> {
+    async replaceChapters(chapters: PaginatorStaticChapter[]): Promise<void> {
         if (!chapters.length) throw new Error("[Paginator] Cannot replace chapters with an empty list");
         if (chapters.length > 25) throw new Error("[Paginator] Chapter select menus can only contain 25 chapters");
         const ids = new Set<string>();
-        const replacement = chapters.map(({ pages, value, ...option }, i): PaginatorChapter => {
-            if (!pages.length) throw new Error(`[Paginator] Chapter at index ${i} does not have any pages`);
-            const id = value ?? this.chapters[i]?.id ?? `paginator:chapter:${this.nextChapterId++}`;
-            if (ids.has(id)) throw new Error(`[Paginator] Chapter ID '${id}' is already in use`);
-            ids.add(id);
-            for (const page of pages) this.validatePageFormat(page);
-            return { id, option, source: { kind: "static", pages } };
-        });
+        const replacement = chapters.map(
+            ({ pages, value, load: _load, pageCount: _count, page: _page, ...option }, i): PaginatorChapter => {
+                if (!pages.length) throw new Error(`[Paginator] Chapter at index ${i} does not have any pages`);
+                const id = value ?? this.chapters[i]?.id ?? `paginator:chapter:${this.nextChapterId++}`;
+                if (ids.has(id)) throw new Error(`[Paginator] Chapter ID '${id}' is already in use`);
+                ids.add(id);
+                for (const page of pages) this.validatePageFormat(page);
+                return { id, option, source: { kind: "static", pages } };
+            }
+        );
         await this.navigationPromise;
         const replace = async () => {
             const id = this.chapters[this.state.index.chapter]?.id;
@@ -890,8 +928,9 @@ export class Paginator {
         else await this.runExclusive(replace);
     }
 
-    setPaginationType(type: PaginationType): this {
-        this.options.type = type;
+    /** Selects short or long navigation buttons. */
+    setNav(nav: PaginatorNav): this {
+        this.options.nav = nav;
         return this;
     }
     /** Inserts a custom button at a zero-based position among rendered navigation buttons. */
@@ -908,6 +947,7 @@ export class Paginator {
         return this;
     }
 
+    /** Loads and displays a zero-based chapter and page. */
     async setPage(chapterIndex = this.state.index.chapter, nestedIndex = this.state.index.nested): Promise<void> {
         if (!this.state.message) {
             const { page, index } = await this.loadPage(await this.resolveDestination(chapterIndex, nestedIndex));
@@ -959,11 +999,47 @@ export class Paginator {
         return this.state.message;
     }
 
-    async send(handler: SendHandler, options?: DynaSendOptions): Promise<Message | null> {
+    /**
+     * Sends the paginator and starts collecting navigation clicks.
+     * @param handler Discord target to send through
+     * @param options Message payload and participants allowed to navigate.
+     * @throws Before sending, when replying to a bot's message outside of a DM without `participants`
+     */
+    send<T extends SendHandler>(
+        handler: T,
+        ...args: ParticipantSendArgs<
+            T,
+            [
+                options?: InferredSendOptions<T> & {
+                    /** Users permitted to click; an empty list permits nobody. */
+                    participants?: ParticipantsOption;
+                }
+            ],
+            [
+                options: DynaSendOptions & {
+                    /** Users permitted to click; an empty list permits nobody. */
+                    participants: ParticipantsOption;
+                }
+            ]
+        >
+    ): Promise<Message>;
+    /** Sends through a Discord target using inferred delivery. */
+    async send(
+        handler: SendHandler,
+        {
+            participants,
+            ...options
+        }: DynaSendOptions & {
+            /** Users permitted to click; an empty list permits nobody. */
+            participants?: ParticipantsOption;
+        } = {}
+    ): Promise<Message> {
+        assertTargetHasTrigger(handler, participants, options.method);
         if (!this.chapters.length) throw new Error("[Paginator] Cannot send without any chapters");
         this.validateStaticFormats();
         this.state.sendOptions = options;
         this.state.interaction = handler instanceof BaseInteraction ? handler : undefined;
+        this.participants = participants;
         this.state.active = true;
         try {
             const { page, index } = await this.loadPage(
@@ -971,17 +1047,18 @@ export class Paginator {
             );
             this.state.index = index;
             this.state.currentPage = page;
-            this.state.message = await dynaSend(handler, this.buildSendOptions(page, options));
+            const message = await dynaSend(handler, { ...this.buildSendOptions(page, options), withResponse: true });
+            this.state.message = message;
+            this.collectComponents();
+            return message;
         } catch (error) {
             this.state.active = false;
-            console.error("[Paginator] Initial load failed:", error);
+            console.error("[Paginator] Initial send failed:", error);
             throw error;
         }
-        if (this.state.message) this.collectComponents();
-        else this.state.active = false;
-        return this.state.message;
     }
 
+    /** Ends collection and applies the configured cleanup. */
     stop(reason = "manual"): void {
         this.collector?.stop(reason);
     }

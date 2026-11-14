@@ -1,20 +1,42 @@
 import type { ClientSession } from "mongoose";
-import type { Vimcord } from "vimcord";
 import type { TransactionResult } from "./index.js";
 
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
+import { Vimcord } from "vimcord";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { abort, createMongoSchema, MongoosePlugin, TransactionAbort, tryTransaction } from "./index.js";
+import {
+    abort,
+    createMongoSchema,
+    MongoosePlugin,
+    transaction,
+    TransactionAbort,
+    tryTransaction,
+    useTransaction
+} from "./index.js";
 import { sessionContext } from "./sessionContext.js";
 
 const plugin = new MongoosePlugin();
-const Records = Object.assign(
+/** Attaches the test plugin without installing a Discord client. */
+function attach<B extends object>(builder: B): B {
+    return Object.assign(builder, { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord });
+}
+
+const Records = attach(
     createMongoSchema("transactionRecords", {
         key: { type: String, required: true },
         count: { type: Number, default: 0 }
-    }),
-    { plugin, client: { logger: { plugin: { debug: () => {} } } } as unknown as Vimcord }
+    })
+);
+const CachedRecords = attach(
+    createMongoSchema("cachedTransactionRecords", { key: String, count: Number }, { cache: { key: "key", ttl: 60_000 } })
+);
+const OtherCachedRecords = attach(
+    createMongoSchema(
+        "otherCachedTransactionRecords",
+        { key: String, count: Number },
+        { cache: { key: "key", ttl: 60_000 } }
+    )
 );
 let replSet: MongoMemoryReplSet;
 
@@ -27,6 +49,11 @@ beforeAll(async () => {
 beforeEach(async () => {
     await Records.deleteAll({});
     await Records.create({ key: "counter", count: 0 });
+    for (const builder of [CachedRecords, OtherCachedRecords]) {
+        await builder.deleteAll({});
+        await builder.create({ key: "counter", count: 1 });
+    }
+    vi.spyOn(Vimcord, "getInstance").mockReturnValue({ plugins: { get: () => plugin } } as unknown as Vimcord);
     vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -35,7 +62,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-    await plugin.disconnect();
+    await plugin.mongoose.disconnect();
     await replSet.stop();
 });
 
@@ -94,18 +121,28 @@ describe("transaction results", () => {
 });
 
 describe("transaction boundaries", () => {
+    it("reports a missing Vimcord client before starting a session", async () => {
+        vi.mocked(Vimcord.getInstance).mockReturnValue(undefined);
+        const start = vi.spyOn(plugin.mongoose, "startSession");
+        await expect(useTransaction(async () => {})).rejects.toMatchObject({
+            name: "MongoosePluginError",
+            message: "Vimcord client does not exist"
+        });
+        expect(start).not.toHaveBeenCalled();
+    });
+
     it("rolls back earlier writes before returning an expected failure and ends the session", async () => {
         let session: ClientSession | undefined;
         const run = vi.fn(async (s: ClientSession) => {
             session = s;
-            expect(sessionContext.getStore()).toBe(s);
+            expect(sessionContext.getStore()?.session).toBe(s);
             await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
             await Records.create({ key: "new" });
             expect(await Records.count()).toBe(2);
             abort("Business rule failed");
         });
 
-        const result = await tryTransaction(() => Records.useTransaction(run), "Fallback");
+        const result = await tryTransaction(() => useTransaction(run), "Fallback");
 
         expect(result).toEqual({ success: false, error: "Business rule failed" });
         expect(run).toHaveBeenCalledOnce();
@@ -116,12 +153,28 @@ describe("transaction boundaries", () => {
         expect(console.warn).not.toHaveBeenCalled();
     });
 
-    it.each(["builder", "plugin"] as const)("commits sequential writes and returns the %s callback value", async target => {
+    it("transaction() commits a value, and turns an abort into a failed result after rolling back", async () => {
+        const committed = await transaction(async () => {
+            await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
+            return "done";
+        });
+        expectTypeOf(committed).toEqualTypeOf<TransactionResult<string>>();
+        expect(committed).toEqual({ success: true, value: "done" });
+
+        const aborted = await transaction(async () => {
+            await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
+            abort("Nope");
+        });
+        expect(aborted).toEqual({ success: false, error: "Nope" });
+        expect(await Records.fetch({ key: "counter" })).toMatchObject({ count: 1 });
+        await expect(transaction(async () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    });
+
+    it("commits sequential writes and returns the callback value", async () => {
         let session: ClientSession | undefined;
         const value = { committed: true };
-        const owner = target === "builder" ? Records : plugin;
         const result = await tryTransaction(() =>
-            owner.useTransaction(async s => {
+            useTransaction(async s => {
                 session = s;
                 await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
                 await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
@@ -143,7 +196,7 @@ describe("transaction boundaries", () => {
             let session: ClientSession | undefined;
             const result = tryTransaction(
                 () =>
-                    plugin.useTransaction(async s => {
+                    useTransaction(async s => {
                         session = s;
                         await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
                         throw error;
@@ -169,10 +222,10 @@ describe("transaction boundaries", () => {
         let session: ClientSession | undefined;
         const result = await tryTransaction(
             () =>
-                Records.useTransaction(async s => {
+                useTransaction(async s => {
                     if (session) expect(s).toBe(session);
                     session = s;
-                    expect(sessionContext.getStore()).toBe(s);
+                    expect(sessionContext.getStore()?.session).toBe(s);
                     attempts++;
                     await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
                     if (attempts === 1) {
@@ -197,25 +250,96 @@ describe("transaction boundaries", () => {
         expect(console.warn).not.toHaveBeenCalled();
     });
 
-    it("restores an enclosing session after an aborted transaction", async () => {
+    it("restores an enclosing transaction after an aborted transaction", async () => {
         let outer: ClientSession | undefined;
-        await plugin.useSession(async session => {
+        await useTransaction(async session => {
             outer = session;
             const result = await tryTransaction(() =>
-                Records.useTransaction(async inner => {
+                useTransaction(async inner => {
                     expect(inner).not.toBe(session);
-                    expect(sessionContext.getStore()).toBe(inner);
+                    expect(sessionContext.getStore()?.session).toBe(inner);
                     await Records.updateOne({ key: "counter" }, { $inc: { count: 1 } });
                     abort("Expected failure");
                 })
             );
 
             expect(result).toEqual({ success: false, error: "Expected failure" });
-            expect(sessionContext.getStore()).toBe(session);
+            expect(sessionContext.getStore()?.session).toBe(session);
             expect(session.hasEnded).toBe(false);
             expect(await Records.fetch({ key: "counter" })).toMatchObject({ count: 0 });
         });
         expect(outer?.hasEnded).toBe(true);
         expect(sessionContext.getStore()).toBeUndefined();
+    });
+});
+
+// Outside reads deliberately refill caches before the transaction settles.
+describe("transaction cache invalidation", () => {
+    it.each([false, true])("invalidates a different cached schema after settling (abort: %j)", async shouldAbort => {
+        await CachedRecords.fetch({ key: "counter" });
+        const result = await tryTransaction(() =>
+            useTransaction(async () => {
+                await CachedRecords.updateOne({ key: "counter" }, { $set: { count: 2 } });
+                expect(await CachedRecords.fetch({ key: "counter" })).toMatchObject({ count: 2 });
+                expect(await CachedRecords.fetch({ key: "counter" }, undefined, { session: null })).toMatchObject({
+                    count: 1
+                });
+                if (shouldAbort) abort("Roll back");
+            })
+        );
+        expect(result.success).toBe(!shouldAbort);
+        const read = vi.spyOn(CachedRecords.model, "findOne");
+        expect(await CachedRecords.fetch({ key: "counter" })).toMatchObject({ count: shouldAbort ? 1 : 2 });
+        expect(read).toHaveBeenCalledOnce();
+    });
+
+    it("invalidates both cached schemas written in one transaction", async () => {
+        await useTransaction(async () => {
+            for (const builder of [CachedRecords, OtherCachedRecords]) {
+                await builder.updateOne({ key: "counter" }, { $set: { count: 2 } });
+                expect(await builder.fetch({ key: "counter" }, undefined, { session: null })).toMatchObject({ count: 1 });
+            }
+        });
+        expect(await CachedRecords.fetch({ key: "counter" })).toMatchObject({ count: 2 });
+        expect(await OtherCachedRecords.fetch({ key: "counter" })).toMatchObject({ count: 2 });
+    });
+
+    it("does not let an outside read held across commit repopulate stale data", async () => {
+        let release!: () => void;
+        let started!: () => void;
+        const gate = new Promise<void>(r => {
+            release = r;
+        });
+        const ready = new Promise<void>(r => {
+            started = r;
+        });
+        const model = CachedRecords.model;
+        const findOne = model.findOne.bind(model);
+        const spy = vi.spyOn(model, "findOne").mockImplementationOnce((...args) => {
+            const query = findOne(...args);
+            const exec = query.exec.bind(query);
+            vi.spyOn(query, "exec").mockImplementationOnce(async () => {
+                const result = await exec();
+                started();
+                await gate;
+                return result;
+            });
+            return query;
+        });
+        let pending: ReturnType<typeof CachedRecords.fetch> | undefined;
+        try {
+            await useTransaction(async () => {
+                await CachedRecords.updateOne({ key: "counter" }, { $set: { count: 2 } });
+                pending = CachedRecords.fetch({ key: "counter" }, undefined, { session: null, required: true });
+                await ready;
+            });
+            release();
+            expect(await pending).toMatchObject({ count: 1 });
+            expect(await CachedRecords.fetch({ key: "counter" })).toMatchObject({ count: 2 });
+            expect(spy).toHaveBeenCalledTimes(2);
+        } finally {
+            release();
+            await pending;
+        }
     });
 });

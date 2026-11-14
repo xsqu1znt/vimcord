@@ -1,9 +1,9 @@
-import type { BetterAPIModalComponent } from "./betterModal.js";
+import type { Attachment, ModalSubmitFields, ReadonlyCollection, User } from "discord.js";
 
-import { ComponentType, DiscordjsError, DiscordjsErrorCodes } from "discord.js";
+import { Collection, ComponentType, DiscordjsError, DiscordjsErrorCodes } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { BetterModal } from "./betterModal.js";
-import { dynaSend, SendMethod } from "./dynaSend.js";
+import { dynaSend } from "./dynaSend.js";
 
 vi.mock("./dynaSend.js", async importOriginal => {
     const actual = await importOriginal<typeof import("./dynaSend.js")>();
@@ -62,16 +62,6 @@ describe("BetterModal component limit", () => {
         );
         expect(modal.toJSON().components).toEqual(components);
     });
-
-    it("rejects six components supplied to the constructor", () => {
-        const components: BetterAPIModalComponent[] = Array.from({ length: 6 }, (_, i) => ({
-            textInput: { customId: `field-${i}`, label: `Field ${i + 1}` }
-        }));
-
-        expect(() => new BetterModal({ title: "Feedback", components })).toThrow(
-            "[BetterModal] Modal can only have 5 top-level components"
-        );
-    });
 });
 
 describe("BetterModal submission results", () => {
@@ -114,7 +104,69 @@ describe("BetterModal submission results", () => {
 
         expect(dynaSend).toHaveBeenCalledWith(submit, {
             content: "Done",
-            sendMethod: SendMethod.FollowUp
+            method: "followUp"
         });
+    });
+
+    it("falls back to the UX config's timeout", async () => {
+        const source = createSource(createSubmitInteraction());
+        await new BetterModal().awaitSubmit(source as never);
+        expect(source.awaitModalSubmit).toHaveBeenCalledWith(expect.objectContaining({ time: 60_000 }));
+    });
+
+    it("reads each input into typed fields, with empty collections for empty selects", async () => {
+        const submit = {
+            ...createSubmitInteraction(),
+            fields: {
+                getTextInputValue: () => "Printer on fire",
+                getSelectedUsers: () => null,
+                getStringSelectValues: () => ["low"],
+                getCheckbox: () => true,
+                getRadioGroup: () => null,
+                getSelectedMentionables: () => null,
+                getUploadedFiles: () => null
+            } as unknown as ModalSubmitFields
+        };
+        const result = await new BetterModal({ title: "Create Ticket" })
+            .addTextInput({ customId: "subject", label: "Subject" })
+            .addUserSelect({ customId: "assignees", label: "Assignees", maxValues: 3 })
+            .addStringSelect({ customId: "priority", label: "Priority" })
+            .addCheckbox({ customId: "urgent", label: "Urgent" })
+            .addFileUpload({ customId: "logs", label: "Logs" })
+            .awaitSubmit(createSource(submit) as never);
+        if (!result) throw new Error("Expected a submission");
+
+        const subject: string = result.fields.subject;
+        const assignees: ReadonlyCollection<string, User> = result.fields.assignees;
+        const priority: readonly string[] = result.fields.priority;
+        const urgent: boolean = result.fields.urgent;
+        const logs: ReadonlyCollection<string, Attachment> = result.fields.logs;
+        // @ts-expect-error Only inputs added to the chain are fields.
+        expect(result.fields.missing).toBeUndefined();
+
+        expect(subject).toBe("Printer on fire");
+        expect(assignees).toEqual(new Collection());
+        expect(priority).toEqual(["low"]);
+        expect(urgent).toBe(true);
+        expect(logs).toEqual(new Collection());
+    });
+
+    it("keeps inputs and readers on a clone", async () => {
+        const submit = {
+            ...createSubmitInteraction(),
+            fields: { getTextInputValue: () => "value" } as unknown as ModalSubmitFields
+        };
+        const modal = new BetterModal({ title: "Title" })
+            .addTextInput({ customId: "a", label: "A" })
+            .addTextDisplay({ content: "Note" });
+        const clone = modal.clone();
+        expect(clone.toJSON()).toEqual(modal.toJSON());
+        const result = await clone.awaitSubmit(createSource(submit) as never);
+        expect(result?.fields.a).toBe("value");
+    });
+
+    it("rejects a repeated customId instead of dropping one", () => {
+        const modal = new BetterModal().addTextInput({ customId: "a", label: "A" });
+        expect(() => modal.addTextInput({ customId: "a", label: "Again" })).toThrow(/Duplicate input customId 'a'/);
     });
 });

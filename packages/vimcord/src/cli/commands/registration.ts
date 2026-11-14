@@ -59,7 +59,8 @@ function readScope(context: CLICommandContext, commandName: "register" | "unregi
 function createRegisterCommand(): CLICommand {
     return {
         name: "register",
-        description: "Pushes loaded application commands globally or to explicit guild targets.",
+        description:
+            "Pushes loaded application commands globally or to explicit guild targets. Without a filter, remote commands no loaded module matches are removed from that scope.",
         usage: "/register <global|guild> [guilds...|all] [--names ...] [--category ...] [--tag ...]",
         execute: async context => {
             rejectUnknownFlags(context, ["names", "category", "tag"]);
@@ -70,9 +71,7 @@ function createRegisterCommand(): CLICommand {
 
             if (scope === "global") {
                 if (context.args.length > 1) throw new Error("Global registration does not accept guild targets");
-                const commandCount = manager
-                    .getAllAppCommands(filter)
-                    .filter(command => command.registration.global !== false).length;
+                const commandCount = manager.getAllAppCommands(filter).filter(command => command.registration.global).length;
                 if (!commandCount) throw new Error("No matching globally enabled application commands are loaded");
 
                 const loader = context.logger.commandLoader("Registering global application commands", client);

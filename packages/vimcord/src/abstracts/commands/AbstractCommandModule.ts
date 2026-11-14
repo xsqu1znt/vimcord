@@ -1,28 +1,29 @@
-import type { CommandLoggingTiming } from "@/client/globals.js";
+import type { ChatInputCommandInteraction } from "discord.js";
 import type { Vimcord } from "@/client/Vimcord.js";
 import type { GlobalCommandHooks } from "@/commands/commandHooks.js";
-import type { CommandModulePermissions } from "@/commands/commandPermissions.js";
+import type { CommandRestrictions, PermissionTestResult } from "@/commands/commandPermissions.js";
 import type { ModuleRunResult } from "../AbstractModule.js";
 import type {
+    CommandBlock,
+    CommandDeferReply,
     CommandModuleArgs,
+    CommandModuleBaseOptions,
     CommandModuleContext,
     CommandModuleHookContext,
     CommandModuleHooks,
-    CommandModuleMetadata,
-    CommandModuleOptions
+    CommandModuleMetadata
 } from "./CommandModuleTypeKit.js";
 
 import { applyDeferReply } from "@/commands/commandDeferral.js";
-import { getGlobalCommandHooks } from "@/commands/commandHooks.js";
-import { resolveInvokingUser, testCommandPermissions } from "@/commands/commandPermissions.js";
-import { ModuleError } from "@/errors/ModuleError.js";
+import { pickRestrictions, testCommandPermissions, warnUnrecognizedAccessKeys } from "@/commands/commandPermissions.js";
+import { resolveBlockReply, sendCommandReply } from "@/commands/commandReplies.js";
+import { uxConfig } from "@/ux/uxConfig.js";
 import { AbstractModule } from "../AbstractModule.js";
 import { CommandModuleType } from "./CommandModuleTypeKit.js";
 
-// Used when global logging is omitted or a command explicitly opts back in.
-const DEFAULT_COMMAND_LOGGING = ["execute"] as const;
 const MATCHED_COMMAND = () => true;
 
+/** The client's hooks for one command kind. */
 function getCommandHooks<T extends CommandModuleType>(
     type: T,
     hooks: GlobalCommandHooks | undefined
@@ -31,21 +32,44 @@ function getCommandHooks<T extends CommandModuleType>(
     return hooks?.[key] as CommandModuleHooks<T> | undefined;
 }
 
+/** The client's top-level hooks shared by every command kind, typed for one kind. */
+function getSharedCommandHooks<T extends CommandModuleType>(
+    hooks: GlobalCommandHooks | undefined
+): CommandModuleHooks<T> | undefined {
+    return hooks as CommandModuleHooks<T> | undefined;
+}
+
+/** Base for command modules with shared permissions, hooks, and routing. */
 export abstract class AbstractCommandModule<T extends CommandModuleType> extends AbstractModule<
     CommandModuleArgs<T>,
     CommandModuleContext<T>,
     CommandModuleHookContext<T>,
-    CommandModuleHooks<T>
+    CommandModuleHooks<T>,
+    CommandBlock
 > {
+    /** Command kind used for dispatch. */
     abstract readonly type: T;
     protected directExecution = false;
-    readonly deferReply?: Parameters<typeof applyDeferReply>[1];
-    protected readonly permissions: CommandModulePermissions | undefined;
+    /** Defers the interaction before the handler runs. */
+    readonly deferReply?: CommandDeferReply;
+    /** Guild, bot-permission, and access rules; `undefined` when there are none, so commands can skip the test. */
+    protected readonly restrictions: CommandRestrictions | undefined;
+    protected readonly allowBots: boolean | undefined;
+    /** Callbacks for invocation gates, blocks, and errors. */
     override readonly hooks: CommandModuleHooks<T>;
+    /** Short description displayed to users or in discovery. */
     readonly description?: string;
+    /** Project-defined display and categorization fields. */
     override readonly metadata: CommandModuleMetadata;
 
-    constructor(options: CommandModuleOptions<T>) {
+    constructor(
+        options: CommandModuleBaseOptions<T> & {
+            /** Whether to require a guild for the handler. */
+            guildOnly?: boolean;
+            /** Runs the module or command handler. */
+            execute(ctx: CommandModuleContext<T>): unknown;
+        }
+    ) {
         super({
             ...options,
             singleInvocation:
@@ -54,29 +78,19 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
                     : options.singleInvocation || undefined
         });
 
+        warnUnrecognizedAccessKeys(this.name, options.access);
         this.description = options.description;
-        this.permissions = options.permissions;
+        this.restrictions = pickRestrictions(options);
+        this.allowBots = options.allowBots;
         this.hooks = options.hooks ?? {};
         this.metadata = options.metadata ?? {};
     }
 
-    /** Dispatches a matched command and emits only the selected usage timings. */
+    /** Dispatches a matched command, logging its fixed timings when enabled. */
     dispatch(...args: CommandModuleArgs<T>): Promise<boolean> {
-        // --- Select usage timing ---
-        const logging = this.client!.globals.app.commandLogging ?? DEFAULT_COMMAND_LOGGING;
-        const logUsage = this.metadata.logUsage ?? (logging !== false && logging.length > 0);
-        let selected: readonly CommandLoggingTiming[] | undefined;
-        let startedAt: number | undefined;
-        let recognizedAt: number | undefined;
-        let measure = false;
-        if (logUsage) {
-            selected = logging === false || !logging.length ? DEFAULT_COMMAND_LOGGING : logging;
-            const executeOnly = selected.length === 1 && selected[0] === "execute";
-            measure = executeOnly || selected.includes("execute") || selected.includes("preExecute");
-            if (!executeOnly && (selected.includes("total") || selected.includes("preExecute")))
-                startedAt = performance.now();
-            if (!executeOnly && selected.includes("delivery")) recognizedAt = Date.now();
-        }
+        const logging = this.client!.globals.app.commandLogging;
+        const startedAt = logging ? performance.now() : undefined;
+        const recognizedAt = logging ? Date.now() : undefined;
 
         // --- Run optional module stages ---
         if (
@@ -85,20 +99,17 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
             !this.client ||
             (this.requiresReady && !this.client.isReady()) ||
             this.client.logger.options.verbose ||
-            this.permissions ||
-            this.conditions.length ||
+            this.restrictions ||
             this.singleInvocation ||
-            this.deployment.environment !== "both" ||
+            this.environment !== "both" ||
             ("author" in args[0] ? args[0].author : args[0].user).bot ||
-            this.getHook("preExecute") ||
-            this.getHook("postExecute")
+            this.getHook("before")
         ) {
-            const complete = selected
+            const complete = logging
                 ? (result: ModuleRunResult): boolean => {
                       if (result.executed)
                           this.logUsage(
                               args[0],
-                              selected,
                               startedAt,
                               recognizedAt,
                               result.executionTiming?.startedAt,
@@ -108,36 +119,23 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
                       return true;
                   }
                 : MATCHED_COMMAND;
-            return this.invoke(args, complete, measure);
+            return this.invoke(args, complete, logging);
         }
 
         // --- Call the handler directly ---
         const ctx = this.createModuleCTX(args);
-        const executionStartedAt = measure ? performance.now() : undefined;
-        const finish = selected
+        const executionStartedAt = logging ? performance.now() : undefined;
+        const finish = logging
             ? (): boolean => {
                   const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
-                  this.logUsage(args[0], selected, startedAt, recognizedAt, executionStartedAt, durationMs);
+                  this.logUsage(args[0], startedAt, recognizedAt, executionStartedAt, durationMs);
                   return true;
               }
             : MATCHED_COMMAND;
         const failed = (error: unknown): Promise<boolean> => {
             const durationMs = executionStartedAt === undefined ? undefined : performance.now() - executionStartedAt;
-            const hookCTX = this.createHookCTX(ctx, args);
-            hookCTX.error = error as Error;
-            return this.runHook("onError", hookCTX, async () =>
-                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error as Error)
-            ).then(() => {
-                if (selected)
-                    this.logUsage(
-                        args[0],
-                        selected,
-                        startedAt,
-                        recognizedAt,
-                        executionStartedAt,
-                        durationMs,
-                        error as Error
-                    );
+            return this.handleError(this.createHookCTX(ctx, args), error as Error).then(() => {
+                if (logging) this.logUsage(args[0], startedAt, recognizedAt, executionStartedAt, durationMs, error as Error);
                 return true;
             });
         };
@@ -151,46 +149,23 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     /** Builds the final log entry directly, without an intermediate invocation result for direct handlers. */
     private logUsage(
         source: CommandModuleArgs<T>[0],
-        selected: readonly CommandLoggingTiming[],
         startedAt: number | undefined,
         recognizedAt: number | undefined,
         executionStartedAt: number | undefined,
         executionDurationMs: number | undefined,
         error?: Error
     ): void {
-        const totalDuration = startedAt === undefined ? undefined : performance.now() - startedAt;
-        const timings =
-            selected.length === 1 && selected[0] === "execute"
-                ? [{ timing: "execute" as const, durationMs: executionDurationMs }]
-                : selected.map(timing => {
-                      let durationMs: number | undefined;
-                      switch (timing) {
-                          case "delivery": {
-                              const delivery = recognizedAt === undefined ? -1 : recognizedAt - source.createdTimestamp;
-                              durationMs = delivery >= 0 ? delivery : undefined;
-                              break;
-                          }
-                          case "preExecute":
-                              durationMs =
-                                  executionStartedAt === undefined || startedAt === undefined
-                                      ? undefined
-                                      : executionStartedAt - startedAt;
-                              break;
-                          case "execute":
-                              durationMs = executionDurationMs;
-                              break;
-                          case "total":
-                              durationMs = totalDuration;
-                      }
-                      return { timing, durationMs };
-                  });
+        const delivery = recognizedAt === undefined ? NaN : recognizedAt - source.createdTimestamp;
+        const timings = {
+            delivery: delivery >= 0 ? delivery : undefined,
+            pre: executionStartedAt === undefined || startedAt === undefined ? undefined : executionStartedAt - startedAt,
+            exec: executionDurationMs
+        };
         const guild = source.guild;
         this.client!.logger.commandUsed({
             commandName: this.name,
             userName: ("author" in source ? source.author : source.user).username,
             guildName: guild?.name,
-            guildId: guild?.id,
-            durationMs: totalDuration,
             timings,
             failed: Boolean(error)
         });
@@ -198,13 +173,6 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
 
     protected canExecuteDirectly(): boolean {
         return this.directExecution && !this.deferReply;
-    }
-
-    protected override shouldMeasureExecution(): boolean {
-        if (this.metadata.logUsage === false) return false;
-        const logging = this.client?.globals.app.commandLogging;
-        if (logging === false || logging?.length === 0) return this.metadata.logUsage === true;
-        return !logging || logging.includes("execute") || logging.includes("preExecute");
     }
 
     protected deferInteraction(ctx: CommandModuleContext<T>, deferReply = this.deferReply): void | Promise<void> {
@@ -218,47 +186,100 @@ export abstract class AbstractCommandModule<T extends CommandModuleType> extends
     }
 
     protected override createModuleCTX(args: CommandModuleArgs<T>): CommandModuleContext<T> {
-        return { client: this.client as Vimcord<true>, interaction: args[0] } as CommandModuleContext<T>;
+        const interaction = args[0] as ChatInputCommandInteraction;
+        return {
+            client: this.client as Vimcord<true>,
+            interaction,
+            user: interaction.user
+        } as unknown as CommandModuleContext<T>;
     }
 
     /** Default `singleInvocation` key when the caller passes `singleInvocation: true`: the module plus the invoking user. */
     protected defaultInvocationKey(ctx: CommandModuleHookContext<T>): string {
-        return `${this.id}:${resolveInvokingUser(ctx).id}`;
+        return `${this.id}:${ctx.user.id}`;
     }
 
-    /** Returns command-local hooks before falling back to client and package-level global hooks. */
+    /** Returns the module's hook, else the client's hook for this command kind, else the client's shared hook. */
     protected override getHook<K extends keyof CommandModuleHooks<T>>(hook: K): CommandModuleHooks<T>[K] | undefined {
-        const localHook = this.hooks[hook];
-        if (localHook) return localHook;
-
-        const clientHook = getCommandHooks(this.type, this.client?.globals.hooks)?.[hook];
-        if (clientHook) return clientHook;
-
-        return getCommandHooks(this.type, getGlobalCommandHooks())?.[hook];
+        const globals = this.client?.globals.hooks;
+        return this.hooks[hook] ?? getCommandHooks(this.type, globals)?.[hook] ?? getSharedCommandHooks<T>(globals)?.[hook];
     }
 
+    /** Runs the client's shared gate, then its gate for this kind, then the module's, so no narrower gate can skip a wider one. */
+    protected override async runBefore(ctx: CommandModuleHookContext<T>): Promise<boolean> {
+        const globals = this.client?.globals.hooks;
+        if (!(await this.callBefore(getSharedCommandHooks<T>(globals)?.before, ctx))) return false;
+        if (!(await this.callBefore(getCommandHooks(this.type, globals)?.before, ctx))) return false;
+        return this.callBefore(this.hooks.before, ctx);
+    }
+
+    /** Sends the configured default reply for a block no hook took. Blocks from a bot invoker stay silent. */
+    protected override handleUnobservedBlock(ctx: CommandModuleHookContext<T>, block: CommandBlock): Promise<void> | void {
+        if (ctx.user.bot) return;
+        const content = resolveBlockReply(block);
+        if (content !== null) return this.sendDefaultReply(ctx, content);
+    }
+
+    /** Logs the error, then sends the configured default error reply. */
+    protected override handleUnobservedError(ctx: CommandModuleHookContext<T>, error: Error): Promise<void> | void {
+        super.handleUnobservedError(ctx, error);
+        const content = uxConfig.command.error;
+        if (content !== null) return this.sendDefaultReply(ctx, content);
+    }
+
+    /** Sends a default reply; a failed send is only logged in verbose mode, so it never escapes dispatch. */
+    private async sendDefaultReply(ctx: CommandModuleHookContext<T>, content: string): Promise<void> {
+        try {
+            await sendCommandReply(ctx, content);
+        } catch (err) {
+            this.client?.logger.debug(`[Module] Failed to send the default reply for '${this.buildName()}'`, err);
+        }
+    }
+
+    /** The matched subcommand, for commands that have them. */
+    protected getSubcommand(_ctx: CommandModuleHookContext<T>): CommandRestrictions | undefined {
+        return undefined;
+    }
+
+    /** The subcommand path that matched nothing, when the invocation has nowhere to go. */
+    protected findUnknownRoute(_ctx: CommandModuleHookContext<T>): string | undefined {
+        return undefined;
+    }
+
+    /** Tests the command's restrictions, then the route, then the matched subcommand's restrictions. */
     protected override performTests(ctx: CommandModuleHookContext<T>): boolean | Promise<boolean> {
         const passed = super.performTests(ctx);
-        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testPermissions(ctx));
-        return passed && this.testPermissions(ctx);
+        if (typeof passed !== "boolean") return passed.then(passed => passed && this.testRoutedRestrictions(ctx));
+        return passed && this.testRoutedRestrictions(ctx);
     }
 
-    protected testPermissions(ctx: CommandModuleHookContext<T>, permissions = this.permissions): boolean | Promise<boolean> {
-        if (!permissions && !resolveInvokingUser(ctx).bot) return true;
-        const result = testCommandPermissions(ctx, permissions ?? {});
-        if (result instanceof Promise) return result.then(result => this.handlePermissionResult(ctx, result));
-        return this.handlePermissionResult(ctx, result);
+    private testRoutedRestrictions(ctx: CommandModuleHookContext<T>): boolean | Promise<boolean> {
+        const subcommand = this.getSubcommand(ctx);
+        // A subcommand's allowBots wins, since the command's own bot check would otherwise make it unreachable.
+        const allowBots = subcommand?.allowBots ?? this.allowBots;
+        const testRoute = (passed: boolean): boolean | Promise<boolean> => {
+            if (!passed) return false;
+            const path = this.findUnknownRoute(ctx);
+            if (path !== undefined) return this.block(ctx, { kind: "unknownRoute", path }).then(() => false);
+            return !subcommand || this.testRestrictions(ctx, pickRestrictions(subcommand), allowBots);
+        };
+
+        const passed = this.testRestrictions(ctx, this.restrictions, allowBots);
+        return typeof passed === "boolean" ? testRoute(passed) : passed.then(testRoute);
     }
 
-    private handlePermissionResult(
+    private testRestrictions(
         ctx: CommandModuleHookContext<T>,
-        result: Awaited<ReturnType<typeof testCommandPermissions>>
+        restrictions: CommandRestrictions | undefined,
+        allowBots: boolean | undefined
     ): boolean | Promise<boolean> {
-        if (result.passed) return true;
-        ctx.permissionTestResult = result;
-        return this.runHook("onPermissionTestFail", ctx, async ctx => {
-            ctx.error ??= new ModuleError(result.reason);
-            await this.runHook("onError", ctx);
-        }).then(() => false);
+        if (!restrictions && (allowBots || !ctx.user.bot)) return true;
+        const finish = (result: PermissionTestResult): boolean | Promise<boolean> => {
+            if (result.passed) return true;
+            const { passed: _passed, ...failure } = result;
+            return this.block(ctx, { kind: "permission", ...failure }).then(() => false);
+        };
+        const result = testCommandPermissions(ctx, restrictions ?? {}, allowBots);
+        return result instanceof Promise ? result.then(finish) : finish(result);
     }
 }

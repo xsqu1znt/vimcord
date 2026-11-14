@@ -22,18 +22,13 @@ export interface ColorScheme {
 
 /** Logger display and verbosity options. */
 export interface LoggerOptions {
-    /** Prefix shown before each normal log entry. */
+    /** Prefix displayed before normal log entries. @default null */
     prefix?: string | null;
     /** Enables diagnostic `debug()` output. @default false */
     verbose?: boolean;
-    /** Controls animated loader rendering. @default "auto" */
-    loaders?: LoaderMode;
-    /** Color overrides. */
+    /** Overrides for the logger palette. @default DEFAULT_COLORS */
     colors?: Partial<ColorScheme>;
 }
-
-/** Controls when loaders use in-place terminal animation. */
-export type LoaderMode = "auto" | "always" | "never";
 
 /** Optional automatic message cycling for a loader. */
 export interface LoaderOptions {
@@ -112,7 +107,10 @@ export function stripAnsi(str: string): string {
 /** Timestamped console logger with colors, optional diagnostics, and live terminal loaders. */
 export class Logger {
     /** Active logger configuration. */
-    readonly options: Required<Omit<LoggerOptions, "colors">> & { colors: ColorScheme };
+    readonly options: Required<Omit<LoggerOptions, "colors">> & {
+        /** Logger colors merged with the default palette. */
+        colors: ColorScheme;
+    };
 
     private static readonly loaderLoggers = new Set<Logger>();
     private static renderInterval: ReturnType<typeof setInterval> | null = null;
@@ -128,7 +126,6 @@ export class Logger {
         this.options = {
             prefix: null,
             verbose: false,
-            loaders: "auto",
             ...options,
             colors: { ...DEFAULT_COLORS, ...options.colors }
         };
@@ -163,12 +160,6 @@ export class Logger {
     private formatLoaderLine(loader: LoaderEntry): string {
         const frame = ansis.hex(this.options.colors.muted)(SPINNER_FRAMES[Logger.frameIndex]!);
         return `${this.timestamp()} ${this.formatPrefix()} ${frame} ${loader.message}`;
-    }
-
-    private shouldAnimateLoaders(): boolean {
-        if (this.options.loaders === "always") return true;
-        if (this.options.loaders === "never") return false;
-        return process.stdout.isTTY === true;
     }
 
     private updateLoaderMessages(now = Date.now()): void {
@@ -342,7 +333,7 @@ export class Logger {
     loader(message: string, options: LoaderOptions = {}): LoaderHandle {
         const id = this.nextLoaderId++;
         const loader: LoaderEntry = {
-            animated: this.shouldAnimateLoaders(),
+            animated: process.stdout.isTTY === true,
             cycle: options.cycle,
             cycleInterval: options.interval ?? DEFAULT_LOADER_CYCLE_INTERVAL_MS,
             lastCycleAt: Date.now(),

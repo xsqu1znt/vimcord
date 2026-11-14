@@ -1,6 +1,5 @@
 /**
- * Recognizes MongoDB duplicate-key errors, including plain objects from bulk writes or wrappers.
- * A path matches any field in keyPattern, including compound indexes; absent keyPattern cannot match a path.
+ * Recognizes MongoDB duplicate-key errors, optionally restricted to a field in keyPattern.
  * @param error Error to inspect
  * @param path Optional indexed field
  */

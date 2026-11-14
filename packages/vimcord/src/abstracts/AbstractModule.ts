@@ -1,14 +1,39 @@
 import type { Vimcord } from "@/client/Vimcord.js";
 
-import { ModuleError } from "@/errors/ModuleError.js";
 import { createHumanId } from "@/utils/str.js";
-import { testConditions } from "./testConditions.js";
 
+/** Whether a module check passed, with failure details when it did not. */
 export type ModuleTestResult<Passed extends boolean = boolean> = Passed extends true
-    ? { passed: true }
-    : { passed: false; reason: string; error?: Error };
-export type ModuleConditionFn<CTX = ModuleHookContext> = (ctx: CTX) => Promise<ModuleTestResult> | ModuleTestResult;
+    ? {
+          /** Whether the check passed. */
+          passed: true;
+      }
+    : {
+          /** Whether the check passed. */
+          passed: false;
+          /** Why the operation stopped or the check failed. */
+          reason: string;
+          /** Error raised while handling the invocation. */
+          error?: Error;
+      };
 
+/** The environment a module may run in, tested against the client's `$devMode`. */
+export type ModuleEnvironment = "development" | "production" | "both";
+
+/** Why an invocation stopped before reaching its handler. */
+export type ModuleBlock =
+    | {
+          /** Discriminator identifying the blocked invocation. */
+          kind: "environment";
+          /** Why the operation stopped or the check failed. */
+          reason: string;
+      }
+    | {
+          /** Discriminator identifying the blocked invocation. */
+          kind: "running";
+      };
+
+/** Handler timestamps used by command usage logging. */
 export interface ModuleExecutionTiming {
     /** Monotonic handler start timestamp. */
     startedAt: number;
@@ -16,6 +41,7 @@ export interface ModuleExecutionTiming {
     durationMs: number;
 }
 
+/** Outcome of a module invocation, including handler errors and measured timing. */
 export interface ModuleRunResult {
     /** Whether the module's main execute function was reached. */
     executed: boolean;
@@ -29,61 +55,56 @@ export interface ModuleRunResult {
 
 // - - - - - - - - - - - - - - -
 
+/** Client supplied to a module handler. */
 export interface ModuleContext<Ready extends boolean = true> {
+    /** Client that owns or runs this operation. */
     client: Vimcord<Ready>;
 }
 
-export interface ModuleHookContext<Args extends unknown[] = unknown[], Ready extends boolean = true> {
-    module: AbstractModule<Args>;
+/** Module and client supplied to lifecycle hooks. */
+export interface ModuleHookContext<
+    Args extends unknown[] = unknown[],
+    Ready extends boolean = true,
+    Module = AbstractModule<Args, any, any, any, any>
+> {
+    /** Module whose invocation the hook observes. */
+    module: Module;
+    /** Client that owns or runs this operation. */
     client: Vimcord<Ready>;
-    args: Args;
-    error?: Error;
-    deploymentTestResult?: ModuleTestResult;
-    conditionTestResult?: ModuleTestResult;
 }
 
 // --- Module Options ---
+/** Shared module identity, invocation rules, hooks, and handler. */
 export interface ModuleOptions<
     Args extends unknown[] = unknown[],
     ModuleCTX extends ModuleContext<boolean> = ModuleContext,
-    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>,
-    Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
+    HookCTX extends ModuleHookContext<Args, boolean, unknown> = ModuleHookContext<Args>,
+    Hooks extends ModuleHooks<Args, HookCTX, any> = ModuleHooks<Args, HookCTX>
 > {
-    /** Custom module id. Otherwise powered by [human-id](https://www.npmjs.com/package/human-id). */
-    customId?: string;
+    /** Stable module identifier. @default generated human-readable ID */
+    id?: string;
     /** The name of the module. */
     name: string;
     /** Optional description of the module. */
     description?: string;
-    /** Optional metadata of the module. */
+    /** Project-defined categorization and display fields. @default {} */
     metadata?: ModuleMetadata;
 
     // --- Tests & Rules ---
-    /**
-     * Whether this module is enabled.
-     * @default true
-     */
+    /** Whether this module is enabled. @default true */
     enabled?: boolean;
-    /**
-     * Whether this module should wait for the client to be ready before being runnable.
-     * @default true
-     */
+    /** Whether this module should wait for the client to be ready before being runnable. @default true */
     requiresReady?: boolean;
-    /** Optional deployment rules of the module. */
-    deployment?: ModuleDeploymentRules;
-    /** Optional condition rules of the module. Conditions are tested in the order they are defined. */
-    conditions?: ModuleConditionFn<HookCTX>[];
-    /**
-     * Skip a new invocation while a matching one (same key) is still running. Off by default.
-     * @remarks Coordinates work in-memory, within this process only.
-     */
+    /** The environment this module is allowed to run in. @default "both" */
+    environment?: ModuleEnvironment;
+    /** Skips overlapping invocations with the same process-local key. @default undefined */
     singleInvocation?: {
         /** Returns the identity key for an invocation. Invocations sharing a key never run concurrently. */
         key(ctx: HookCTX): string;
     };
 
     // --- Hooks ---
-    /** Optional hooks of the module. */
+    /** Callbacks for invocation gates and failures. @default {} */
     hooks?: Hooks;
 
     // --- Main ---
@@ -91,6 +112,7 @@ export interface ModuleOptions<
     execute(ctx: ModuleCTX): unknown;
 }
 
+/** Project-defined categorization attached to a module. */
 export interface ModuleMetadata {
     /** Category for categorizing modules. */
     category?: string[];
@@ -98,57 +120,55 @@ export interface ModuleMetadata {
     tags?: string[];
 }
 
-export interface ModuleDeploymentRules {
-    /**
-     * The environment the module is allowed to be executed in.
-     * Tests against the Vimcord client's `$devMode` property.
-     * @default "both"
-     */
-    environment?: "development" | "production" | "both";
-}
-
+/** Callbacks that gate invocations and handle blocks or failures. */
 export interface ModuleHooks<
     Args extends unknown[] = unknown[],
-    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>
+    HookCTX extends ModuleHookContext<Args, boolean, unknown> = ModuleHookContext<Args>,
+    Block = ModuleBlock
 > {
-    /** @defaultBehavior Alias for `onError`. */
-    onDeploymentTestFail?(ctx: HookCTX): Promise<void>;
-    /** @defaultBehavior Alias for `onError`. */
-    onConditionTestFail?(ctx: HookCTX): Promise<void>;
-    /** @defaultBehavior Does nothing. */
-    onError?(ctx: HookCTX): Promise<void>;
-    /** @defaultBehavior Does nothing. */
-    preExecute?(
-        ctx: HookCTX,
-        /** Continues execution. If not called, execution halts. */
-        next: () => void
-    ): Promise<void>;
-    /** @defaultBehavior Does nothing. */
-    postExecute?(ctx: HookCTX, executeResponse: unknown): Promise<void>;
-    /** Runs when an invocation is skipped because a matching `singleInvocation` invocation is already running.
-     * @defaultBehavior Does nothing; the invocation is silently skipped. */
-    onAlreadyRunning?(ctx: HookCTX): Promise<void>;
+    /** Gates the handler. Anything but `true` stops the invocation; respond to the user here when you do. */
+    before?(ctx: HookCTX): Promise<boolean> | boolean;
+    /** Handles a blocked invocation; without a hook, commands send their default reply and events ignore it. */
+    onBlocked?(ctx: HookCTX, block: Block): Promise<void> | void;
+    /** Handles a thrown handler or gate; without a hook, the error is logged and commands also send their default reply. */
+    onError?(ctx: HookCTX, error: Error): Promise<void> | void;
 }
 
 // --- Abstract Module ---
+/** Base for modules with lifecycle hooks and invocation guards. */
 export abstract class AbstractModule<
     Args extends unknown[] = unknown[],
     ModuleCTX extends ModuleContext<boolean> = ModuleContext,
-    HookCTX extends ModuleHookContext<Args, boolean> = ModuleHookContext<Args>,
-    Hooks extends ModuleHooks<Args, HookCTX> = ModuleHooks<Args, HookCTX>
+    HookCTX extends ModuleHookContext<Args, boolean, unknown> = ModuleHookContext<Args>,
+    Hooks extends ModuleHooks<Args, HookCTX, any> = ModuleHooks<Args, HookCTX>,
+    Block = ModuleBlock
 > {
+    /** Client that owns or runs this operation. */
     readonly client: Vimcord | null = null;
 
+    /** Module kind displayed in logs. */
     abstract readonly moduleType: string;
+    /** Stable identifier assigned to this instance. */
     readonly id: string;
+    /** Name displayed in logs or command discovery. */
     readonly name: string;
+    /** Project-defined display and categorization fields. */
     readonly metadata: ModuleMetadata;
 
+    /** Whether this module may run. */
     readonly enabled: boolean;
+    /** Whether invocation waits for the client to become ready. */
     readonly requiresReady: boolean;
-    readonly deployment: ModuleDeploymentRules;
-    readonly conditions: ModuleConditionFn<HookCTX>[];
-    readonly singleInvocation: { key(ctx: HookCTX): string } | undefined;
+    /** Environment in which this module may run. */
+    readonly environment: ModuleEnvironment;
+    /** Scope used to skip overlapping invocations. */
+    readonly singleInvocation:
+        | {
+              /** Returns the identity used to group matching invocations. */
+              key(ctx: HookCTX): string;
+          }
+        | undefined;
+    /** Callbacks for invocation gates, blocks, and errors. */
     readonly hooks: Hooks;
 
     /** Keys of invocations currently running, when `singleInvocation` is configured. */
@@ -157,26 +177,14 @@ export abstract class AbstractModule<
     protected readonly execute: (ctx: ModuleCTX) => unknown;
 
     constructor(options: ModuleOptions<Args, ModuleCTX, HookCTX, Hooks>) {
-        const {
-            customId,
-            name,
-            metadata,
-            enabled,
-            requiresReady,
-            deployment,
-            conditions,
-            singleInvocation,
-            hooks,
-            execute
-        } = options;
-        this.id = customId ?? createHumanId();
+        const { id, name, metadata, enabled, requiresReady, environment, singleInvocation, hooks, execute } = options;
+        this.id = id ?? createHumanId();
         this.name = name;
         this.metadata = metadata ?? {};
 
         this.enabled = enabled ?? true;
         this.requiresReady = requiresReady ?? true;
-        this.deployment = { environment: "both", ...deployment };
-        this.conditions = conditions ?? [];
+        this.environment = environment ?? "both";
         this.singleInvocation = singleInvocation;
         this.activeInvocationKeys = singleInvocation ? new Set() : undefined;
 
@@ -184,6 +192,7 @@ export abstract class AbstractModule<
         this.execute = execute;
     }
 
+    /** Attaches the owning client before the module can run. */
     inject(client: Vimcord): void {
         if (!this.client) {
             (this as { client: Vimcord | null }).client = client;
@@ -191,55 +200,70 @@ export abstract class AbstractModule<
     }
 
     // --- Tests & Rules ---
-    protected testDeployment(ctx: HookCTX): ModuleTestResult {
-        if (this.deployment.environment === "both") {
-            return { passed: true };
-        }
-        if (ctx.client.$devMode && this.deployment.environment !== "development") {
+    protected testEnvironment(ctx: HookCTX): ModuleTestResult {
+        if (this.environment === "both") return { passed: true };
+        if (ctx.client.$devMode && this.environment !== "development") {
             return { passed: false, reason: "Client is in development mode" };
         }
-        if (!ctx.client.$devMode && this.deployment.environment !== "production") {
+        if (!ctx.client.$devMode && this.environment !== "production") {
             return { passed: false, reason: "Client is in production mode" };
         }
 
         return { passed: true };
     }
 
-    protected testConditions(ctx: HookCTX): ModuleTestResult | Promise<ModuleTestResult> {
-        return testConditions(this.conditions, ctx);
-    }
-
-    /**
-     * Execute order:
-     *
-     * `testDeployment` -> `hook:onDeploymentTestFail`
-     *
-     * `testConditions` -> `hook:onConditionTestFail`
-     */
     protected performTests(ctx: HookCTX): boolean | Promise<boolean> {
-        const deploymentTestResult = this.testDeployment(ctx);
-        if (!deploymentTestResult.passed) {
-            ctx.deploymentTestResult = deploymentTestResult;
-            return this.runHook("onDeploymentTestFail", ctx, async ctx => {
-                ctx.error ??= deploymentTestResult.error ?? new ModuleError(deploymentTestResult.reason);
-                await this.runHook("onError", ctx);
-            }).then(() => false);
-        }
-
-        if (!this.conditions.length && this.testConditions === AbstractModule.prototype.testConditions) return true;
-
-        const result = this.testConditions(ctx);
-        if (result instanceof Promise) return result.then(result => this.handleConditionResult(ctx, result));
-        return this.handleConditionResult(ctx, result);
+        const result = this.testEnvironment(ctx);
+        if (result.passed) return true;
+        return this.block(ctx, { kind: "environment", reason: result.reason } as Block).then(() => false);
     }
 
-    protected handleConditionResult(ctx: HookCTX, result: ModuleTestResult): boolean | Promise<boolean> {
-        if (result.passed) return true;
-        ctx.conditionTestResult = result;
-        return this.runHook("onConditionTestFail", ctx, async ctx => {
-            ctx.error ??= result.error ?? new ModuleError(result.reason);
-            await this.runHook("onError", ctx);
-        }).then(() => false);
+    /** Reports a blocked invocation to `onBlocked`, or to the default handling when no hook is set. */
+    protected async block(ctx: HookCTX, block: Block): Promise<void> {
+        const onBlocked = this.getHook("onBlocked" as keyof Hooks) as ((ctx: HookCTX, block: Block) => unknown) | undefined;
+        try {
+            if (onBlocked) await onBlocked(ctx, block);
+            else await this.handleUnobservedBlock(ctx, block);
+        } catch (err) {
+            this.client!.logger.error(`[Module] Hook 'onBlocked' failed for '${this.buildName()}'`, err as Error);
+        }
+    }
+
+    /** Default handling of a block no `onBlocked` hook received. Blocks are silent unless a subclass answers them. */
+    protected handleUnobservedBlock(_ctx: HookCTX, _block: Block): void | Promise<void> {}
+
+    /** Default handling of an error no `onError` hook received: logs it. Commands also reply to the user. */
+    protected handleUnobservedError(_ctx: HookCTX, error: Error): void | Promise<void> {
+        this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, error);
+    }
+
+    /** Reports a thrown handler or gate to `onError`, or to the default handling when no hook is set. */
+    protected async handleError(ctx: HookCTX, error: Error): Promise<void> {
+        const onError = this.getHook("onError" as keyof Hooks) as ((ctx: HookCTX, error: Error) => unknown) | undefined;
+        try {
+            if (onError) {
+                await this.timed(
+                    () => `Ran hook 'onError' for '${this.buildName()}'`,
+                    () => onError(ctx, error)
+                );
+            } else await this.handleUnobservedError(ctx, error);
+        } catch (err) {
+            this.client!.logger.error(`[Module] Hook 'onError' failed for '${this.buildName()}'`, err as Error);
+        }
+    }
+
+    /** Runs the `before` gate. Commands override this to compose the client's gate with the module's. */
+    protected runBefore(ctx: HookCTX): Promise<boolean> {
+        return this.callBefore(this.getHook("before" as keyof Hooks) as ((ctx: HookCTX) => unknown) | undefined, ctx);
+    }
+
+    protected async callBefore(before: ((ctx: HookCTX) => unknown) | undefined, ctx: HookCTX): Promise<boolean> {
+        if (!before) return true;
+        const result = await this.timed(
+            () => `Ran hook 'before' for '${this.buildName()}'`,
+            () => before(ctx)
+        );
+        return result === true;
     }
 
     // --- Internal Utilities ---
@@ -267,10 +291,6 @@ export abstract class AbstractModule<
     /** Prepares optional work, such as interaction deferral, before handler timing starts. */
     protected prepareExecute(_ctx: ModuleCTX): void | Promise<void> {}
 
-    protected shouldMeasureExecution(): boolean {
-        return false;
-    }
-
     /** Awaits `fn`, logging `message` and how long it took when verbose logging is on. */
     private timed<T>(message: () => string, fn: () => Promise<T> | T): Promise<T> | T {
         if (!this.client?.logger.options.verbose) return fn();
@@ -282,40 +302,7 @@ export abstract class AbstractModule<
         });
     }
 
-    /** Runs a hook with relevant context and an optional fallback. */
-    async runHook<K extends keyof Hooks, HookContext extends HookCTX>(
-        hook: K,
-        ctx: HookContext,
-        fallback?: (ctx: HookContext) => Promise<void>
-    ): Promise<void> {
-        const injected = this.checkInjection();
-        if (!(typeof injected === "boolean" ? injected : await injected)) return;
-        const hookFn = this.getHook(hook) as ((ctx: HookContext) => Promise<void>) | undefined;
-
-        try {
-            if (hookFn) {
-                await this.timed(
-                    () => `Ran hook '${String(hook)}' for '${this.buildName()}'`,
-                    () => hookFn(ctx)
-                );
-            } else if (fallback) {
-                await this.timed(
-                    () => `Ran fallback hook '${String(hook)}' for '${this.buildName()}'`,
-                    () => fallback(ctx)
-                );
-            }
-        } catch (err) {
-            this.client!.logger.error(`[Module] Hook '${String(hook)}' failed for '${this.buildName()}'`, err as Error);
-        }
-    }
-
-    /**
-     * Execute order:
-     *
-     * try:`performTests` -> `hook:preExecute` -> `singleInvocation` check -> `execute` -> `hook:postExecute`
-     *
-     * catch:`hook:onError`
-     */
+    /** Execute order: */
     run(...args: Args): Promise<unknown> {
         return this.invoke(args, result => result.response);
     }
@@ -332,7 +319,7 @@ export abstract class AbstractModule<
     protected async invoke<Result>(
         args: Args,
         complete: (result: ModuleRunResult) => Result,
-        measure = this.shouldMeasureExecution()
+        measure = false
     ): Promise<Result> {
         let executionTiming: ModuleExecutionTiming | undefined;
         let executed = false;
@@ -349,37 +336,27 @@ export abstract class AbstractModule<
             const passed = this.performTests(hookCTX);
             if (!(typeof passed === "boolean" ? passed : await passed)) return complete({ executed, response: undefined });
 
-            const preExecute = this.getHook("preExecute" as keyof Hooks) as
-                ((ctx: HookCTX, next: () => void) => Promise<void>) | undefined;
-            if (preExecute) {
-                let next = false;
-                await this.timed(
-                    () => `Ran hook 'preExecute' for '${this.buildName()}'`,
-                    () => preExecute(hookCTX, () => (next = true))
-                );
-
-                if (!next) {
-                    if (this.client?.logger.options.verbose)
-                        this.client.logger.debug(`[Module] preExecute halted execution for '${this.buildName()}'`);
-                    return complete({ executed, response: undefined });
-                }
+            if (this.getHook("before" as keyof Hooks) && !(await this.runBefore(hookCTX))) {
+                if (this.client?.logger.options.verbose)
+                    this.client.logger.debug(`[Module] before halted execution for '${this.buildName()}'`);
+                return complete({ executed, response: undefined });
             }
 
             let invocationKey: string | undefined;
             if (this.singleInvocation) {
                 invocationKey = this.singleInvocation.key(hookCTX);
                 if (this.activeInvocationKeys!.has(invocationKey)) {
-                    await this.runHook("onAlreadyRunning", hookCTX);
+                    await this.block(hookCTX, { kind: "running" } as Block);
                     return complete({ executed, response: undefined });
                 }
                 this.activeInvocationKeys!.add(invocationKey);
             }
 
-            executed = true;
             let executeResponse: unknown;
             try {
                 const preparation = this.prepareExecute(moduleCTX);
                 if (preparation) await preparation;
+                executed = true;
                 if (measure) executionTiming = { startedAt: performance.now(), durationMs: 0 };
                 try {
                     executeResponse = await (this.client!.logger.options.verbose
@@ -395,21 +372,9 @@ export abstract class AbstractModule<
                 if (invocationKey !== undefined) this.activeInvocationKeys!.delete(invocationKey);
             }
 
-            const postExecute = this.getHook("postExecute" as keyof Hooks) as
-                ((ctx: HookCTX, executeResponse: unknown) => Promise<void>) | undefined;
-            if (postExecute) {
-                await this.timed(
-                    () => `Ran hook 'postExecute' for '${this.buildName()}'`,
-                    () => postExecute(hookCTX, executeResponse)
-                );
-            }
-
             return complete({ executed, response: executeResponse, executionTiming });
         } catch (err) {
-            hookCTX.error = err as Error;
-            await this.runHook("onError", hookCTX, async () =>
-                this.client!.logger.error(`[Module] Failed to execute '${this.buildName()}'`, err as Error)
-            );
+            await this.handleError(hookCTX, err as Error);
             return complete({ executed, response: undefined, error: err as Error, executionTiming });
         }
     }
@@ -420,10 +385,9 @@ export abstract class AbstractModule<
     }
 
     protected abstract createModuleCTX(args: Args): ModuleCTX;
-    protected createHookCTX(moduleCTX: ModuleCTX, args: Args): HookCTX {
+    protected createHookCTX(moduleCTX: ModuleCTX, _args: Args): HookCTX {
         const ctx = moduleCTX as unknown as HookCTX;
         ctx.module = this as unknown as HookCTX["module"];
-        ctx.args = args;
         return ctx;
     }
 }

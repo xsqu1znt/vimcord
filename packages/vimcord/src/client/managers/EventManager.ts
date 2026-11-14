@@ -76,10 +76,6 @@ export class EventManager extends AbstractModuleImporter<EventModule, EventModul
         this.indexes.set("tag", { key: m => m.metadata.tags, map: new Map(), isArray: true });
     }
 
-    protected override createModuleKey(module: EventModule): string {
-        return module.id;
-    }
-
     override clear(): void {
         this.unmount();
         this.modules.clear();

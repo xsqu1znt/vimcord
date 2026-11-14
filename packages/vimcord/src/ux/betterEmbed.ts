@@ -1,53 +1,71 @@
-import type { APIEmbed, APIEmbedField, Client, ColorResolvable, Message, TextBasedChannel } from "discord.js";
-import type { DynaSendOptions, InteractionResolveable, RequiredDynaSendOptions, SendHandler } from "./dynaSend.js";
+import type { APIEmbed, APIEmbedField, ColorResolvable, Message } from "discord.js";
+import type {
+    DynaSendOptions,
+    InteractionBasedSendHandler,
+    MessageReturningSendOptions,
+    MessageSendHandler,
+    RequiredDynaSendOptions,
+    SendHandler,
+    SentMessage,
+    TriggeredMessage
+} from "./dynaSend.js";
 
-import { GuildMember, resolveColor, User } from "discord.js";
+import { resolveColor } from "discord.js";
 import { dynaSend } from "./dynaSend.js";
-import { resolveGlobalEmbedColor } from "./uxConfig.js";
+import { resolveEmbedColor } from "./uxConfig.js";
 
-export interface BetterEmbedContext {
-    client?: Client | null;
-    interaction?: InteractionResolveable | null;
-    channel?: TextBasedChannel | null;
-    message?: Message | null;
-    user?: GuildMember | User | null;
-}
-
+/** Embed author text with an optional icon and link. */
 export interface BetterEmbedAuthor {
+    /** Text displayed in this embed block. */
     text: string;
-    icon?: string | boolean | null;
+    /** Icon URL; null removes the icon. */
+    icon?: string | null;
+    /** URL opened when this text is clicked. */
     hyperlink?: string | null;
 }
 
+/** Embed title text with an optional link. */
 export interface BetterEmbedTitle {
+    /** Text displayed in this embed block. */
     text: string;
+    /** URL opened when this text is clicked. */
     hyperlink?: string | null;
 }
 
+/** Embed footer text with an optional icon. */
 export interface BetterEmbedFooter {
+    /** Text displayed in this embed block. */
     text: string;
-    icon?: string | boolean | null;
+    /** Icon URL; null removes the icon. */
+    icon?: string | null;
 }
 
 /** A description line or a falsey conditional value that should be omitted. */
 export type BetterEmbedDescriptionLine = string | false | 0 | 0n | null | undefined;
 
+/** Embed content and appearance passed to BetterEmbed. */
 export interface BetterEmbedData {
-    context?: BetterEmbedContext | null;
+    /** Author text or author appearance; null clears it. @default null */
     author?: string | BetterEmbedAuthor | null;
+    /** Title text or linked title; null clears it. @default null */
     title?: string | BetterEmbedTitle | null;
+    /** Thumbnail image URL; null clears it. @default null */
     thumbnailUrl?: string | null;
+    /** Description text or conditional lines joined with newlines. @default null */
     description?: string | BetterEmbedDescriptionLine[] | null;
+    /** Main image URL; null clears it. @default null */
     imageUrl?: string | null;
+    /** Footer text or footer appearance; null clears it. @default null */
     footer?: string | BetterEmbedFooter | null;
+    /** Embed fields; null and undefined entries are skipped. @default [] */
     fields?: (APIEmbedField | null | undefined)[];
+    /** Fixed color, random pool, or null for no color. @default UX config's environment embed color */
     color?: ColorResolvable | ColorResolvable[] | null;
+    /** Timestamp to display; true uses serialization time. @default null */
     timestamp?: number | boolean | Date | null;
-    acf?: boolean;
 }
 
 interface BetterEmbedState {
-    context: BetterEmbedContext | null;
     author: string | BetterEmbedAuthor | null;
     title: string | BetterEmbedTitle | null;
     thumbnailUrl: string | null;
@@ -57,72 +75,6 @@ interface BetterEmbedState {
     fields: (APIEmbedField | null | undefined)[];
     color: ColorResolvable | ColorResolvable[] | null;
     timestamp: number | boolean | Date | null;
-    acf: boolean;
-}
-
-interface FormattingContext {
-    user: User | null;
-    member: GuildMember | null;
-    client: Client | null;
-    now: Date;
-    substitutions: Map<string, string | undefined>;
-}
-
-const TEXT_TOKENS = [
-    "USER",
-    "USER_NAME",
-    "USER_AVATAR",
-    "DISPLAY_NAME",
-    "BOT_AVATAR",
-    "INVIS",
-    "YEAR",
-    "MONTH",
-    "DAY",
-    "year",
-    "month",
-    "day"
-] as const;
-const TOKEN_MATCHER = /(?<!\\)\$(USER|USER_NAME|USER_AVATAR|DISPLAY_NAME|BOT_AVATAR|INVIS|YEAR|MONTH|DAY|year|month|day)\b/g;
-
-function resolveToken(context: FormattingContext, token: string): string | undefined {
-    if (context.substitutions.has(token)) return context.substitutions.get(token);
-    let value: string | undefined;
-    switch (token) {
-        case "USER":
-            value = context.user?.toString();
-            break;
-        case "USER_NAME":
-            value = context.user?.username;
-            break;
-        case "USER_AVATAR":
-            value = context.user?.displayAvatarURL();
-            break;
-        case "DISPLAY_NAME":
-            value = context.member?.displayName;
-            break;
-        case "BOT_AVATAR":
-            value = context.client?.user?.displayAvatarURL();
-            break;
-        case "INVIS":
-            value = "\u200B";
-            break;
-        case "YEAR":
-            value = String(context.now.getFullYear());
-            break;
-        case "year":
-            value = resolveToken(context, "YEAR")!.slice(-2);
-            break;
-        case "MONTH":
-        case "month":
-            value = String(context.now.getMonth() + 1).padStart(2, "0");
-            break;
-        case "DAY":
-        case "day":
-            value = String(context.now.getDate()).padStart(2, "0");
-            break;
-    }
-    context.substitutions.set(token, value);
-    return value;
 }
 
 function isEmbedField(field: APIEmbedField | null | undefined): field is APIEmbedField {
@@ -147,12 +99,12 @@ function normalizeDescription(description: BetterEmbedState["description"]): str
     return description;
 }
 
+/** Builds embeds with conditional description lines and shared colors. */
 export class BetterEmbed {
     private data: BetterEmbedState;
 
     constructor(data: BetterEmbedData = {}) {
         this.data = {
-            context: data.context ?? null,
             author: data.author ?? null,
             title: data.title ?? null,
             thumbnailUrl: data.thumbnailUrl ?? null,
@@ -160,19 +112,13 @@ export class BetterEmbed {
             imageUrl: data.imageUrl ?? null,
             footer: data.footer ?? null,
             fields: data.fields ?? [],
-            color: data.color === undefined ? resolveGlobalEmbedColor() : data.color,
-            timestamp: data.timestamp ?? null,
-            acf: data.acf ?? true
+            color: data.color === undefined ? resolveEmbedColor() : data.color,
+            timestamp: data.timestamp ?? null
         };
     }
 
-    /**
-     * Creates the Discord payload directly from stored data. Setters only update data; this runs at the
-     * `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly
-     * once per serialization, not once per setter call.
-     */
+    /** Creates the Discord payload directly from stored data. Setters only update data; this runs at the `toJSON()`/`send()` boundary, so a random `color` pool and `timestamp: true` resolve exactly once per serialization, not once per setter call. */
     toJSON(): APIEmbed {
-        const formatting = this.createFormattingContext();
         const author = normalizeAuthor(this.data.author);
         const title = normalizeTitle(this.data.title);
         const footer = normalizeFooter(this.data.footer);
@@ -182,29 +128,29 @@ export class BetterEmbed {
         // --- Text Blocks ---
         if (author?.text) {
             embed.author = {
-                name: this.formatText(author.text, formatting),
-                icon_url: this.resolveIcon(author.icon, formatting),
-                url: author.hyperlink ? this.formatText(author.hyperlink, formatting) : undefined
+                name: author.text,
+                icon_url: author.icon ?? undefined,
+                url: author.hyperlink ?? undefined
             };
         }
 
         if (title?.text) {
-            embed.title = this.formatText(title.text, formatting);
-            if (title.hyperlink) embed.url = this.formatText(title.hyperlink, formatting);
+            embed.title = title.text;
+            if (title.hyperlink) embed.url = title.hyperlink;
         }
 
-        if (description) embed.description = this.formatText(description, formatting);
+        if (description) embed.description = description;
 
         if (footer?.text) {
             embed.footer = {
-                text: this.formatText(footer.text, formatting),
-                icon_url: this.resolveIcon(footer.icon, formatting)
+                text: footer.text,
+                icon_url: footer.icon ?? undefined
             };
         }
 
         // --- Media ---
-        if (this.data.thumbnailUrl) embed.thumbnail = { url: this.formatText(this.data.thumbnailUrl, formatting) };
-        if (this.data.imageUrl) embed.image = { url: this.formatText(this.data.imageUrl, formatting) };
+        if (this.data.thumbnailUrl) embed.thumbnail = { url: this.data.thumbnailUrl };
+        if (this.data.imageUrl) embed.image = { url: this.data.imageUrl };
 
         // --- Metadata ---
         const color = this.resolveColor();
@@ -220,82 +166,8 @@ export class BetterEmbed {
             throw new Error(`[BetterEmbed] Embeds cannot have more than 25 fields (got ${validFields.length})`);
         }
 
-        const fields = validFields.map(field => ({
-            ...field,
-            name: this.formatText(field.name, formatting),
-            value: this.formatText(field.value, formatting)
-        }));
-
-        if (fields.length) embed.fields = fields;
+        if (validFields.length) embed.fields = validFields.map(field => ({ ...field }));
         return embed;
-    }
-
-    private createFormattingContext(): FormattingContext {
-        const contextUser = this.getContextUser();
-        const member = contextUser instanceof GuildMember ? contextUser : this.getContextMember();
-        const user =
-            member?.user ?? (contextUser instanceof User ? contextUser : (this.data.context?.interaction?.user ?? null));
-
-        return {
-            user,
-            member,
-            client: this.getContextClient(),
-            now: new Date(),
-            substitutions: new Map()
-        };
-    }
-
-    private getContextUser(): GuildMember | User | null {
-        const context = this.data.context;
-        if (!context) return null;
-
-        return (
-            context.user ??
-            this.getContextMember() ??
-            context.interaction?.user ??
-            context.message?.member ??
-            context.message?.author ??
-            null
-        );
-    }
-
-    private getContextMember(): GuildMember | null {
-        const member = this.data.context?.interaction?.member;
-        if (member instanceof GuildMember) return member;
-        return this.data.context?.message?.member ?? null;
-    }
-
-    private getContextClient(): Client | null {
-        const context = this.data.context;
-        if (!context) return null;
-
-        return context.client ?? context.interaction?.client ?? context.message?.client ?? context.channel?.client ?? null;
-    }
-
-    private formatText(text: string, context: FormattingContext): string {
-        if (!this.data.acf) return text;
-        if (!text.includes("$")) return text;
-        let dollarSubstitution = false;
-        const formatted = text.replace(TOKEN_MATCHER, (match, token: string) => {
-            const value = resolveToken(context, token);
-            if (value?.includes("$")) dollarSubstitution = true;
-            return value ?? match;
-        });
-        if (!dollarSubstitution) return formatted;
-
-        // Discord names can contain tokens or replacement syntax ($&, $$). Preserve ordered String.replace semantics.
-        for (const token of TEXT_TOKENS) {
-            const matcher = new RegExp(`(?<!\\\\)\\$${token}\\b`, "g");
-            if (!matcher.test(text)) continue;
-            text = text.replace(matcher, resolveToken(context, token) ?? `$${token}`);
-        }
-        return text;
-    }
-
-    private resolveIcon(icon: string | boolean | null | undefined, context: FormattingContext): string | undefined {
-        if (icon === true) return resolveToken(context, "USER_AVATAR");
-        if (typeof icon === "string") return this.formatText(icon, context);
-        return undefined;
     }
 
     private resolveColor(): ColorResolvable | null {
@@ -307,7 +179,7 @@ export class BetterEmbed {
 
     /**
      * Creates a new BetterEmbed using this embed's data with optional overrides.
-     * @param overrides Data to override on the cloned embed
+     * @param overrides Content and appearance overrides. Defaults to `{}`.
      */
     clone(overrides: Partial<BetterEmbedData> = {}): BetterEmbed {
         return new BetterEmbed({ ...this.data, ...overrides });
@@ -417,23 +289,64 @@ export class BetterEmbed {
     }
 
     /**
-     * Sends this embed through dynaSend.
+     * Sends this embed through dynaSend. A fresh interaction reply resolves to `null` unless `withResponse` is set.
      * @param handler Discord object to send through
      * @param options Additional dynaSend options
      * @param overrides Data to apply to a cloned embed before sending
      */
     send(
+        handler: Message,
+        options: DynaSendOptions & {
+            /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+            method: "edit";
+        },
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<Message>;
+    /** Sends through a Discord target using inferred delivery. */
+    send<T extends MessageSendHandler>(
+        handler: T,
+        options?: DynaSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
+    send<T extends SendHandler>(
+        handler: T,
+        options: DynaSendOptions & MessageReturningSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T>>;
+    /** Sends through a Discord target using inferred delivery. */
+    send<T extends SendHandler>(
+        handler: T,
+        options?: DynaSendOptions,
+        overrides?: Partial<BetterEmbedData>
+    ): Promise<SentMessage<T> | null>;
+    /** Sends through a Discord target using inferred delivery. */
+    send(
         handler: SendHandler,
         options: DynaSendOptions = {},
         overrides?: Partial<BetterEmbedData>
     ): Promise<Message | null> {
-        const content =
-            options.content && this.data.acf
-                ? this.formatText(options.content, this.createFormattingContext())
-                : options.content;
         const embeds = [overrides ? this.clone(overrides) : this, ...(options.embeds ?? [])];
-        const sendOptions: RequiredDynaSendOptions = { ...options, content, embeds };
+        const sendOptions: RequiredDynaSendOptions = { ...options, embeds };
 
         return dynaSend(handler, sendOptions);
+    }
+
+    /**
+     * Sends this embed as a follow-up to an interaction.
+     * @param interaction Interaction to follow up on
+     * @param options Additional dynaSend options
+     */
+    followUp(interaction: InteractionBasedSendHandler, options: DynaSendOptions = {}): Promise<TriggeredMessage> {
+        return dynaSend(interaction, { ...options, embeds: [this, ...(options.embeds ?? [])], method: "followUp" });
+    }
+
+    /**
+     * Edits a message, or an interaction's reply, to show this embed.
+     * @param target Message or interaction to edit
+     * @param options Additional dynaSend options
+     */
+    edit(target: InteractionBasedSendHandler | Message, options: DynaSendOptions = {}): Promise<Message> {
+        return dynaSend(target, { ...options, embeds: [this, ...(options.embeds ?? [])], method: "edit" });
     }
 }

@@ -1,6 +1,6 @@
 import type { Interface as ReadlineInterface } from "node:readline";
 import type { Vimcord } from "@/client/Vimcord.js";
-import type { CLICommand, CLICommandContext, CLIOptions } from "./types.js";
+import type { CLICommand, CLICommandContext } from "./types.js";
 
 import { createInterface } from "node:readline";
 import { Vimcord as VimcordClient } from "@/client/Vimcord.js";
@@ -11,12 +11,10 @@ import { hasCLIFlag, parseCLIInput } from "./parser.js";
 
 /** Single process-wide stdin command runtime for the Vimcord client. */
 export class VimcordCLI {
-    /** Resolved process-wide configuration. */
-    readonly options: Required<CLIOptions>;
     /** Dedicated CLI logger and output utilities. */
     readonly logger: CLILogger;
 
-    private readonly coreCommands: readonly CLICommand[];
+    private readonly commands: CLICommand[];
     private readonly handleClientCreate = (client: Vimcord): void => this.syncClient(client);
     private readonly handleClientDestroy = (client: Vimcord): void => this.detachClient(client);
     private readonly handleReadlineClose = (): void => {
@@ -31,13 +29,9 @@ export class VimcordCLI {
     private started = false;
 
     /** @internal Use `setupCLI()` to initialize the process singleton. */
-    constructor(
-        options: CLIOptions = {},
-        private readonly onStop?: () => void
-    ) {
-        this.options = { loaders: "auto", ...options };
-        this.logger = new CLILogger(this.options.loaders);
-        this.coreCommands = createBuiltinCLICommands();
+    constructor(private readonly onStop?: () => void) {
+        this.logger = new CLILogger();
+        this.commands = [...createBuiltinCLICommands()];
     }
 
     /** Starts stdin handling and attaches the current or next eligible client. */
@@ -88,9 +82,29 @@ export class VimcordCLI {
         return this.client;
     }
 
-    /** Returns the core CLI commands. */
+    /**
+     * Registers a command whose name and aliases are unique across the CLI.
+     * @param command Command to make available through stdin and `/help`.
+     */
+    addCommand(command: CLICommand): this {
+        const triggers = [command.name, ...(command.aliases ?? [])];
+        const existing = new Set(this.commands.flatMap(c => [c.name, ...(c.aliases ?? [])]));
+        for (const trigger of triggers) {
+            if (!trigger || trigger.startsWith("/") || trigger !== trigger.toLowerCase() || /\s/.test(trigger)) {
+                throw new Error(
+                    `Invalid CLI command name or alias '${trigger}': use lowercase without a leading slash or whitespace`
+                );
+            }
+            if (existing.has(trigger)) throw new Error(`CLI command name or alias '${trigger}' is already registered`);
+            existing.add(trigger);
+        }
+        this.commands.push(command);
+        return this;
+    }
+
+    /** Returns built-in and custom CLI commands. */
     getAvailableCommands(): readonly CLICommand[] {
-        return this.coreCommands;
+        return this.commands;
     }
 
     /** Returns whether the given client is attached to this running CLI. */
@@ -98,10 +112,10 @@ export class VimcordCLI {
         return this.started && this.client === client;
     }
 
-    /** Attaches or detaches the client based on its current `enableCLI` value. */
+    /** Attaches the client unless it opted out with `cli: false`. */
     syncClient(client: Vimcord): void {
         if (!this.started || VimcordClient.getInstance() !== client) return;
-        this.client = client.globals.app.enableCLI ? client : null;
+        this.client = client.globals.app.cli ? client : null;
     }
 
     private detachClient(client: Vimcord): void {

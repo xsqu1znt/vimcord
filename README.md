@@ -2,7 +2,7 @@
 
 An opinionated Discord.js framework: a module layer, typed command contexts, hooks, and UX helpers for embeds, prompts, modals, components, and pagination. It does not hide Discord.js — builders, intents, events, permissions, and interactions stay the Discord.js ones.
 
-See [`packages/vimcord/README.md`](packages/vimcord/README.md) for installation, quick start, and the full API reference. That's what ships to [npm](https://www.npmjs.com/package/vimcord).
+See [`packages/vimcord/README.md`](packages/vimcord/README.md) for installation and quickstart, and [`packages/vimcord/docs/index.md`](packages/vimcord/docs/index.md) for topic guides. That's what ships to [npm](https://www.npmjs.com/package/vimcord).
 
 ## Repo layout
 
@@ -11,7 +11,7 @@ A PNPM workspace.
 - [`packages/vimcord`](packages/vimcord) — the `vimcord` package. Holds all the framework code.
 - [`packages/plugins/dotenv`](packages/plugins/dotenv) — `@vimcord/plugin-dotenv`, loads env files through the plugin lifecycle.
 - [`packages/plugins/mongoose`](packages/plugins/mongoose) — `@vimcord/plugin-mongoose`, the Mongoose connection and `MongoSchemaBuilder`.
-- [`templates`](templates) — starter templates for new bots.
+- [`templates`](templates) — copyable starter bots, beginning with the [basic template](templates/basic).
 
 ## Development
 

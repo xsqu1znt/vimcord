@@ -1,4 +1,5 @@
 import type { MessageComponentInteraction, ModalSubmitInteraction } from "discord.js";
+import type { BetterCollectorOptions } from "./betterCollector.js";
 
 import {
     ButtonBuilder,
@@ -19,7 +20,7 @@ import { dynaSend } from "./dynaSend.js";
 import * as routing from "./interactionRouter.js";
 import { Paginator } from "./paginator.js";
 import { promptMessage } from "./prompt.js";
-import { ResolveAction } from "./shared.js";
+import { resolveParticipantIds } from "./shared.js";
 
 vi.mock("./dynaSend.js", async original => ({ ...(await original<typeof import("./dynaSend.js")>()), dynaSend: vi.fn() }));
 
@@ -92,8 +93,8 @@ async function settle() {
     await new Promise(r => setImmediate(r));
 }
 
-function better(message: Message, options: ConstructorParameters<typeof BetterCollector>[1] = { timeout: 1000 }) {
-    const collector = new BetterCollector(message, options);
+function better(message: Message, options: BetterCollectorOptions = { timeout: 1000 }) {
+    const collector = new BetterCollector(message, { participants: "anyone", ...options });
     collectors.push(collector);
     return collector;
 }
@@ -128,66 +129,71 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         }
     });
 
-    it("preserves wildcard/ID order, per-listener participants and deferral, and unknown-ID history", async () => {
+    it("runs one handler per click, rejects non-participants, and keeps no history", async () => {
         const message = makeMessage();
-        const c = better(message, { timeout: 1000, participants: ["a"], defer: { update: true } });
+        const c = better(message, { timeout: 1000, participants: ["a"] });
         const calls: string[] = [];
-        c.on("btn", () => calls.push("restricted"), { participants: ["b"], defer: { flags: "Ephemeral" } });
         c.on(() => calls.push("wildcard"));
         c.on("btn", () => calls.push("id"));
         const rejected = click(message, "btn", "c");
         message.client.emit(Events.InteractionCreate, rejected as never);
         await settle();
         expect(rejected.reply).toHaveBeenCalledOnce();
-        const accepted = click(message, "btn", "b");
-        message.client.emit(Events.InteractionCreate, accepted as never);
-        await settle();
-        expect(calls).toEqual(["restricted"]);
-        expect(accepted.deferReply).toHaveBeenCalledWith({ flags: "Ephemeral" });
+        expect(calls).toEqual([]);
         message.client.emit(Events.InteractionCreate, click(message) as never);
         await settle();
-        expect(calls).toEqual(["restricted", "wildcard", "id"]);
+        message.client.emit(Events.InteractionCreate, click(message, "other") as never);
+        await settle();
+        expect(calls).toEqual(["id", "wildcard"]);
         const end = vi.fn();
         c.onEnd(end);
         c.stop("done");
         await settle();
-        expect(end.mock.calls[0]?.[0]).toHaveLength(2);
-        expect(end.mock.calls[0]?.[1]).toBe("done");
+        expect(end).toHaveBeenCalledExactlyOnceWith("done");
     });
 
-    it.each([
-        [{ max: 2 }, "limit"],
-        [{ maxComponents: 2 }, "componentLimit"],
-        [{ maxUsers: 2 }, "userLimit"]
-    ] as const)("preserves %o limits and end history", async (limits, reason) => {
+    it("counts max through the routed collector, keeping nothing in memory", async () => {
         const message = makeMessage();
-        const c = better(message, { timeout: 1000, ...limits });
+        const c = better(message, { timeout: 1000, max: 2 });
         const end = vi.fn();
         c.on("btn", () => {}).onEnd(end);
-        for (const user of ["a", "b"]) {
-            message.client.emit(Events.InteractionCreate, click(message, "btn", user) as never);
-            await settle();
-        }
-        expect(end).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ customId: "btn" })]), reason);
-        expect(end.mock.calls[0]?.[0]).toHaveLength(2);
+        const underlying = Reflect.get(c, "collector") as {
+            collected: Collection<string, unknown>;
+            users: Collection<string, unknown>;
+        };
+        message.client.emit(Events.InteractionCreate, click(message) as never);
+        await settle();
+        expect(end).not.toHaveBeenCalled();
+        message.client.emit(Events.InteractionCreate, click(message, "btn", "b") as never);
+        await settle();
+        expect(end).toHaveBeenCalledExactlyOnceWith("limit");
+        expect([...underlying.collected.values()]).toEqual([]);
+        expect([...underlying.users.values()]).toEqual([]);
+        expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
     });
 
-    it("unknown IDs are collected, auto-deferred and count toward limits", async () => {
+    it("collects and auto-defers unknown IDs toward limits, but rejected clicks don't count", async () => {
         const message = makeMessage();
         const c = better(message, { timeout: 1000, max: 1, participants: ["a"] });
         c.on("known", () => {});
         const end = vi.fn();
         c.onEnd(end);
-        const i = click(message, "unknown", "outsider");
+        const outsider = click(message, "unknown", "outsider");
+        message.client.emit(Events.InteractionCreate, outsider as never);
+        await settle();
+        expect(outsider.deferUpdate).not.toHaveBeenCalled();
+        expect(outsider.reply).toHaveBeenCalledOnce();
+        expect(end).not.toHaveBeenCalled();
+        const i = click(message, "unknown", "a");
         message.client.emit(Events.InteractionCreate, i as never);
         await settle();
         expect(i.deferUpdate).toHaveBeenCalledOnce();
-        expect(end).toHaveBeenCalledWith([i], "limit");
+        expect(end).toHaveBeenCalledExactlyOnceWith("limit");
     });
 
     it("locks before collection, ignores rejected clicks for limits, and releases after listeners", async () => {
         const message = makeMessage();
-        const c = better(message, { timeout: 1000, max: 2, userLock: true });
+        const c = better(message, { timeout: 1000, max: 2, clickLock: true });
         let release!: () => void;
         const gate = new Promise<void>(r => (release = r));
         const listener = vi.fn(() => gate);
@@ -206,13 +212,13 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         message.client.emit(Events.InteractionCreate, click(message) as never);
         await settle();
         expect(listener).toHaveBeenCalledTimes(2);
-        expect(end.mock.calls[0]?.[0]).toHaveLength(2);
+        expect(end).toHaveBeenCalledExactlyOnceWith("limit");
     });
 
-    it("routes overlapping sessions without reordering and checks component/channel/guild boundaries", async () => {
+    it("routes overlapping sessions without reordering and checks channel/guild boundaries", async () => {
         const message = makeMessage();
         const order: string[] = [];
-        const a = better(message, { timeout: 1000, type: ComponentType.Button });
+        const a = better(message);
         const b = better(message);
         a.on("btn", () => order.push("a"));
         b.on("btn", () => order.push("b"));
@@ -227,9 +233,6 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         message.client.emit(Events.InteractionCreate, click(message) as never);
         await settle();
         expect(order).toEqual(["a", "b"]);
-        message.client.emit(Events.InteractionCreate, click(message, "btn", "a", ComponentType.StringSelect) as never);
-        await settle();
-        expect(order).toEqual(["a", "b", "b"]);
     });
 
     it.each(["messageDelete", "messageDeleteBulk", "channelDelete", "threadDelete", "guildDelete", "parentDelete"])(
@@ -258,7 +261,6 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
                 } as never);
             await settle();
             expect(end).toHaveBeenCalledWith(
-                [],
                 event === "messageDeleteBulk" ? "messageDelete" : event === "parentDelete" ? "channelDelete" : event
             );
             expect(message.client.listenerCount(Events.InteractionCreate)).toBe(baseline);
@@ -267,14 +269,14 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
 
     it.each(["time", "idle"] as const)("preserves %s timers and ignores rejected participants for idle", async reason => {
         const message = makeMessage();
-        const c = better(message, reason === "time" ? { timeout: 30 } : { idle: 30 });
-        c.on("btn", () => {}, { participants: ["a"] });
+        const c = better(message, { participants: ["a"], ...(reason === "time" ? { timeout: 30 } : { idle: 30 }) });
+        c.on("btn", () => {});
         const end = vi.fn();
         c.onEnd(end);
         await new Promise(r => setTimeout(r, 15));
         message.client.emit(Events.InteractionCreate, click(message, "btn", "b") as never);
         await new Promise(r => setTimeout(r, 35));
-        expect(end).toHaveBeenCalledWith([], reason);
+        expect(end).toHaveBeenCalledWith(reason);
         expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
     });
 
@@ -290,7 +292,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         await new Promise(r => setTimeout(r, 50));
         expect(end).not.toHaveBeenCalled();
         await new Promise(r => setTimeout(r, 50));
-        expect(end.mock.calls[0]?.[1]).toBe("idle");
+        expect(end.mock.calls[0]?.[0]).toBe("idle");
     });
 
     it.each(["time", "idle"] as const)("renews the %s window when a modal or result completes", async reason => {
@@ -309,7 +311,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         await new Promise(r => setTimeout(r, 300));
         expect(end).not.toHaveBeenCalled();
         await ended;
-        expect(end).toHaveBeenCalledWith([], reason);
+        expect(end).toHaveBeenCalledWith(reason);
         expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
     });
 
@@ -324,7 +326,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         c.stop("manual");
         await settle();
         // Discord.js already-started handleCollect calls continue after stop and can overshoot max.
-        expect(end).toHaveBeenCalledWith([], "manual");
+        expect(end).toHaveBeenCalledWith("manual");
         expect(listener).toHaveBeenCalledTimes(2);
         expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
     });
@@ -333,14 +335,10 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
         const promise = promptMessage(message, {
-            timeout: 1000,
-            onResolve: ResolveAction.DoNothing,
-            resolveOnAdditionalButton: true,
-            additionalButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)],
-            onCollector: c => {
-                collectors.push(c);
-                if (status === "timeout") c.stop();
-            }
+            participants: "anyone",
+            timeout: status === "timeout" ? 1 : 1000,
+            onResolve: "keep",
+            extraButtons: [new ButtonBuilder().setCustomId("custom").setLabel("Custom").setStyle(ButtonStyle.Primary)]
         });
         await settle();
         if (status !== "timeout")
@@ -359,7 +357,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
     it("drives paginator navigation, asynchronous collect listeners, and timeout cleanup", async () => {
         const message = makeMessage();
         vi.mocked(dynaSend).mockResolvedValue(message);
-        const p = new Paginator({ pages: ["a", "b"], idle: 30, onResolve: ResolveAction.ClearComponents });
+        const p = new Paginator({ pages: ["a", "b"], idle: 30, onResolve: "clear" });
         const order: string[] = [];
         p.on("collect", async () => {
             await Promise.resolve();
@@ -368,7 +366,7 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         p.on("paginate", () => {
             order.push("paginate");
         });
-        await p.send(message);
+        await p.send(message, { participants: "anyone" });
         message.client.emit(Events.InteractionCreate, click(message, "paginator:next") as never);
         await settle();
         expect(order).toEqual(["collect", "paginate"]);
@@ -377,55 +375,6 @@ describe.each(["legacy", "routed"] as const)("installed Discord.js parity: %s", 
         expect(message.edit).toHaveBeenCalledWith({ components: [] });
         expect(message.client.listenerCount(Events.InteractionCreate)).toBe(0);
     });
-
-    it.each([
-        [{ maxComponents: 2 }, "componentLimit"],
-        [{ maxUsers: 2 }, "userLimit"],
-        [{ max: 3 }, "limit"]
-    ] as const)("preserves %s without retaining interactions or users when history is disabled", async (limits, reason) => {
-        const message = makeMessage();
-        const c = better(message, { timeout: 1000, retainHistory: false, ...limits });
-        const end = vi.fn();
-        c.on("btn", () => {}).onEnd(end);
-        const a = click(message);
-        message.client.emit(Events.InteractionCreate, a as never);
-        await settle();
-        message.client.emit(Events.InteractionCreate, a as never);
-        await settle();
-        expect(end).not.toHaveBeenCalled();
-        const underlying = Reflect.get(c, "collector") as {
-            collected: Collection<string, unknown>;
-            users: Collection<string, unknown>;
-        };
-        expect([...underlying.collected.values()]).toEqual([]);
-        expect([...underlying.users.values()]).toEqual([]);
-        message.client.emit(Events.InteractionCreate, click(message, "btn", "b") as never);
-        await settle();
-        expect(end).toHaveBeenCalledWith([], reason);
-    });
-
-    it.each([false, true])(
-        "rechecks mutable participants between filter and delivery (added listener: %s)",
-        async addListener => {
-            const message = makeMessage();
-            const c = better(message);
-            const participants = ["a"];
-            const first = vi.fn();
-            const added = vi.fn();
-            c.on("btn", first, { participants });
-            const i = click(message);
-            const internals = c as unknown as {
-                filterInteraction(i: unknown): Promise<boolean>;
-                handleCollect(i: unknown): Promise<void>;
-            };
-            expect(await internals.filterInteraction(i)).toBe(true);
-            participants[0] = "b";
-            if (addListener) c.on("btn", added);
-            await internals.handleCollect(i);
-            expect(first).not.toHaveBeenCalled();
-            expect(added).toHaveBeenCalledTimes(addListener ? 1 : 0);
-        }
-    );
 
     it("drives BetterModal deferral and timeout through the installed collector", async () => {
         const client = makeClient();
@@ -491,4 +440,39 @@ it("reduces unrelated fan-out from 1000 checks to zero and releases all router l
         Events.GuildDelete
     ])
         expect(client.listenerCount(event)).toBe(0);
+});
+
+describe("participant inference on a real Message", () => {
+    const user = (id: string) => ({ id, username: id, discriminator: "0", avatar: null });
+
+    function parsed(data: object) {
+        const TestMessage = Message as unknown as new (client: Client, data: object) => Message<true>;
+        return new TestMessage(makeClient(), {
+            id: String(nextId++),
+            channel_id: "channel",
+            content: "",
+            type: 19,
+            author: user("bot"),
+            timestamp: new Date().toISOString(),
+            mentions: [],
+            ...data
+        });
+    }
+
+    it.each([
+        ["a reply that pinged", [user("invoker")]],
+        ["a reply that didn't ping", []]
+    ])("reads the replied user from %s", (_name, mentions) => {
+        const message = parsed({ mentions, referenced_message: { id: "1", author: user("invoker") } });
+        expect(resolveParticipantIds(undefined, message)).toEqual(new Set(["invoker"]));
+    });
+
+    it("reads the interaction metadata's user", () => {
+        const message = parsed({ interaction_metadata: { id: "1", type: 2, user: user("invoker") } });
+        expect(resolveParticipantIds(undefined, message)).toEqual(new Set(["invoker"]));
+    });
+
+    it("throws for a plain message", () => {
+        expect(() => resolveParticipantIds(undefined, parsed({}))).toThrow(/participants/);
+    });
 });

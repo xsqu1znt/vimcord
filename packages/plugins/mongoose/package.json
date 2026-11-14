@@ -35,5 +35,9 @@
         "@types/node": "^25.8.0",
         "mongodb-memory-server": "^11.3.0",
         "vimcord": "workspace:*"
-    }
+    },
+    "files": [
+        "dist",
+        "docs"
+    ]
 }

@@ -3,6 +3,7 @@
     "compilerOptions": {
         "rootDir": "./src",
         "outDir": "./dist",
+        "stripInternal": true,
         "paths": { "@/*": ["./src/*"] }
     },
     "include": ["src"],

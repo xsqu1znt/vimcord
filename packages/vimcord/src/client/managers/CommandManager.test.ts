@@ -1,7 +1,7 @@
 import type { ClientEvents, Interaction, Message } from "discord.js";
-import type { CommandLoggingTiming } from "../globals.js";
+import type { CommandPrefix } from "./CommandManager.js";
 
-import { Collection, ContextMenuCommandBuilder, Routes, SlashCommandBuilder } from "discord.js";
+import { Collection, ContextMenuCommandBuilder, InteractionContextType, Routes, SlashCommandBuilder } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     MessageContextCommandModule,
@@ -14,7 +14,6 @@ import { CommandManager } from "./CommandManager.js";
 
 type ApplicationCommandKind = "slash" | "message" | "user";
 
-const ALL_TIMINGS = ["delivery", "preExecute", "execute", "total"] as const;
 const CREATED_AT = 1_000;
 
 let client: Vimcord | undefined;
@@ -24,8 +23,8 @@ function advance(ms: number) {
     now += ms;
 }
 
-function createClient(commandLogging?: false | readonly CommandLoggingTiming[]) {
-    client = new Vimcord({ client: { intents: [] }, globals: { app: { commandLogging } } });
+function createClient(commandLogging?: boolean) {
+    client = new Vimcord({ intents: [], commandLogging });
     vi.spyOn(client.logger, "commandUsed").mockImplementation(() => {});
     vi.spyOn(client.logger, "error").mockImplementation(() => {});
     return client;
@@ -69,11 +68,10 @@ function createApplicationCommand(kind: ApplicationCommandKind, execute: () => u
         deferReply: true,
         execute,
         hooks: {
-            preExecute: async (_ctx: unknown, next: () => void) => {
+            before: async () => {
                 advance(5);
-                next();
-            },
-            postExecute: async () => advance(4)
+                return true;
+            }
         }
     };
 
@@ -104,12 +102,15 @@ function createRegistrationClient() {
         awaitReady: async () => true,
         guilds: { cache: new Collection(Array.from({ length: 12 }, (_, i) => [`guild-${i}`, { id: `guild-${i}` }])) },
         logger: { module: vi.fn(), debug: vi.fn(), error: vi.fn() },
-        rest: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), patch: vi.fn(), put: vi.fn() }
+        rest: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() }
     };
 }
 
 function command(name: string, guilds?: string[]) {
-    return { builder: { toJSON: vi.fn(() => ({ name, description: "d", type: 1 as const })) }, registration: { guilds } };
+    return {
+        builder: { toJSON: vi.fn(() => ({ name, description: "d", type: 1 as const })) },
+        registration: { guilds, global: !guilds }
+    };
 }
 
 beforeEach(() => {
@@ -125,8 +126,8 @@ afterEach(async () => {
 });
 
 describe("CommandManager usage timing", () => {
-    it("includes waiting for client readiness in pre-execute and total", async () => {
-        const client = createClient(ALL_TIMINGS);
+    it("includes waiting for client readiness in pre-execute", async () => {
+        const client = createClient(true);
         vi.spyOn(client, "isReady").mockReturnValue(false);
         vi.spyOn(client, "awaitReady").mockImplementation(async () => {
             advance(9);
@@ -143,18 +144,13 @@ describe("CommandManager usage timing", () => {
 
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 9 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 39 }
-                ]
+                timings: { delivery: 48, pre: 9, exec: 30 }
             })
         );
     });
 
-    it("separates prefix preparation, user execution, and post-execute work", async () => {
-        const client = createClient(ALL_TIMINGS);
+    it("separates prefix preparation and user execution", async () => {
+        const client = createClient(true);
         const command = new PrefixCommandModule({
             name: "balance",
             requiresReady: false,
@@ -163,11 +159,10 @@ describe("CommandManager usage timing", () => {
                 advance(126);
             },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(12);
-                    next();
-                },
-                postExecute: async () => advance(4)
+                    return true;
+                }
             }
         });
         client.modules.commands.prefix.register(command);
@@ -177,20 +172,13 @@ describe("CommandManager usage timing", () => {
             commandName: "balance",
             userName: "maya",
             guildName: "Workshop",
-            guildId: "guild",
-            durationMs: 142,
             failed: false,
-            timings: [
-                { timing: "delivery", durationMs: 48 },
-                { timing: "preExecute", durationMs: 12 },
-                { timing: "execute", durationMs: 126 },
-                { timing: "total", durationMs: 142 }
-            ]
+            timings: { delivery: 48, pre: 12, exec: 126 }
         });
     });
 
     it.each(["slash", "message", "user"] as const)("counts %s deferral in pre-execute, not execution", async kind => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const command = createApplicationCommand(kind, () => advance(126));
         if (command instanceof SlashCommandModule) client.modules.commands.slash.register(command);
         if (command instanceof MessageContextCommandModule) client.modules.commands.context.message.register(command);
@@ -202,19 +190,13 @@ describe("CommandManager usage timing", () => {
         expect(interaction.deferReply).toHaveBeenCalledOnce();
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                durationMs: 142,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 12 },
-                    { timing: "execute", durationMs: 126 },
-                    { timing: "total", durationMs: 142 }
-                ]
+                timings: { delivery: 48, pre: 12, exec: 126 }
             })
         );
     });
 
     it("measures the selected slash route after its checks and route-specific deferral", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const execute = vi.fn();
         const command = new SlashCommandModule({
             builder: new SlashCommandBuilder()
@@ -224,31 +206,14 @@ describe("CommandManager usage timing", () => {
             requiresReady: false,
             deferReply: false,
             execute,
-            conditions: [
-                () => {
-                    advance(3);
-                    return { passed: true };
-                }
-            ],
-            routes: [
-                {
-                    path: "view",
-                    deferReply: true,
-                    conditions: [
-                        () => {
-                            advance(5);
-                            return { passed: true };
-                        }
-                    ],
-                    handler: () => advance(20)
-                }
-            ],
+            subcommands: {
+                view: { deferReply: true, execute: () => advance(20) }
+            },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(4);
-                    next();
-                },
-                postExecute: async () => advance(6)
+                    return true;
+                }
             }
         });
         client.modules.commands.slash.register(command);
@@ -260,18 +225,13 @@ describe("CommandManager usage timing", () => {
         expect(interaction.deferReply).toHaveBeenCalledOnce();
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 19 },
-                    { timing: "execute", durationMs: 20 },
-                    { timing: "total", durationMs: 45 }
-                ]
+                timings: { delivery: 48, pre: 11, exec: 20 }
             })
         );
     });
 
     it("finishes execution timing before awaited error handling", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const command = new PrefixCommandModule({
             name: "balance",
             requiresReady: false,
@@ -280,9 +240,9 @@ describe("CommandManager usage timing", () => {
                 throw new Error("failed");
             },
             hooks: {
-                preExecute: async (_ctx, next) => {
+                before: async () => {
                     advance(12);
-                    next();
+                    return true;
                 },
                 onError: async () => advance(6)
             }
@@ -294,76 +254,26 @@ describe("CommandManager usage timing", () => {
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
                 failed: true,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: 12 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 48 }
-                ]
+                timings: { delivery: 48, pre: 12, exec: 30 }
             })
         );
     });
 
-    it("retains handler duration when post-execute throws", async () => {
-        const client = createClient(["execute", "total"]);
-        client.modules.commands.prefix.register(
-            new PrefixCommandModule({
-                name: "balance",
-                requiresReady: false,
-                execute: () => advance(30),
-                hooks: {
-                    postExecute: async () => {
-                        advance(5);
-                        throw new Error("post failed");
-                    },
-                    onError: async () => advance(6)
-                }
-            })
-        );
-
-        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                failed: true,
-                timings: [
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 41 }
-                ]
-            })
-        );
-    });
-
-    it("leaves pre-execute and execute unavailable when deferral fails before the handler", async () => {
-        const client = createClient(ALL_TIMINGS);
+    it("does not log when deferral fails before the handler executes", async () => {
+        const client = createClient(true);
         const execute = vi.fn();
         const command = createApplicationCommand("slash", execute);
         if (!(command instanceof SlashCommandModule)) throw new Error("Expected slash command");
         client.modules.commands.slash.register(command);
         const interaction = createInteraction();
-        interaction.deferReply.mockImplementation(async () => {
-            advance(7);
-            throw new Error("defer failed");
-        });
-
+        interaction.deferReply.mockRejectedValue(new Error("defer failed"));
         await client.modules.commands.dispatchInteraction(interaction as unknown as Interaction);
-
         expect(execute).not.toHaveBeenCalled();
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                failed: true,
-                timings: [
-                    { timing: "delivery", durationMs: 48 },
-                    { timing: "preExecute", durationMs: undefined },
-                    { timing: "execute", durationMs: undefined },
-                    { timing: "total", durationMs: 12 }
-                ]
-            })
-        );
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
     it("includes prompt waits and keeps overlapping invocations independent", async () => {
-        const client = createClient(["execute", "total"]);
+        const client = createClient(true);
         const waits = { first: deferred(), second: deferred() };
         const started = { first: deferred(), second: deferred() };
         client.modules.commands.prefix.register(
@@ -396,26 +306,20 @@ describe("CommandManager usage timing", () => {
             1,
             expect.objectContaining({
                 userName: "second",
-                timings: [
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 30 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 30 }
             })
         );
         expect(client.logger.commandUsed).toHaveBeenNthCalledWith(
             2,
             expect.objectContaining({
                 userName: "first",
-                timings: [
-                    { timing: "execute", durationMs: 90 },
-                    { timing: "total", durationMs: 90 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 90 }
             })
         );
     });
 
     it("does not invent delivery duration for clock skew or use wall-clock changes for local spans", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         vi.mocked(Date.now).mockReturnValue(CREATED_AT - 48);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
@@ -432,20 +336,15 @@ describe("CommandManager usage timing", () => {
 
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "delivery", durationMs: undefined },
-                    { timing: "preExecute", durationMs: 0 },
-                    { timing: "execute", durationMs: 30 },
-                    { timing: "total", durationMs: 30 }
-                ]
+                timings: { delivery: undefined, pre: 0, exec: 30 }
             })
         );
     });
 });
 
-describe("CommandManager logging selection", () => {
+describe("CommandManager logging", () => {
     it("does not emit usage logs for autocomplete", async () => {
-        const client = createClient(ALL_TIMINGS);
+        const client = createClient(true);
         const execute = vi.fn();
         client.modules.commands.slash.register(
             new SlashCommandModule({
@@ -474,39 +373,41 @@ describe("CommandManager logging selection", () => {
         expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
-    it.each([
-        { global: undefined, local: undefined, selected: ["execute"] },
-        { global: false, local: undefined, selected: null },
-        { global: [], local: undefined, selected: null },
-        { global: false, local: true, selected: ["execute"] },
-        { global: [], local: true, selected: ["execute"] },
-        { global: ["total", "execute"], local: undefined, selected: ["total", "execute"] },
-        { global: ["total", "execute"], local: true, selected: ["total", "execute"] },
-        { global: ["total"], local: false, selected: null },
-        { global: undefined, local: false, selected: null },
-        { global: false, local: false, selected: null }
-    ] as const)("resolves global=$global and logUsage=$local", async ({ global, local, selected }) => {
-        const client = createClient(global);
+    it.each([undefined, true, false])("uses boolean logging=%s", async logging => {
+        const client = createClient(logging);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
                 name: "balance",
                 requiresReady: false,
-                metadata: { logUsage: local },
                 execute: () => advance(30)
             })
         );
-
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        if (logging === false) expect(client.logger.commandUsed).not.toHaveBeenCalled();
+        else
+            expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    timings: { delivery: 48, pre: 0, exec: 30 }
+                })
+            );
+    });
 
-        if (selected === null) {
-            expect(client.logger.commandUsed).not.toHaveBeenCalled();
-            return;
-        }
-        expect(client.logger.commandUsed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                timings: selected.map(t => ({ timing: t, durationMs: 30 }))
+    it.each([false, true])("makes no usage clock calls when off (staged=%s)", async staged => {
+        const client = createClient(false);
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                hooks: staged ? { before: () => true } : undefined,
+                execute: () => undefined
             })
         );
+        vi.mocked(performance.now).mockClear();
+        vi.mocked(Date.now).mockClear();
+        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
+        expect(performance.now).not.toHaveBeenCalled();
+        expect(Date.now).not.toHaveBeenCalled();
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
     it("uses updated logging configuration on later invocations", async () => {
@@ -519,49 +420,42 @@ describe("CommandManager logging selection", () => {
             })
         );
 
-        client.configure({ app: { commandLogging: ["total", "execute"] } });
+        client.globals.app.commandLogging = true;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [
-                    { timing: "total", durationMs: 30 },
-                    { timing: "execute", durationMs: 30 }
-                ]
+                timings: { delivery: 48, pre: 0, exec: 30 }
             })
         );
 
         vi.mocked(client.logger.commandUsed).mockClear();
-        client.configure({ app: { commandLogging: false } });
+        client.globals.app.commandLogging = false;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(client.logger.commandUsed).not.toHaveBeenCalled();
     });
 
-    it.each(["disabled", "condition", "preExecute", "permission"] as const)(
-        "does not log a command blocked by %s",
-        async reason => {
-            const client = createClient(ALL_TIMINGS);
-            const execute = vi.fn();
-            client.modules.commands.prefix.register(
-                new PrefixCommandModule({
-                    name: "balance",
-                    requiresReady: false,
-                    enabled: reason !== "disabled",
-                    conditions: reason === "condition" ? [() => ({ passed: false, reason: "blocked" })] : [],
-                    permissions: reason === "permission" ? { botStaff: true } : {},
-                    hooks: reason === "preExecute" ? { preExecute: async () => {} } : {},
-                    execute
-                })
-            );
+    it.each(["disabled", "before", "permission"] as const)("does not log a command blocked by %s", async reason => {
+        const client = createClient(true);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(
+            new PrefixCommandModule({
+                name: "balance",
+                requiresReady: false,
+                enabled: reason !== "disabled",
+                access: reason === "permission" ? { staff: true } : {},
+                hooks: reason === "before" ? { before: async () => false } : {},
+                execute
+            })
+        );
 
-            await expect(client.modules.commands.dispatchMessage(createMessage(), ["!"])).resolves.toBe(true);
-            expect(execute).not.toHaveBeenCalled();
-            expect(client.logger.commandUsed).not.toHaveBeenCalled();
-        }
-    );
+        await expect(client.modules.commands.dispatchMessage(createMessage(), ["!"])).resolves.toBe(true);
+        expect(execute).not.toHaveBeenCalled();
+        expect(client.logger.commandUsed).not.toHaveBeenCalled();
+    });
 });
 
 describe("CommandManager registration preparation", () => {
-    it("builds once per sync, targets guilds within bounded workers, and keeps unrelated remote commands", async () => {
+    it("builds once per sync, targets explicit guilds within bounded workers, and a filtered push deletes nothing", async () => {
         const client = createRegistrationClient();
         const manager = new CommandManager(client as unknown as Vimcord);
         const all = command("all");
@@ -578,19 +472,70 @@ describe("CommandManager registration preparation", () => {
                 { id: "unrelated", name: "remote", type: 1 }
             ];
         });
-        expect(await manager.pushByGuild()).toBe(true);
+        const guilds = [...client.guilds.cache.keys()];
+        expect(await manager.pushByGuild({ guilds, tag: "core" })).toBe(true);
         expect(all.builder.toJSON).toHaveBeenCalledOnce();
         expect(targeted.builder.toJSON).toHaveBeenCalledOnce();
         expect(maximum).toBeLessThanOrEqual(5);
         expect(maximum).toBeGreaterThan(1);
         expect(client.rest.patch).not.toHaveBeenCalled();
         expect(client.rest.put).not.toHaveBeenCalled();
+        expect(client.rest.delete).not.toHaveBeenCalled();
         expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-0"), {
             body: { name: "targeted", description: "d", type: 1 }
         });
-        await manager.pushByGuild({ guilds: ["guild-1"] });
-        expect(all.builder.toJSON).toHaveBeenCalledTimes(2);
-        expect(targeted.builder.toJSON).toHaveBeenCalledTimes(2);
+    });
+
+    it("pushes only guild-scoped commands to the guilds they name when no guilds are given, pruning there", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("all"), command("staff", ["guild-3"])] as never);
+        client.rest.get.mockResolvedValue([{ id: "old", name: "renamed", type: 1 }]);
+
+        expect(await manager.pushByGuild()).toBe(true);
+        expect(client.rest.get).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-3"));
+        expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-3"), {
+            body: { name: "staff", description: "d", type: 1 }
+        });
+        expect(client.rest.delete).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommand("app", "guild-3", "old"));
+    });
+
+    it("keeps syncing other guilds after one fails, and reports the failure", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("staff", ["guild-1", "guild-2"])] as never);
+        client.rest.get.mockImplementation(async (route: string) => {
+            if (route.includes("guild-1")) throw new Error("Missing Access");
+            return [];
+        });
+
+        expect(await manager.pushByGuild()).toBe(false);
+        expect(client.rest.post).toHaveBeenCalledExactlyOnceWith(Routes.applicationGuildCommands("app", "guild-2"), {
+            body: { name: "staff", description: "d", type: 1 }
+        });
+        expect(client.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it("deletes stale global commands only on an unfiltered push", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([command("kept"), command("staff", ["guild-0"])] as never);
+        client.rest.get.mockResolvedValue([
+            { id: "kept-id", name: "kept", description: "d", type: 1, contexts: [0, 1, 2] },
+            { id: "user-kept", name: "kept", type: 2 },
+            { id: "staff-id", name: "staff", description: "d", type: 1 }
+        ]);
+
+        await manager.push({ names: ["kept"] });
+        expect(client.rest.delete).not.toHaveBeenCalled();
+
+        await manager.push();
+        expect(client.rest.delete.mock.calls).toEqual([
+            [Routes.applicationCommand("app", "user-kept")],
+            [Routes.applicationCommand("app", "staff-id")]
+        ]);
+        expect(client.rest.post).not.toHaveBeenCalled();
+        expect(client.rest.patch).not.toHaveBeenCalled();
     });
 
     it("patches by existing identity without replacing unchanged commands or deleting unrelated commands", async () => {
@@ -607,48 +552,100 @@ describe("CommandManager registration preparation", () => {
         });
         expect(client.rest.put).not.toHaveBeenCalled();
     });
+
+    it("limits guildOnly app commands to the guild context unless the builder sets its own", () => {
+        const execute = () => {};
+        const slash = new SlashCommandBuilder().setName("ban").setDescription("d");
+        const modules = [
+            new SlashCommandModule({ builder: slash, guildOnly: true, execute }),
+            new MessageContextCommandModule({ builder: b => b.setName("report"), guildOnly: true, execute }),
+            new UserContextCommandModule({ builder: b => b.setName("warn"), guildOnly: true, execute })
+        ];
+        expect(modules.map(m => m.builder.toJSON().contexts)).toEqual([[0], [0], [0]]);
+
+        const own = new SlashCommandModule({
+            builder: b => b.setName("kick").setDescription("d").setContexts(InteractionContextType.PrivateChannel),
+            guildOnly: true,
+            execute
+        });
+        expect(own.builder.toJSON().contexts).toEqual([InteractionContextType.PrivateChannel]);
+        expect(
+            new SlashCommandModule({ builder: b => b.setName("ping").setDescription("d"), execute }).builder.contexts
+        ).toBe(undefined);
+    });
+
+    it("patches a guildOnly command published with default contexts once, then reports it unchanged", async () => {
+        const client = createRegistrationClient();
+        const manager = new CommandManager(client as unknown as Vimcord);
+        const module = new SlashCommandModule({
+            builder: b => b.setName("ban").setDescription("d"),
+            guildOnly: true,
+            execute() {}
+        });
+        vi.spyOn(manager, "getAllAppCommands").mockReturnValue([module]);
+        const remote = { id: "ban-id", name: "ban", description: "d", type: 1, contexts: [0, 1, 2] };
+        client.rest.get.mockResolvedValue([remote]);
+
+        await manager.push();
+        expect(client.rest.patch).toHaveBeenCalledExactlyOnceWith(Routes.applicationCommand("app", "ban-id"), {
+            body: expect.objectContaining({ contexts: [0] })
+        });
+
+        remote.contexts = [0];
+        await manager.push();
+        expect(client.rest.patch).toHaveBeenCalledOnce();
+    });
 });
 
 describe("CommandManager routing lifecycle", () => {
-    it("mounts once, replaces prefix settings, and preserves other listeners on unmount", () => {
+    it("installs once, replaces prefix settings, and preserves other listeners on removal", () => {
         const client = createClient(false);
         const commands = client.modules.commands;
         const external = vi.fn();
         client.on("interactionCreate", external);
         const dispatchInteraction = vi.spyOn(commands, "dispatchInteraction").mockResolvedValue(true);
         const dispatchMessage = vi.spyOn(commands, "dispatchMessage").mockResolvedValue(true);
-        commands.mount({ prefixes: ["!"] });
-        commands.mount({ prefixes: ["?"], allowMention: true });
+        commands.installListeners({ prefix: "!" });
+        const routing = { prefix: ["?"], allowMention: true };
+        commands.installListeners(routing);
         const interaction = createInteraction() as unknown as Interaction;
         const message = createMessage();
         client.emit("interactionCreate", interaction);
         client.emit("messageCreate", message);
         expect(dispatchInteraction).toHaveBeenCalledExactlyOnceWith(interaction);
-        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], { prefixes: ["?"], allowMention: true });
-        commands.unmount();
-        commands.unmount();
+        expect(dispatchMessage).toHaveBeenCalledExactlyOnceWith(message, ["?"], routing);
+        commands.removeListeners();
+        commands.removeListeners();
         expect(client.listeners("interactionCreate")).toEqual([external]);
         expect(client.listeners("messageCreate")).toEqual([]);
     });
 
-    it("mounts only interactions by default, supports mention-only routing, and cleans up on unload", () => {
+    it("installs only interactions by default, supports mention-only routing, and cleans up on unload", () => {
         const client = createClient(false);
         const commands = client.modules.commands;
-        commands.mount();
+        commands.installListeners();
         expect(client.listenerCount("interactionCreate")).toBe(1);
         expect(client.listenerCount("messageCreate")).toBe(0);
-        commands.mount({ allowMention: true });
+        commands.installListeners({ allowMention: true });
         expect(client.listenerCount("messageCreate")).toBe(1);
         client.modules.unload();
         expect(client.listenerCount("interactionCreate")).toBe(0);
         expect(client.listenerCount("messageCreate")).toBe(0);
     });
 
-    it("dispatches mounted commands without invoking handlers for bot messages", async () => {
+    it("warns when prefix commands are loaded but nothing can route to them", () => {
+        const client = createClient(false);
+        const warn = vi.spyOn(client.logger, "warn").mockImplementation(() => {});
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", execute: vi.fn() }));
+        client.modules.commands.installListeners();
+        expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it("dispatches commands without invoking handlers for bot messages", async () => {
         const client = createClient(false);
         const execute = vi.fn();
         client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
-        client.modules.commands.mount({ prefixes: ["!"] });
+        client.modules.commands.installListeners({ prefix: "!" });
         const message = createMessage();
         client.emit("messageCreate", message);
         expect(execute).toHaveBeenCalledOnce();
@@ -659,9 +656,84 @@ describe("CommandManager routing lifecycle", () => {
     });
 });
 
+describe("prefix function", () => {
+    function setup(prefix: CommandPrefix, allowMention = false) {
+        const client = createClient(false);
+        const execute = vi.fn();
+        client.modules.commands.prefix.register(new PrefixCommandModule({ name: "balance", requiresReady: false, execute }));
+        client.modules.commands.installListeners({ prefix, allowMention });
+        return { client, execute };
+    }
+
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+
+    it.each([
+        ["string", () => "!"],
+        ["array", () => ["?", "!"]],
+        ["async string", async () => "!"]
+    ])("dispatches a %s result once per message", async (_kind, resolve) => {
+        const resolver = vi.fn(resolve);
+        const { client, execute } = setup(resolver);
+        client.emit("messageCreate", createMessage());
+        await settle();
+        expect(resolver).toHaveBeenCalledOnce();
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it("ignores the message on null, even when mentions are allowed", async () => {
+        const { client, execute } = setup(() => null, true);
+        Object.assign(client, { user: { id: "1" } });
+        const message = createMessage();
+        message.content = "<@1> balance";
+        client.emit("messageCreate", message);
+        await settle();
+        expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("matches the mention prefix alongside the function's result", async () => {
+        const { client, execute } = setup(() => [], true);
+        Object.assign(client, { user: { id: "1" } });
+        const message = createMessage();
+        message.content = "<@1> balance";
+        client.emit("messageCreate", message);
+        await settle();
+        expect(execute).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            "sync",
+            () => {
+                throw new Error("lookup failed");
+            }
+        ],
+        [
+            "async",
+            async () => {
+                throw new Error("lookup failed");
+            }
+        ]
+    ])("logs a %s failure instead of raising it into the event emitter", async (_kind, resolve) => {
+        const { client, execute } = setup(resolve);
+        expect(() => client.emit("messageCreate", createMessage())).not.toThrow();
+        await settle();
+        expect(execute).not.toHaveBeenCalled();
+        expect(client.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it("skips the resolver for a message with no content", () => {
+        const resolver = vi.fn(() => "!");
+        const { client } = setup(resolver);
+        const message = createMessage();
+        message.content = "";
+        client.emit("messageCreate", message);
+        expect(resolver).not.toHaveBeenCalled();
+    });
+});
+
 describe("direct command execution", () => {
-    it("awaits thenable handlers and measures execution without unused delivery or pipeline clocks", async () => {
-        const client = createClient(["execute"]);
+    it("awaits thenable handlers on the direct path with all fixed timings", async () => {
+        const client = createClient(true);
         client.modules.commands.prefix.register(
             new PrefixCommandModule({
                 name: "balance",
@@ -675,26 +747,21 @@ describe("direct command execution", () => {
             })
         );
         const message = createMessage();
-        Object.defineProperty(message, "createdTimestamp", {
-            get: () => {
-                throw new Error("Unused timestamp read");
-            }
-        });
         vi.mocked(Date.now).mockClear();
         vi.mocked(performance.now).mockClear();
         await expect(client.modules.commands.dispatchMessage(message, ["!"])).resolves.toBe(true);
-        expect(Date.now).not.toHaveBeenCalled();
-        expect(performance.now).toHaveBeenCalledTimes(2);
+        expect(Date.now).toHaveBeenCalledOnce();
+        expect(performance.now).toHaveBeenCalledTimes(3);
         expect(client.logger.commandUsed).toHaveBeenCalledWith(
             expect.objectContaining({
-                timings: [{ timing: "execute", durationMs: 30 }],
+                timings: { delivery: 48, pre: 0, exec: 30 },
                 failed: false
             })
         );
     });
 
     it("keeps thenable rejection timing separate from error hooks", async () => {
-        const client = createClient(["execute"]);
+        const client = createClient(true);
         const error = new Error("Query failed");
         const onError = vi.fn(async () => advance(8));
         client.modules.commands.prefix.register(
@@ -711,45 +778,42 @@ describe("direct command execution", () => {
             })
         );
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ error }));
+        expect(onError).toHaveBeenCalledWith(expect.anything(), error);
         expect(client.logger.commandUsed).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
-                timings: [{ timing: "execute", durationMs: 30 }],
+                timings: { delivery: 48, pre: 0, exec: 30 },
                 failed: true
             })
         );
     });
 
-    it("observes conditions and hooks added after the first direct invocation", async () => {
+    it("observes a before hook added after the first direct invocation", async () => {
         const client = createClient(false);
         const execute = vi.fn();
         const command = new PrefixCommandModule({ name: "balance", requiresReady: false, execute });
         client.modules.commands.prefix.register(command);
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        command.hooks.preExecute = async () => {};
-        await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
-        delete command.hooks.preExecute;
-        command.conditions.push(() => ({ passed: false, reason: "Blocked" }));
+        command.hooks.before = async () => false;
         await client.modules.commands.dispatchMessage(createMessage(), ["!"]);
         expect(execute).toHaveBeenCalledOnce();
     });
 
     it.each(["!bank deposit 5", "!  BANK\tDEPOSIT\t5", "!wallet   put  5"])(
-        "preserves routing and hook args for %s",
+        "preserves routing and context args for %s",
         async content => {
             const client = createClient(false);
             const handler = vi.fn();
-            let args: unknown[] = [];
+            let args: string[] = [];
             client.modules.commands.prefix.register(
                 new PrefixCommandModule({
                     name: "bank",
                     aliases: ["wallet"],
                     requiresReady: false,
-                    subcommands: { deposit: { aliases: ["put"], handler } },
+                    subcommands: { deposit: { aliases: ["put"], execute: handler } },
                     hooks: {
-                        preExecute: async (ctx, next) => {
+                        before: async ctx => {
                             args = ctx.args;
-                            next();
+                            return true;
                         }
                     }
                 })
@@ -757,10 +821,8 @@ describe("direct command execution", () => {
             const message = createMessage();
             message.content = content;
             await client.modules.commands.dispatchMessage(message, ["!"]);
-            expect(handler).toHaveBeenCalledWith(expect.objectContaining({ subcommand: "deposit", messageContent: "5" }));
-            expect(args).toHaveLength(3);
-            expect(args[0]).toBe(message);
-            expect(args[1]).toBe("!");
+            expect(handler).toHaveBeenCalledWith(expect.objectContaining({ subcommand: "deposit", content: "5" }));
+            expect(args).toEqual(["5"]);
         }
     );
 });

@@ -1,13 +1,6 @@
 import type { Vimcord } from "@/client/Vimcord.js";
-import type { LoaderMode } from "@/utils/Logger.js";
 import type { CLILogger } from "./CLILogger.js";
 import type { VimcordCLI } from "./VimcordCLI.js";
-
-/** Process-wide Vimcord CLI configuration. */
-export interface CLIOptions {
-    /** Controls animated command loaders. @default "auto" */
-    loaders?: LoaderMode;
-}
 
 /** Parsed command-line input. Flag names are normalized to lowercase. */
 export interface ParsedCLICommand {
@@ -35,7 +28,7 @@ export interface CLICommandContext {
     signal: AbortSignal;
 }
 
-/** A core CLI command. */
+/** A built-in or custom CLI command. */
 export interface CLICommand {
     /** Lowercase command name without a leading slash. */
     name: string;
@@ -43,7 +36,7 @@ export interface CLICommand {
     description: string;
     /** Usage text displayed by `/help`. */
     usage?: string;
-    /** Additional lowercase command triggers. */
+    /** Additional lowercase command triggers. @default [] */
     aliases?: readonly string[];
     /** Whether the attached client is required. @default true */
     requiresClient?: boolean;

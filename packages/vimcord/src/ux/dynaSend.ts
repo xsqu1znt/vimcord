@@ -1,6 +1,6 @@
 import type {
-    ActionRowBuilder,
     BaseMessageOptions,
+    ButtonBuilder,
     CommandInteraction,
     ContainerBuilder,
     DMChannel,
@@ -23,10 +23,13 @@ import type {
     TextChannel,
     ThreadChannel
 } from "discord.js";
+import type { BetterContainer } from "./BetterContainer.js";
 
 import {
+    ActionRowBuilder,
     BaseChannel,
     BaseInteraction,
+    ComponentType,
     GuildMember,
     InteractionCallbackResponse,
     Message,
@@ -45,15 +48,11 @@ type AtLeastOne<T, Keys extends keyof T> = {
 
 type SendableContentKeys = "content" | "embeds" | "components" | "files" | "stickers" | "poll" | "forward";
 
-export enum SendMethod {
-    Reply = "Reply",
-    EditReply = "EditReply",
-    FollowUp = "FollowUp",
-    Channel = "Channel",
-    MessageReply = "MessageReply",
-    MessageEdit = "MessageEdit",
-    UserDM = "UserDM"
-}
+/** Sends that can't be inferred from the target. Everything else is detected. */
+export type SendMethod = "followUp" | "edit";
+
+/** How a target is actually sent through. */
+type ResolvedSendMethod = "reply" | "editReply" | "followUp" | "channel" | "messageReply" | "messageEdit" | "userDM";
 
 export type SendHandler =
     | CommandInteraction
@@ -64,6 +63,23 @@ export type SendHandler =
     | GuildMember
     | User;
 export type InteractionBasedSendHandler = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
+/** Targets that always hand back the sent message. A fresh interaction reply only does with `withResponse`. */
+export type MessageSendHandler = Exclude<SendHandler, InteractionBasedSendHandler>;
+/** Options that guarantee an interaction send hands back its message. */
+export type MessageReturningSendOptions = { withResponse: true } | { method: SendMethod };
+
+/** Targets whose sent message says who may click it. A guild channel's doesn't. */
+export type TriggeredSendHandler = Exclude<SendHandler, GuildTextBasedChannel>;
+
+declare const triggered: unique symbol;
+/** A message known to have a trigger, so `BetterCollector` can infer `participants`. A type-only marker. */
+export type TriggeredMessage = Message & {
+    /** Marks a message whose invoking user can be inferred. */
+    readonly [triggered]: true;
+};
+
+/** The message a send to `T` hands back. */
+export type SentMessage<T> = [T] extends [TriggeredSendHandler] ? TriggeredMessage : Message;
 
 export type EmbedResolvable = NonNullable<BaseMessageOptions["embeds"]>[number];
 export type InteractionResolveable = CommandInteraction | RepliableInteraction | MessageComponentInteraction;
@@ -71,30 +87,71 @@ export type UserResolvable = GuildMember | User | string;
 
 export type SendableTextChannel = DMChannel | TextChannel | NewsChannel | ThreadChannel;
 
-export type SendableComponent = ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
+export type SendableComponent = BetterContainer | ContainerBuilder | ActionRowBuilder<MessageActionRowComponentBuilder>;
 export type RequiredDynaSendOptions = AtLeastOne<DynaSendOptions, SendableContentKeys>;
 
+/** Message content, delivery overrides, and optional delayed deletion. */
 export interface DynaSendOptions {
-    sendMethod?: SendMethod;
+    /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+    method?: SendMethod;
+    /** Text sent in the message. */
     content?: string;
+    /** Embeds attached to the message. */
     embeds?: EmbedResolvable[];
-    components?: SendableComponent[];
+    /** Action rows or Components V2 containers, or a flat list of buttons split into rows of 5. */
+    components?: SendableComponent[] | ButtonBuilder[];
+    /** Attachments included with the message. */
     files?: Mutable<BaseMessageOptions["files"]>;
+    /** Stickers included with the message. */
     stickers?: StickerResolvable[];
+    /** Poll included with the message. */
     poll?: PollData;
+    /** Discord message flags supported by the selected delivery method. */
     flags?: InteractionReplyOptions["flags"];
+    /** Requests the message from a fresh interaction reply. @default false */
     withResponse?: boolean;
+    /** Controls which mentions Discord may notify. */
     allowedMentions?: MessageMentionOptions;
+    /** Message reference used for a channel reply. */
     reply?: ReplyOptions;
+    /** Message forwarded by this send. */
     forward?: ForwardOptions;
+    /** Whether Discord reads the message aloud. @default false */
     tts?: boolean;
+    /** Milliseconds before deleting the sent message. */
     deleteAfter?: number;
 }
 
 const EXCLUDE_EPHEMERAL = [MessageFlags.Ephemeral] as const;
+const MAX_BUTTONS_PER_ROW = 5;
 const EXCLUDE_EPHEMERAL_AND_SUPPRESS = [MessageFlags.Ephemeral, MessageFlags.SuppressNotifications] as const;
 
 // Checks if response is a deferred channel message with source
+/** Splits row components into action rows of 5. Callers check the components can share a row. */
+export function chunkIntoRows(
+    components: readonly MessageActionRowComponentBuilder[]
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+    for (let i = 0; i < components.length; i += MAX_BUTTONS_PER_ROW) {
+        rows.push(
+            new ActionRowBuilder<MessageActionRowComponentBuilder>().setComponents(
+                components.slice(i, i + MAX_BUTTONS_PER_ROW)
+            )
+        );
+    }
+    return rows;
+}
+
+function isButton(component: unknown): component is ButtonBuilder {
+    return (component as { data?: { type?: unknown } }).data?.type === ComponentType.Button;
+}
+
+/** Splits a flat button list into action rows; rows and containers pass through untouched. */
+export function toSendableComponents(components: DynaSendOptions["components"]): SendableComponent[] {
+    if (!components?.length) return [];
+    return components.every(isButton) ? chunkIntoRows(components) : (components as SendableComponent[]);
+}
+
 function isInteractionCallback(obj: unknown): obj is InteractionCallbackResponse {
     return obj instanceof InteractionCallbackResponse;
 }
@@ -136,71 +193,59 @@ function filterFlags(
     return remaining || undefined;
 }
 
-// Determines the appropriate send method based on the handler type and state
-function detectSendMethod(handler: SendHandler): SendMethod {
-    if (handler instanceof BaseInteraction) {
-        return handler.replied || handler.deferred ? SendMethod.EditReply : SendMethod.Reply;
+// Picks the transport: an explicit method if it fits the target, otherwise whatever the target implies.
+function resolveSendMethod(handler: SendHandler, method: SendMethod | undefined): ResolvedSendMethod {
+    const isInteraction = handler instanceof BaseInteraction;
+    if (method === "followUp") {
+        if (!isInteraction) throw new TypeError("[DynaSend] method 'followUp' requires an interaction");
+        return "followUp";
     }
-    if (handler instanceof BaseChannel) return SendMethod.Channel;
-    if (handler instanceof Message) return SendMethod.MessageReply;
-    if (handler instanceof GuildMember || handler instanceof User) return SendMethod.UserDM;
+    if (method === "edit") {
+        if (isInteraction) return "editReply";
+        if (handler instanceof Message) return "messageEdit";
+        throw new TypeError("[DynaSend] method 'edit' requires an interaction or a message");
+    }
+
+    if (isInteraction) return handler.replied || handler.deferred ? "editReply" : "reply";
+    if (handler instanceof BaseChannel) return "channel";
+    if (handler instanceof Message) return "messageReply";
+    if (handler instanceof GuildMember || handler instanceof User) return "userDM";
 
     throw new Error("[DynaSend] Unable to determine send method for handler type");
-}
-
-// Validates that the handler is compatible with the requested send method
-function validateSendMethod(handler: SendHandler, method: SendMethod): void {
-    const interactionMethods = [SendMethod.Reply, SendMethod.EditReply, SendMethod.FollowUp];
-
-    if (interactionMethods.includes(method) && !(handler instanceof BaseInteraction)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires BaseInteraction handler`);
-    }
-
-    if (method === SendMethod.Channel && !(handler instanceof BaseChannel)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires BaseChannel handler`);
-    }
-
-    if ([SendMethod.MessageReply, SendMethod.MessageEdit].includes(method) && !(handler instanceof Message)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires Message handler`);
-    }
-
-    if (method === SendMethod.UserDM && !(handler instanceof GuildMember || handler instanceof User)) {
-        throw new TypeError(`[DynaSend] SendMethod '${SendMethod[method]}' requires User or GuildMember handler`);
-    }
 }
 
 // Executes the actual send using the handler's appropriate method
 function executeSend(
     handler: SendHandler,
-    method: SendMethod,
-    data: Omit<DynaSendOptions, "sendMethod" | "deleteAfter">
+    method: ResolvedSendMethod,
+    data: Omit<DynaSendOptions, "method" | "deleteAfter">
 ): Promise<Message | null> {
     switch (method) {
         // Reply to an interaction (initial response)
-        case SendMethod.Reply: {
+        case "reply": {
             return (handler as RepliableInteraction)
                 .reply(data as InteractionReplyOptions)
                 .then(response => (isInteractionCallback(response) ? (response.resource?.message ?? null) : null));
         }
 
         // Edit an existing interaction reply
-        case SendMethod.EditReply:
+        case "editReply":
             return (handler as RepliableInteraction).editReply(data as InteractionEditReplyOptions);
 
         // Follow-up to an already-replied interaction
-        case SendMethod.FollowUp:
+        case "followUp":
             return (handler as RepliableInteraction).followUp(data as InteractionReplyOptions);
 
         // Send to a text-based channel
-        case SendMethod.Channel:
+        case "channel":
             return (handler as GuildTextBasedChannel).send(data as MessageCreateOptions);
 
         // Reply to an existing message
-        case SendMethod.MessageReply:
+        case "messageReply":
             return (handler as Message).reply(data as MessageReplyOptions);
 
         // Edit an existing message
-        case SendMethod.MessageEdit: {
+        case "messageEdit": {
             const message = handler as Message;
             if (!message.editable) {
                 throw new Error("[DynaSend] Message is not editable");
@@ -209,11 +254,8 @@ function executeSend(
         }
 
         // Send DM to a user or guild member
-        case SendMethod.UserDM:
+        case "userDM":
             return (handler as GuildMember | User).send(data as MessageCreateOptions);
-
-        default:
-            throw new Error(`[DynaSend] Unknown send method '${method}'`);
     }
 }
 
@@ -234,22 +276,45 @@ function scheduleDelete(message: Message, delay: number): void {
 }
 
 /**
- * Intelligently detects and sends a message to a variety of Discord targets using a unified API.
+ * Sends through an inferred Discord transport, returning null for fresh interaction replies without withResponse.
  * @param handler The Discord.js object to send the message through
  * @param options Message options (content, embeds, flags, etc.). At least one content-bearing field is required.
  */
+export function dynaSend(
+    handler: Message,
+    options: RequiredDynaSendOptions & {
+        /** Overrides inferred delivery with a follow-up or edit. @default inferred from target */
+        method: "edit";
+    }
+): Promise<Message>;
+/** Sends message content through an interaction, message, channel, member, or user. */
+export function dynaSend<T extends MessageSendHandler>(
+    handler: T,
+    options: RequiredDynaSendOptions
+): Promise<SentMessage<T>>;
+/** Sends message content through an interaction, message, channel, member, or user. */
+export function dynaSend<T extends SendHandler>(
+    handler: T,
+    options: RequiredDynaSendOptions & MessageReturningSendOptions
+): Promise<SentMessage<T>>;
+/** Sends message content through an interaction, message, channel, member, or user. */
+export function dynaSend<T extends SendHandler>(
+    handler: T,
+    options: RequiredDynaSendOptions
+): Promise<SentMessage<T> | null>;
+/** Sends message content through an interaction, message, channel, member, or user. */
 export async function dynaSend(handler: SendHandler, options: RequiredDynaSendOptions): Promise<Message | null> {
-    const sendMethod = options.sendMethod ?? detectSendMethod(handler);
+    const { method: requested, deleteAfter, ...data } = options;
+    const sendMethod = resolveSendMethod(handler, requested);
+    if (data.components) data.components = toSendableComponents(data.components);
 
-    if (options.sendMethod) validateSendMethod(handler, sendMethod);
-
-    const { sendMethod: _sendMethod, deleteAfter, ...data } = options;
-    if (sendMethod === SendMethod.EditReply || sendMethod === SendMethod.MessageEdit) {
+    if (sendMethod === "editReply" || sendMethod === "messageEdit") {
         data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL_AND_SUPPRESS);
-    } else if (sendMethod !== SendMethod.Reply && sendMethod !== SendMethod.FollowUp) {
+    } else if (sendMethod !== "reply" && sendMethod !== "followUp") {
         data.flags = filterFlags(data.flags, EXCLUDE_EPHEMERAL);
     }
     const message = await executeSend(handler, sendMethod, data);
+    if (options.withResponse && !message) throw new Error("[DynaSend] Discord did not return the sent message");
     if (deleteAfter && message) scheduleDelete(message, deleteAfter);
 
     return message;

@@ -27,10 +27,6 @@ export abstract class BaseCommandManager<
         this.indexes.set("tag", { key: m => m.metadata.tags, map: new Map(), isArray: true });
     }
 
-    protected override createModuleKey(module: T): string {
-        return module.id;
-    }
-
     override clear(): void {
         this.modules.clear();
         this.reindex();

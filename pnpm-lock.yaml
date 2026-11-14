@@ -75,6 +75,31 @@ importers:
         specifier: ^25.8.0
         version: 25.9.4
 
+  templates/basic:
+    dependencies:
+      '@vimcord/plugin-dotenv':
+        specifier: workspace:*
+        version: link:../../packages/plugins/dotenv
+      discord.js:
+        specifier: ^14.26.4
+        version: 14.26.4
+      vimcord:
+        specifier: workspace:*
+        version: link:../../packages/vimcord
+    devDependencies:
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.9.4
+      prettier:
+        specifier: ^3.8.3
+        version: 3.9.4
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
 packages:
 
   '@babel/code-frame@7.29.7':
@@ -2842,7 +2867,6 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.1
       '@esbuild/win32-ia32': 0.28.1
       '@esbuild/win32-x64': 0.28.1
-    optional: true
 
   esprima@4.0.1: {}
 
@@ -3487,7 +3511,6 @@ snapshots:
       esbuild: 0.28.1
     optionalDependencies:
       fsevents: 2.3.3
-    optional: true
 
   typescript@6.0.3: {}
 

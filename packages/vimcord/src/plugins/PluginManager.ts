@@ -10,8 +10,23 @@ export class PluginManager {
     private readonly installedNames = new Set<string>();
     private readonly healthProbes = new Map<string, Map<string, HealthProbe>>();
 
-    constructor(private client: Vimcord) {}
+    constructor(
+        private client: Vimcord,
+        plugins: readonly VimcordPlugin[] = []
+    ) {
+        for (const plugin of plugins) {
+            if (this.plugins.has(plugin.name)) throw new PluginError(`Plugin '${plugin.name}' is already registered`);
+            this.plugins.set(plugin.name, plugin);
+        }
 
+        // Surface missing dependencies and cycles when the client is created, not at login.
+        this.resolveLoadOrder();
+    }
+
+    /**
+     * Installs every plugin in dependency order.
+     * @internal `login()` calls this.
+     */
     async load(): Promise<void> {
         let installedCount = 0;
         for (const plugin of this.resolveLoadOrder()) {
@@ -45,39 +60,32 @@ export class PluginManager {
         }
     }
 
-    /** Uninstalls every installed plugin in reverse dependency order and clears the registry. */
+    /**
+     * Runs each plugin's `onPluginsInstalled` step in dependency order.
+     * @internal `login()` calls this after `load()`.
+     */
+    async runInstalledStep(): Promise<void> {
+        for (const plugin of this.resolveLoadOrder()) {
+            await plugin.onPluginsInstalled?.(this.createPluginContext(plugin.name));
+        }
+    }
+
+    /** Uninstalls every installed plugin in reverse dependency order. They stay registered, so a failed login can retry. */
     async unload(): Promise<void> {
         const errors: unknown[] = [];
         for (const plugin of this.resolveLoadOrder().reverse()) {
-            if (this.installedNames.has(plugin.name)) {
-                try {
-                    await plugin.uninstall?.();
-                } catch (error) {
-                    errors.push(error);
-                } finally {
-                    this.installedNames.delete(plugin.name);
-                    this.healthProbes.delete(plugin.name);
-                }
+            if (!this.installedNames.has(plugin.name)) continue;
+            try {
+                await plugin.uninstall?.();
+            } catch (error) {
+                errors.push(error);
+            } finally {
+                this.installedNames.delete(plugin.name);
+                this.healthProbes.delete(plugin.name);
             }
-            this.plugins.delete(plugin.name);
         }
 
         if (errors.length) throw new AggregateError(errors, "Failed to unload one or more plugins");
-    }
-
-    use(plugin: VimcordPlugin): void {
-        if (this.plugins.has(plugin.name)) throw new PluginError(`Plugin '${plugin.name}' is already registered`);
-
-        // Check deps
-        if (plugin.dependencies) {
-            for (const dep of plugin.dependencies) {
-                if (!this.plugins.has(dep)) {
-                    throw new PluginError(`Plugin '${plugin.name}' depends on '${dep}', but it is not registered`);
-                }
-            }
-        }
-
-        this.plugins.set(plugin.name, plugin);
     }
 
     get<T extends VimcordPlugin>(name: string): T | undefined;

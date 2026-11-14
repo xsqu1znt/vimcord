@@ -1,22 +1,25 @@
-<div align="center">
+# @vimcord/plugin-dotenv
 
-```
-██╗   ██╗██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██████╗
-██║   ██║██║████╗ ████║██╔════╝██╔═══██╗██╔══██╗██╔══██╗
-██║   ██║██║██╔████╔██║██║     ██║   ██║██████╔╝██║  ██║
-╚██╗ ██╔╝██║██║╚██╔╝██║██║     ██║   ██║██╔══██╗██║  ██║
- ╚████╔╝ ██║██║ ╚═╝ ██║╚██████╗╚██████╔╝██║  ██║██████╔╝
-  ╚═══╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝
+Loads env files through Vimcord's plugin lifecycle before the bot token and later plugins read environment variables.
+
+```sh
+pnpm add @vimcord/plugin-dotenv vimcord discord.js
 ```
 
-**vhem-cord** — the Discord.js framework that actually respects your time
+```ts
+import { GatewayIntentBits } from "discord.js";
+import { Vimcord } from "vimcord";
+import { DotEnvPlugin } from "@vimcord/plugin-dotenv";
 
-[![npm version](https://img.shields.io/npm/v/vimcord?color=%235865F2&label=vimcord&logo=npm&style=flat-square)](https://www.npmjs.com/package/vimcord)
-[![npm downloads](https://img.shields.io/npm/dm/vimcord?color=%2357F287&label=downloads&style=flat-square)](https://www.npmjs.com/package/vimcord)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/npm/l/vimcord?color=%23FEE75C&label=license&style=flat-square)](LICENSE)
-[![Discord.js](https://img.shields.io/badge/discord.js-14.x-%235865F2?style=flat-square&logo=discord)](https://discord.js.org/)
+const client = new Vimcord({
+    intents: [GatewayIntentBits.Guilds],
+    plugins: [new DotEnvPlugin()]
+});
+await client.login();
+```
 
-[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [API](#api-reference) · [Examples](#examples)
+The constructor accepts dotenv's `DotenvConfigOptions`, including `path` and `override`. Loading uses `quiet: true` unless you override it. Put this plugin before plugins that read environment variables, or declare `dependencies = ["dotenv"]` on your own plugin.
 
-</div>
+Vimcord reads `TOKEN`, or `TOKEN_DEV` in dev mode. The Mongoose plugin similarly reads `MONGO_URI` or `MONGO_URI_DEV`. This plugin loads variables; it does not validate them or choose the client's dev mode. Set devMode in client options or pass `--dev` to the process.
+
+[Vimcord plugin lifecycle](https://github.com/xsqu1znt/vimcord/blob/main/packages/vimcord/docs/plugins.md).

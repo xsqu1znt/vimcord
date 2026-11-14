@@ -1,8 +1,8 @@
 import type { ColorResolvable } from "discord.js";
 import type { PartialDeep } from "../types/helpers.js";
+import type { ResolveAction } from "./shared.js";
 
 import { ButtonBuilder, ButtonStyle } from "discord.js";
-import { ResolveAction } from "./shared.js";
 
 /** A Discord custom emoji descriptor. */
 export interface UxCustomEmojiConfig {
@@ -10,14 +10,14 @@ export interface UxCustomEmojiConfig {
     name: string;
     /** Discord emoji ID. */
     id?: string;
-    /** Whether the custom emoji is animated. */
+    /** Whether the custom emoji is animated. @default false */
     animated?: boolean;
 }
 
 /** A Unicode emoji or Discord custom emoji descriptor. */
 export type UxEmojiConfig = string | UxCustomEmojiConfig;
 /** Configurable paginator navigation button IDs. */
-export type UxPaginatorButtonId = "first" | "skipBack" | "back" | "jump" | "next" | "skipNext" | "last";
+export type UxPaginatorButtonId = "first" | "back" | "jump" | "next" | "last";
 
 /** Global appearance for one paginator button. */
 export interface UxPaginatorButtonConfig {
@@ -29,71 +29,92 @@ export interface UxPaginatorButtonConfig {
 
 /** Global content and timing for the paginator page-jump modal. */
 export interface UxPaginatorJumpModalConfig {
-    /** Modal title. */
+    /** Page-jump modal title. @default "Jump to Page" */
     title: string;
-    /** Page input label. */
+    /** Page input label. @default "Page number" */
     label: string;
-    /** Page input description. Supports `$CURRENT_PAGE` and `$MAX_PAGE`. */
+    /** Input description supporting $CURRENT_PAGE and $MAX_PAGE. @default "Enter a page number between 1 and $MAX_PAGE." */
     description: string;
-    /** Page input placeholder. */
+    /** Page input placeholder. @default "Page number" */
     placeholder: string;
-    /** Time in milliseconds to wait for a page submission. */
+    /** Milliseconds to wait for a page submission. @default 60_000 */
     timeout: number;
-    /** Ephemeral response shown when the submitted page is invalid. Supports `$MAX_PAGE`. */
+    /** Ephemeral rejection supporting $MAX_PAGE. @default "Enter a page number between 1 and $MAX_PAGE." */
     invalidPageMessage: string;
 }
 
 /** Global defaults shared by Vimcord UX helpers. */
 export interface UxConfig {
-    /** Selects development-mode embed colors. */
+    /** Selects development-mode embed colors. @default false */
     devMode: boolean;
-    /** Default production embed color or random color pool. */
+    /** Production embed color or random color pool. @default null */
     embedColor: ColorResolvable | ColorResolvable[] | null;
-    /** Default development embed color or random color pool. */
+    /** Development embed color or pool; null uses the production color. @default null */
     embedColorDev: ColorResolvable | ColorResolvable[] | null;
+    /** Idle time in milliseconds when a collector, prompt, or paginator supplies no timing. @default 60_000 */
+    defaultIdle: number;
     /** Collector behavior and access messages. */
     collector: {
-        /** Ephemeral message shown while a user's prior action is running. */
-        userLockMessage: string;
-        /** Message shown to users who are not collector participants. */
+        /** Rejection while a prior click is still running. @default "Please wait, your previous action is still processing." */
+        clickLockMessage: string;
+        /** Rejection for non-participants; null acknowledges silently. @default "You are not allowed to use this." */
         notAParticipantMessage: string | null;
     };
     /** Paginator navigation, timeout, and message defaults. */
     paginator: {
-        /** Default number of pages moved by skip controls. */
-        skipSize: number;
-        /** Default timeout resolution action. */
+        /** Cleanup when a paginator ends. @default "disable" */
         onResolve: ResolveAction;
-        /** Message shown to users who are not paginator participants. */
+        /** Rejection for non-participants; null acknowledges silently. @default "You are not allowed to use this." */
         notAParticipantMessage: string | null;
         /** Page-jump modal defaults. */
         jumpModal: UxPaginatorJumpModalConfig;
         /** Optional paginator status responses. `null` acknowledges silently. */
         messages: {
+            /** Response when loading a destination fails; null acknowledges silently. @default null */
             loadFailed: string | null;
+            /** Response when a jump modal outlives the paginator; null acknowledges silently. @default null */
             expired: string | null;
+            /** Response when the chapter changes while a jump modal is open; null acknowledges silently. @default null */
             chapterChanged: string | null;
         };
         /** Appearance defaults keyed by paginator button ID. */
         buttons: Record<UxPaginatorButtonId, UxPaginatorButtonConfig>;
     };
+    /** Default command replies, sent when no `onBlocked` or `onError` hook takes the invocation. `null` stays silent. */
+    command: {
+        /** Reply when the user has no access grant. @default "You don't have permission to use this command." */
+        noAccess: string | null;
+        /** Reply when the bot lacks `botPermissions`. @default "I'm missing permissions needed to run this command." */
+        botMissingPermissions: string | null;
+        /** Reply when a guild is required outside one. @default "This command can only be used in a server." */
+        notInGuild: string | null;
+        /** Reply for an unmatched subcommand, supporting $PATH. @default "Subcommand '$PATH' was not found." */
+        unknownSubcommand: string | null;
+        /** Reply when the module's `environment` excludes the client's mode. @default null */
+        environment: string | null;
+        /** Reply when `singleInvocation` skips an overlapping run. @default null */
+        running: string | null;
+        /** Reply when the handler or a gate throws. Errors are still logged. @default "Something went wrong while running this command." */
+        error: string | null;
+    };
+    /** Modal defaults. */
+    modal: {
+        /** Milliseconds to wait for a modal submission. @default 60_000 */
+        timeout: number;
+    };
     /** Confirmation prompt content and button defaults. */
     prompt: {
-        /** Default prompt title. */
+        /** Title for the default confirmation embed. @default "Confirmation Required" */
         defaultTitle: string;
-        /** Default prompt description. */
+        /** Body for the default confirmation embed. @default "Please confirm or reject this action." */
         defaultDescription: string;
-        /** Default modal input label. */
-        inputLabel: string;
-        /** Default modal input placeholder. */
-        inputPlaceholder: string;
-        /** Whether the selected prompt button is visually highlighted. */
+        /** Highlights the chosen prompt button during disable cleanup. @default false */
         highlightSelectedButton: boolean;
         /** Default confirm and reject buttons. */
         buttons: {
-            /** Default confirmation button. */
+            /** Default confirm button. @default green button labeled "Confirm" */
             confirm: ButtonBuilder;
-            /** Default rejection button. */
+            /** Default reject button. @default red button labeled "Reject" */
             reject: ButtonBuilder;
         };
     };
@@ -123,13 +144,13 @@ function createDefaultUxConfig(): UxConfig {
         devMode: false,
         embedColor: null,
         embedColorDev: null,
+        defaultIdle: 60_000,
         collector: {
-            userLockMessage: "Please wait, your previous action is still processing.",
+            clickLockMessage: "Please wait, your previous action is still processing.",
             notAParticipantMessage: "You are not allowed to use this."
         },
         paginator: {
-            skipSize: 5,
-            onResolve: ResolveAction.ClearComponents,
+            onResolve: "disable",
             notAParticipantMessage: "You are not allowed to use this.",
             jumpModal: {
                 title: "Jump to Page",
@@ -146,19 +167,27 @@ function createDefaultUxConfig(): UxConfig {
             },
             buttons: {
                 first: { label: "<<" },
-                skipBack: { label: "Skip Back" },
                 back: { label: "<" },
                 jump: { label: "Jump" },
                 next: { label: ">" },
-                skipNext: { label: "Skip Forward" },
                 last: { label: ">>" }
             }
+        },
+        command: {
+            noAccess: "You don't have permission to use this command.",
+            botMissingPermissions: "I'm missing permissions needed to run this command.",
+            notInGuild: "This command can only be used in a server.",
+            unknownSubcommand: "Subcommand '$PATH' was not found.",
+            environment: null,
+            running: null,
+            error: "Something went wrong while running this command."
+        },
+        modal: {
+            timeout: 60_000
         },
         prompt: {
             defaultTitle: "Confirmation Required",
             defaultDescription: "Please confirm or reject this action.",
-            inputLabel: "Your answer",
-            inputPlaceholder: "Enter yes or no",
             highlightSelectedButton: false,
             buttons: {
                 confirm: new ButtonBuilder({ label: "Confirm", style: ButtonStyle.Success }),
@@ -168,23 +197,17 @@ function createDefaultUxConfig(): UxConfig {
     };
 }
 
-/** Mutable global UX defaults used by Vimcord helpers. */
-export const globalUxConfig = createDefaultUxConfig();
+/** The live UX defaults every helper reads. Owned by the client: its `ux` option fills it and `destroy()` resets it. */
+export const uxConfig = createDefaultUxConfig();
 
-/**
- * Updates the global UX configuration.
- * @param config Partial config to merge into the current global config
- */
-export function defineGlobalUxConfig(config: PartialDeep<UxConfig>): UxConfig {
-    mergeConfig(globalUxConfig as unknown as Record<string, unknown>, config as Record<string, unknown>);
-    return globalUxConfig;
+/** Deep-merges the client's `ux` option into the live config; arrays and builders are replaced whole. */
+export function applyUxConfig(config: PartialDeep<UxConfig>): void {
+    mergeConfig(uxConfig as unknown as Record<string, unknown>, config as Record<string, unknown>);
 }
 
-/**
- * Returns the current global UX configuration.
- */
-export function getGlobalUxConfig(): UxConfig {
-    return globalUxConfig;
+/** Restores the defaults in place, so a destroyed client's `ux` option doesn't carry into the next client. */
+export function resetUxConfig(): void {
+    Object.assign(uxConfig, createDefaultUxConfig());
 }
 
 /** Resolves a fixed UX color or randomly selects one from a color pool. */
@@ -195,7 +218,6 @@ export function resolveUxColor(color: ColorResolvable | ColorResolvable[] | null
 }
 
 /** Resolves the embed color for the configured UX environment. */
-export function resolveGlobalEmbedColor(): ColorResolvable | null {
-    const config = getGlobalUxConfig();
-    return resolveUxColor(config.devMode ? (config.embedColorDev ?? config.embedColor) : config.embedColor);
+export function resolveEmbedColor(): ColorResolvable | null {
+    return resolveUxColor(uxConfig.devMode ? (uxConfig.embedColorDev ?? uxConfig.embedColor) : uxConfig.embedColor);
 }

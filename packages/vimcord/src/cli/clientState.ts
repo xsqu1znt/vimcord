@@ -2,7 +2,6 @@ import type { Vimcord } from "@/client/Vimcord.js";
 
 interface CLIClientController {
     hasClient(client: Vimcord): boolean;
-    syncClient(client: Vimcord): void;
 }
 
 let activeController: CLIClientController | undefined;
@@ -16,11 +15,6 @@ export function activateCLIController(controller: CLIClientController): void {
 /** Releases the controller when its CLI runtime stops. */
 export function deactivateCLIController(controller: CLIClientController): void {
     if (activeController === controller) activeController = undefined;
-}
-
-/** Re-evaluates a client's opt-in state after creation or configuration changes. */
-export function syncCLIClient(client: Vimcord): void {
-    activeController?.syncClient(client);
 }
 
 /** Returns whether a client is currently attached to the running CLI. */
